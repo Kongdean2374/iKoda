@@ -226,9 +226,10 @@ final class AppSettings {
         let savedAutomatic = d.object(forKey: "koda.lyrics.automatic.enabled") as? Bool
         automaticLyricsTranslation = savedAutomatic ?? true
         importedLyricsEnabled = d.bool(forKey: "koda.lyrics.imported.enabled")
-        lyricsDisplayMode = d.string(forKey: "koda.lyrics.imported.mode").flatMap(LyricsDisplayMode.init(rawValue:)) ?? .original
-        if savedAutomatic == nil, previousNativeTranslation, lyricsDisplayMode == .original { lyricsDisplayMode = .bilingual }
-        if lyricsDisplayMode == .translation { lyricsDisplayMode = .bilingual }
+        var restoredLyricsMode = d.string(forKey: "koda.lyrics.imported.mode").flatMap(LyricsDisplayMode.init(rawValue:)) ?? .original
+        if savedAutomatic == nil, previousNativeTranslation, restoredLyricsMode == .original { restoredLyricsMode = .bilingual }
+        if restoredLyricsMode == .translation { restoredLyricsMode = .bilingual }
+        lyricsDisplayMode = restoredLyricsMode
         translationFontSize = min(32, max(12, d.object(forKey: "koda.lyrics.imported.fontSize") as? Double ?? 18))
         translationOpacity = min(1, max(0.3, d.object(forKey: "koda.lyrics.imported.opacity") as? Double ?? 0.75))
         translationSpacing = min(20, max(2, d.object(forKey: "koda.lyrics.imported.spacing") as? Double ?? 6))
