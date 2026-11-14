@@ -38,7 +38,7 @@ struct SmartShuffleSettingsView: View {
                     Text("High").tag(SmartShuffleSettings.Strength.high)
                 }
             }
-            Section("Liked Songs") {
+            Section {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Liked Song Weight")
@@ -50,6 +50,8 @@ struct SmartShuffleSettingsView: View {
                         Text("Liked Song Weight")
                     }
                 }
+            } header: {
+                Text("Liked Songs")
             } footer: {
                 Text("A higher weight makes liked songs more likely to play earlier. Small queues relax repeat avoidance when necessary.")
             }

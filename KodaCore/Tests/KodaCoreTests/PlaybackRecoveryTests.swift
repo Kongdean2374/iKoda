@@ -16,11 +16,13 @@ struct PlaybackRecoveryTests {
             #expect(ticket.delay == delay)
             #expect(ticket.position == 42)
             #expect(ticket.occurrenceID == id)
-            #expect(policy.consume(ticket))
+            let consumed = policy.consume(ticket)
+            #expect(consumed)
             // Even brief successful playback cannot create an unbounded retry loop.
             policy.markRecovered()
         }
-        #expect(policy.request(for: id, at: 42, error: URLError(.timedOut), wantsToPlay: true, network: online) == .stop(.timeout))
+        let exhausted = policy.request(for: id, at: 42, error: URLError(.timedOut), wantsToPlay: true, network: online)
+        #expect(exhausted == .stop(.timeout))
         #expect(policy.attempts == 3)
         policy.restart(for: id)
         #expect(policy.attempts == 0)
@@ -33,17 +35,20 @@ struct PlaybackRecoveryTests {
     @Test func offlineWaitUsesNoTimersAndReconnectsSameOccurrenceAtSamePosition() {
         let id = UUID()
         var policy = PlaybackRecovery()
-        #expect(policy.request(for: id, at: 91, error: MusicError.network, wantsToPlay: true, network: offline) == .waitForNetwork)
+        let waiting = policy.request(for: id, at: 91, error: MusicError.network, wantsToPlay: true, network: offline)
+        #expect(waiting == .waitForNetwork)
         #expect(policy.attempts == 0)
         #expect(policy.pending == nil)
-        #expect(policy.request(for: id, at: 91, error: MusicError.network, wantsToPlay: true, network: offline) == .ignore)
+        let repeatedFailure = policy.request(for: id, at: 91, error: MusicError.network, wantsToPlay: true, network: offline)
+        #expect(repeatedFailure == .ignore)
         guard case .retry(let ticket) = policy.networkRestored(for: id, at: 91, wantsToPlay: true) else {
             Issue.record("Expected recovery after network restoration"); return
         }
         #expect(ticket.occurrenceID == id)
         #expect(ticket.position == 91)
         #expect(ticket.attempt == 1)
-        #expect(policy.networkRestored(for: id, at: 91, wantsToPlay: true) == .ignore)
+        let repeatedRestoration = policy.networkRestored(for: id, at: 91, wantsToPlay: true)
+        #expect(repeatedRestoration == .ignore)
     }
 
     @Test func pauseAndQueueChangeInvalidateDelayedWork() {
@@ -52,10 +57,13 @@ struct PlaybackRecoveryTests {
         guard case .retry(let stale) = policy.request(for: first, at: 12, error: nil, wantsToPlay: true, network: online) else {
             Issue.record("Expected a ticket"); return
         }
-        #expect(policy.request(for: first, at: 12, error: nil, wantsToPlay: true, network: online) == .ignore)
+        let duplicate = policy.request(for: first, at: 12, error: nil, wantsToPlay: true, network: online)
+        #expect(duplicate == .ignore)
         policy.cancel()
-        #expect(!policy.consume(stale))
-        #expect(policy.request(for: first, at: 12, error: nil, wantsToPlay: false, network: online) == .ignore)
+        let consumed = policy.consume(stale)
+        #expect(!consumed)
+        let whilePaused = policy.request(for: first, at: 12, error: nil, wantsToPlay: false, network: online)
+        #expect(whilePaused == .ignore)
         policy.begin(for: second)
         #expect(!policy.isCurrent(stale))
         #expect(policy.attempts == 0)
@@ -71,7 +79,8 @@ struct PlaybackRecoveryTests {
         ]
         for (error, expected) in failures {
             var policy = PlaybackRecovery()
-            #expect(policy.request(for: UUID(), at: 0, error: error, wantsToPlay: true, network: online) == .stop(expected))
+            let decision = policy.request(for: UUID(), at: 0, error: error, wantsToPlay: true, network: online)
+            #expect(decision == .stop(expected))
             #expect(policy.attempts == 0)
         }
         #expect(PlaybackFailureReason.classify(URLError(.cancelled)) == .cancelled)
@@ -92,15 +101,20 @@ struct PlaybackRecoveryTests {
     @Test func systemInterruptionRespectsBothUserAndSystemIntent() {
         var state = PlaybackInterruptionState()
         state.began(wantsToPlay: true)
-        #expect(state.ended(shouldResume: true))
-        #expect(!state.ended(shouldResume: true), "duplicate end cannot resume twice")
+        let resume = state.ended(shouldResume: true)
+        #expect(resume)
+        let duplicateEnd = state.ended(shouldResume: true)
+        #expect(!duplicateEnd, "duplicate end cannot resume twice")
         state.began(wantsToPlay: true)
         state.userPaused()
-        #expect(!state.ended(shouldResume: true))
+        let afterUserPause = state.ended(shouldResume: true)
+        #expect(!afterUserPause)
         state.began(wantsToPlay: true)
-        #expect(!state.ended(shouldResume: false))
+        let systemDeclined = state.ended(shouldResume: false)
+        #expect(!systemDeclined)
         state.began(wantsToPlay: false)
-        #expect(!state.ended(shouldResume: true))
+        let originallyPaused = state.ended(shouldResume: true)
+        #expect(!originallyPaused)
     }
 }
 
@@ -142,7 +156,7 @@ struct PlaybackDiagnosticTests {
         let store = PlaybackDiagnosticStore(capacity: 3)
         let secret = "Authorization: Bearer private-token; https://example.invalid/?cookie=private"
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
-                            userInfo: [NSLocalizedDescriptionKey: secret, NSURLErrorFailingURLStringErrorKey: secret])
+                            userInfo: [NSLocalizedDescriptionKey: secret, NSURLErrorFailingURLErrorKey: URL(string: "https://example.invalid/?cookie=private")!])
         for _ in 0..<8 { store.record(.playbackFailed, reason: .classify(error), attempt: 1) }
         #expect(store.events.count == 3)
         let encoded = String(decoding: try JSONEncoder().encode(store.events), as: UTF8.self)
