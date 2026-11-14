@@ -74,3 +74,21 @@
 "YouTube is refusing playback right now. Try again in a little while." = "YouTube is refusing playback right now. Try again in a little while.";
 "Your Last.fm sign-in can't be read while the device is locked. Plays wait and send after you unlock it." = "Your Last.fm sign-in can't be read while the device is locked. Plays wait and send after you unlock it.";
 "New Playlist" = "New Playlist";
+
+/* Koda 0.4 enhancements. */
+"Chinese Translation" = "Chinese Translation";
+"Choose a Traditional Chinese translation file (zh-Hant or zh-TW)." = "Choose a Traditional Chinese translation file (zh-Hant or zh-TW).";
+"Original Lyrics" = "Original Lyrics";
+"Original and Chinese" = "Original and Chinese";
+"Playback failed. Automatic recovery is unavailable for this error." = "Playback failed. Automatic recovery is unavailable for this error.";
+"Playback was cancelled." = "Playback was cancelled.";
+"Sign in again to continue playback." = "Sign in again to continue playback.";
+"The audio service is temporarily unavailable." = "The audio service is temporarily unavailable.";
+"The audio stream timed out." = "The audio stream timed out.";
+"The network connection was interrupted." = "The network connection was interrupted.";
+"The service is limiting requests. Try again later." = "The service is limiting requests. Try again later.";
+"The service refused access. Automatic retries have stopped." = "The service refused access. Automatic retries have stopped.";
+"This audio is unavailable or cannot be decoded." = "This audio is unavailable or cannot be decoded.";
+"This translation file is too large. Use a file under 1 MB with at most 5,000 lines." = "This translation file is too large. Use a file under 1 MB with at most 5,000 lines.";
+"This translation file uses an unsupported version." = "This translation file uses an unsupported version.";
+"Use a UTF-8 translation LRC or a valid translation JSON file." = "Use a UTF-8 translation LRC or a valid translation JSON file.";

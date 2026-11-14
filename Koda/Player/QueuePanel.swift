@@ -9,6 +9,7 @@ struct QueuePanel: View {
     /// What the last Clear or Remove took out, offered back for a few seconds.
     @State private var undo: Undo?
     @State private var removals = 0
+    @State private var showsSmartShuffleSettings = false
 
     private enum Undo: Equatable {
         case cleared([Song])
@@ -33,6 +34,14 @@ struct QueuePanel: View {
                     .font(.headline)
                     .foregroundStyle(Color.primary)
                 Spacer()
+                Button {
+                    showsSmartShuffleSettings = true
+                } label: {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(player.isSmartShuffled ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Smart Shuffle Settings")
                 if let undo {
                     Button(undo.label) { perform(undo) }
                         .font(.subheadline.weight(.semibold))
@@ -83,6 +92,16 @@ struct QueuePanel: View {
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.04),
                                          .init(color: .black, location: 0.94), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
+        }
+        .sheet(isPresented: $showsSmartShuffleSettings) {
+            NavigationStack {
+                SmartShuffleSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsSmartShuffleSettings = false }
+                        }
+                    }
+            }
         }
         .task(id: undo) {
             guard undo != nil else { return }
@@ -150,6 +169,14 @@ struct QueuePanel: View {
             toggle("Shuffle", systemImage: "shuffle", isOn: player.isShuffled) {
                 player.setShuffle(!player.isShuffled)
             }
+            .contextMenu {
+                Button("Ordinary Shuffle", systemImage: "shuffle") { player.setShuffle(true) }
+                Button(player.isSmartShuffled ? String(localized: "Turn Off Smart Shuffle") : String(localized: "Smart Shuffle"),
+                       systemImage: "sparkles") { player.setSmartShuffle(!player.isSmartShuffled) }
+                Button("Smart Shuffle Settings", systemImage: "slider.horizontal.3") { showsSmartShuffleSettings = true }
+            }
+            .accessibilityAction(named: "Smart Shuffle") { player.setSmartShuffle(!player.isSmartShuffled) }
+            .accessibilityAction(named: "Smart Shuffle Settings") { showsSmartShuffleSettings = true }
             toggle(player.repeatMode == .one ? "Repeat One" : "Repeat",
                    systemImage: player.repeatMode == .one ? "repeat.1" : "repeat",
                    isOn: player.repeatMode != .off) {

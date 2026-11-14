@@ -140,6 +140,15 @@ final class AppModel {
             if settings.savesListeningHistory { library.addListening(seconds, to: song) }
         }
         player.isUnwanted = { [library] song in library.isHidden(song) }
+        player.savesSmartShuffleHistory = settings.savesListeningHistory
+        player.smartShuffleContext = { [library, settings] in
+            SmartShuffleContext(
+                recentSongIDs: settings.savesListeningHistory ? library.history.prefix(50).reversed().map { $0.song.id } : [],
+                playCounts: settings.savesListeningHistory ? library.songStats.mapValues(\.plays) : [:],
+                skipCounts: [:],
+                likedSongIDs: Set(library.liked.map(\.id))
+            )
+        }
         let lastFM = LastFM(directory: directory)
         self.lastFM = lastFM
         player.onItemStarted = { [lastFM, player] item in
@@ -194,6 +203,7 @@ final class AppModel {
     func switchProfile(to id: UUID) {
         guard id != roster.activeID, let profile = roster.profile(id) else { return }
         let leaving = roster.active
+        player.clearSmartShuffleHistory()
         forgetVideoState()
         library.open(directory: roster.folder(for: id))
         home = HomeModel(profile: id)
@@ -211,6 +221,7 @@ final class AppModel {
             next = roster.profile(nextID)
         }
         guard deleted else { return }
+        if next != nil { player.clearSmartShuffleHistory() }
         forgetVideoState()
         Snapshot.remove("home-\(id.uuidString)")
         forgetAccount(of: id)

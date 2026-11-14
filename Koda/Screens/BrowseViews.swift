@@ -143,7 +143,10 @@ struct SavedSongsView: View {
                     .fixedSize()
                 }
                 if source == .recent, !songs.isEmpty {
-                    Button(String(localized: "Clear History"), role: .destructive) { library.clearHistory() }
+                    Button(String(localized: "Clear History"), role: .destructive) {
+                        library.clearHistory()
+                        player.clearSmartShuffleHistory()
+                    }
                         .buttonStyle(.glass)
                         .controlSize(.large)
                 }
@@ -241,7 +244,10 @@ struct SavedSongsView: View {
         }
         .toolbar {
             if source == .recent, !songs.isEmpty {
-                Button(String(localized: "Clear"), role: .destructive) { library.clearHistory() }
+                Button(String(localized: "Clear"), role: .destructive) {
+                        library.clearHistory()
+                        player.clearSmartShuffleHistory()
+                    }
             }
             if source == .liked, !songs.isEmpty {
                 DownloadButton(songs: songs)

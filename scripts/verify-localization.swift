@@ -14,6 +14,9 @@ require(app.localizations.contains("zh-Hant"), "App lacks zh-Hant")
 require(app.developmentLocalization == "en", "English must remain the development language")
 require(app.preferredLocalizations.first == "zh-Hant", "zh-Hant-TW did not resolve to zh-Hant: \(app.preferredLocalizations)")
 require(app.localizedString(forKey: "Home", value: nil, table: nil) == "首頁", "Home did not load in Traditional Chinese")
+for (key, translated) in [("Sound Center", "音效中心"), ("Smart Shuffle", "智慧隨機播放"), ("Audio Information", "音訊資訊")] {
+    require(app.localizedString(forKey: key, value: nil, table: nil) == translated, "Packaged feature translation missing: \(key)")
+}
 let permissions = app.localizedString(forKey: "NSMicrophoneUsageDescription", value: nil, table: "InfoPlist")
 require(permissions.contains("語音搜尋"), "Localized permission text is missing")
 guard let widget = Bundle(path: path + "/PlugIns/KodaWidgets.appex") else { fatalError("Missing widget extension") }
@@ -26,6 +29,7 @@ for case let relative as String in enumerator where relative.hasSuffix("KodaCore
     require(core.localizations.contains("zh-Hant"), "Core lacks zh-Hant")
     require(core.preferredLocalizations.first == "zh-Hant", "Core locale fallback failed")
     require(core.localizedString(forKey: "Bass Booster", value: nil, table: nil) == "低音增強", "Core translation missing")
+    require(core.localizedString(forKey: "Original and Chinese", value: nil, table: nil) == "原文＋中文雙語", "Core lyrics mode translation missing")
     coreFound = true
 }
 require(coreFound, "Packaged KodaCore resource bundle missing")

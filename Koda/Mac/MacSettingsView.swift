@@ -700,7 +700,9 @@ private struct MacPrivacyPane: View {
                             titleVisibility: .visible, presenting: confirm) { item in
             Button(item == .stats ? String(localized: "Reset Stats") : String(localized: "Clear"), role: .destructive) {
                 switch item {
-                case .history: library.clearHistory()
+                case .history:
+                    library.clearHistory()
+                    app.player.clearSmartShuffleHistory()
                 case .searches: library.clearSearches()
                 case .stats: library.clearStats()
                 }

@@ -45,7 +45,7 @@ SDK; localization tests additionally inspect actual package resources, fallback,
 formatting and stable stored identifiers.
 
 The existing `.github/workflows/build.yml` keeps the Xcode 27 Release build and unsigned
-`Payload/Koda.app` IPA packaging. After packaging it extracts `Koda.ipa` and runs:
+`Payload/Koda.app` IPA packaging. After packaging it verifies the versioned IPA and runs:
 
 ```sh
 bash scripts/verify-localization.sh localization-check/Payload/Koda.app
@@ -56,6 +56,6 @@ The script compiles a bilingual macOS probe app and launches it with `-AppleLang
 selection. It checks compiled app/widget/Core resources, Foundation locale selection, actual
 translated strings and permission strings. It does not substitute for launching the app
 on an iPhone. The IPA artifact is uploaded only after these checks succeed, as
-`Koda-<commit SHA>` containing `Koda.ipa`, suitable for signing with AltStore/Sideloadly.
+`Koda-<version>-build<number>` containing `Koda-<version>-build<number>.ipa`, suitable for signing with AltStore/Sideloadly.
 Build logs are uploaded separately, including failed builds. See the PR and Actions run
 for actual outcomes; source checks alone do not establish build or device-test success.

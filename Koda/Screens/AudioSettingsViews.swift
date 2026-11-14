@@ -27,11 +27,13 @@ struct EqualizerSettingsView: View {
                 ForEach(EqualizerPreset.allCases) { preset in
                     Button {
                         player.equalizer = preset
+                        player.soundSettings.customEnabled = false
+                        player.soundSettings.enabled = true
                     } label: {
                         HStack {
                             Text(preset.title).foregroundStyle(.primary)
                             Spacer()
-                            if player.equalizer == preset {
+                            if player.equalizer == preset && !player.soundSettings.customEnabled {
                                 Image(systemName: "checkmark")
                                     .fontWeight(.semibold)
                                     .foregroundStyle(Color.accentColor)
@@ -39,7 +41,7 @@ struct EqualizerSettingsView: View {
                         }
                         .contentShape(.rect)
                     }
-                    .accessibilityAddTraits(player.equalizer == preset ? .isSelected : [])
+                    .accessibilityAddTraits(player.equalizer == preset && !player.soundSettings.customEnabled ? .isSelected : [])
                 }
             } footer: {
                 Text("The equalizer shapes every song you play, from the next moment of the one playing. Songs that are boosted are played a little quieter, so loud ones never distort.")

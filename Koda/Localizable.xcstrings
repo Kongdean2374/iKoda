@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ Hz": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Hz"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Hz"
+          }
+        }
+      }
+    },
     "%@ Station": {
       "extractionState": "manual",
       "localizations": {
@@ -52,6 +69,23 @@
         }
       }
     },
+    "%@ band": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ band"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 頻段"
+          }
+        }
+      }
+    },
     "%@ by %@": {
       "extractionState": "manual",
       "localizations": {
@@ -86,6 +120,23 @@
         }
       }
     },
+    "%@ dB": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dB"
+          }
+        }
+      }
+    },
     "%@ is already in your liked songs.": {
       "extractionState": "manual",
       "localizations": {
@@ -99,6 +150,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "〈%@〉已在你喜歡的歌曲中。"
+          }
+        }
+      }
+    },
+    "%@ kbps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kbps"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kbps"
           }
         }
       }
@@ -533,6 +601,23 @@
         }
       }
     },
+    "%lld pt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 點"
+          }
+        }
+      }
+    },
     "%lld s": {
       "extractionState": "manual",
       "localizations": {
@@ -935,6 +1020,23 @@
         }
       }
     },
+    "10-Band Equalizer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10-Band Equalizer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十段等化器"
+          }
+        }
+      }
+    },
     "100 videos": {
       "extractionState": "manual",
       "localizations": {
@@ -1152,6 +1254,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "頻道簡介。"
+          }
+        }
+      }
+    },
+    "A higher weight makes liked songs more likely to play earlier. Small queues relax repeat avoidance when necessary.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A higher weight makes liked songs more likely to play earlier. Small queues relax repeat avoidance when necessary."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先程度越高，喜歡的歌曲越有機會較早播放。歌曲較少時，會視需要放寬重複限制。"
           }
         }
       }
@@ -1649,6 +1768,23 @@
         }
       }
     },
+    "Adjusting a band creates a custom curve. The graph includes bass boost; the sliders show the underlying EQ values.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjusting a band creates a custom curve. The graph includes bass boost; the sliders show the underlying EQ values."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整頻段即可建立自訂曲線。圖表包含低頻增強效果；滑桿顯示等化器原始設定值。"
+          }
+        }
+      }
+    },
     "Afrobeats": {
       "extractionState": "manual",
       "localizations": {
@@ -2057,6 +2193,91 @@
         }
       }
     },
+    "Attempt %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attempt %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 次嘗試"
+          }
+        }
+      }
+    },
+    "Audio Center": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Center"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音效中心"
+          }
+        }
+      }
+    },
+    "Audio Channels": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Channels"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聲道數"
+          }
+        }
+      }
+    },
+    "Audio Format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Format"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音訊格式"
+          }
+        }
+      }
+    },
+    "Audio Information": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Information"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音訊資訊"
+          }
+        }
+      }
+    },
     "Audio Quality": {
       "extractionState": "manual",
       "localizations": {
@@ -2070,6 +2291,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "音訊品質"
+          }
+        }
+      }
+    },
+    "Audio source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio source"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音訊來源"
           }
         }
       }
@@ -2176,6 +2414,23 @@
         }
       }
     },
+    "Automatic recovery stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic recovery stopped"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止自動恢復播放"
+          }
+        }
+      }
+    },
     "Autoplay": {
       "extractionState": "manual",
       "localizations": {
@@ -2257,6 +2512,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "平均每天 %@"
+          }
+        }
+      }
+    },
+    "Avoid the last %lld songs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avoid the last %lld songs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "避免重複最近 %lld 首歌曲"
           }
         }
       }
@@ -2516,6 +2788,23 @@
         }
       }
     },
+    "Bass Boost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bass Boost"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低頻增強"
+          }
+        }
+      }
+    },
     "Because you like %@": {
       "extractionState": "manual",
       "localizations": {
@@ -2665,6 +2954,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "瀏覽"
+          }
+        }
+      }
+    },
+    "Buffered ahead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buffered ahead"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已緩衝待播時間"
+          }
+        }
+      }
+    },
+    "Buffering": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buffering"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緩衝狀態"
+          }
+        }
+      }
+    },
+    "Built-in Equalizer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built-in Equalizer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內建等化器預設"
           }
         }
       }
@@ -2852,6 +3192,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "請檢查網路連線，或搜尋你認識的藝人。"
+          }
+        }
+      }
+    },
+    "Chinese Lyrics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chinese Lyrics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中文歌詞"
+          }
+        }
+      }
+    },
+    "Chinese Lyrics Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chinese Lyrics Settings…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中文歌詞設定⋯"
           }
         }
       }
@@ -3094,6 +3468,23 @@
         }
       }
     },
+    "Clear Diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Diagnostics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除診斷紀錄"
+          }
+        }
+      }
+    },
     "Clear History": {
       "extractionState": "manual",
       "localizations": {
@@ -3315,6 +3706,23 @@
         }
       }
     },
+    "Codec": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音訊編碼"
+          }
+        }
+      }
+    },
     "Collapses the description": {
       "extractionState": "manual",
       "localizations": {
@@ -3464,6 +3872,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "連接⋯"
+          }
+        }
+      }
+    },
+    "Consecutive Songs by One Artist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consecutive Songs by One Artist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一藝人連續播放上限"
           }
         }
       }
@@ -3944,6 +4369,40 @@
         }
       }
     },
+    "Current Song": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Song"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前歌曲"
+          }
+        }
+      }
+    },
+    "Current audio quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current audio quality"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前音訊品質"
+          }
+        }
+      }
+    },
     "Current profile. Double-tap to edit.": {
       "extractionState": "manual",
       "localizations": {
@@ -3957,6 +4416,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "目前的個人檔案。點兩下以編輯。"
+          }
+        }
+      }
+    },
+    "Custom EQ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom EQ"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂等化器"
           }
         }
       }
@@ -4165,6 +4641,23 @@
         }
       }
     },
+    "Delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除"
+          }
+        }
+      }
+    },
     "Delete Playlist": {
       "extractionState": "manual",
       "localizations": {
@@ -4229,6 +4722,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "刪除個人檔案…"
+          }
+        }
+      }
+    },
+    "Delete Sound Profile?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Sound Profile?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要刪除音效預設嗎？"
           }
         }
       }
@@ -4743,6 +5253,23 @@
         }
       }
     },
+    "EQ, bass boost, preamp and the Koda output limit return to their defaults. Saved profiles are kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EQ, bass boost, preamp and the Koda output limit return to their defaults. Saved profiles are kept."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等化器、低頻增強、前級增益與 Koda 輸出上限會恢復預設值。已儲存的音效預設會保留。"
+          }
+        }
+      }
+    },
     "Each artist and others like them": {
       "extractionState": "manual",
       "localizations": {
@@ -5045,6 +5572,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "等化器"
+          }
+        }
+      }
+    },
+    "Equalizer curve": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalizer curve"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等化器曲線"
           }
         }
       }
@@ -5372,6 +5916,23 @@
         }
       }
     },
+    "For simultaneous singers, JSON can identify the original line and voice. Times are seconds; voice is lead, duet, or together.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For simultaneous singers, JSON can identify the original line and voice. Times are seconds; voice is lead, duet, or together."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時有多位歌手演唱時，可用 JSON 指定對應原文與聲部。時間單位為秒；voice 可填入 lead（主唱）、duet（對唱）或 together（合唱）。"
+          }
+        }
+      }
+    },
     "Forget Found Lyrics": {
       "extractionState": "manual",
       "localizations": {
@@ -5402,6 +5963,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "重溫最愛"
+          }
+        }
+      }
+    },
+    "Format values are declared by the selected source, not measured from a quality setting. Missing values are shown as unavailable. Koda does not label lossy audio as lossless.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format values are declared by the selected source, not measured from a quality setting. Missing values are shown as unavailable. Koda does not label lossy audio as lossless."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式數值來自目前選用音源的宣告，不是由品質設定推算的測量值。缺少的數值會顯示「無法取得」。Koda 不會將有損音訊標示為無損。"
+          }
+        }
+      }
+    },
+    "Format values come from the selected source or its audio track. Bitrate is source-declared, not inferred from a quality setting. Missing values are unavailable; lossy audio is not labeled lossless.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format values come from the selected source or its audio track. Bitrate is source-declared, not inferred from a quality setting. Missing values are unavailable; lossy audio is not labeled lossless."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式數值來自目前選用的音源或音軌。位元率由來源宣告，不是由品質設定推算。缺少的數值會顯示「無法取得」，有損音訊不會標示為無損。"
           }
         }
       }
@@ -5504,6 +6099,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "放克"
+          }
+        }
+      }
+    },
+    "Gain & Protection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gain & Protection"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增益與保護"
           }
         }
       }
@@ -5695,6 +6307,40 @@
         }
       }
     },
+    "Headphone Profiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headphone Profiles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "耳機音效預設"
+          }
+        }
+      }
+    },
+    "Headroom protection automatically reduces preamp gain when the curve boosts frequencies. Transient protection prevents digital overload. The output limit controls Koda music only, not other apps or the device volume.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headroom protection automatically reduces preamp gain when the curve boosts frequencies. Transient protection prevents digital overload. The output limit controls Koda music only, not other apps or the device volume."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "曲線提高頻段增益時，保護機制會自動降低前級增益，並抑制瞬間過載。輸出上限只控制 Koda 音樂，不會調整其他 App 或裝置音量。"
+          }
+        }
+      }
+    },
     "Hide Now Playing": {
       "extractionState": "manual",
       "localizations": {
@@ -5708,6 +6354,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "隱藏正在播放"
+          }
+        }
+      }
+    },
+    "High": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
           }
         }
       }
@@ -5933,6 +6596,40 @@
         }
       }
     },
+    "Idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待命"
+          }
+        }
+      }
+    },
+    "Import Translation…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Translation…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入翻譯⋯"
+          }
+        }
+      }
+    },
     "Import from Koda for Android": {
       "extractionState": "manual",
       "localizations": {
@@ -5946,6 +6643,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "從 Android 版 Koda 匯入"
+          }
+        }
+      }
+    },
+    "Import only translations you have permission to use. Files stay on this device and are never sent to a translation service. The 100 most recent imports are kept, up to 10 MB.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import only translations you have permission to use. Files stay on this device and are never sent to a translation service. The 100 most recent imports are kept, up to 10 MB."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請只匯入你有權使用的翻譯。檔案只會保留在這部裝置上，不會傳送至翻譯服務。最多保留最近匯入的 100 首，上限為 10 MB。"
+          }
+        }
+      }
+    },
+    "Imported Chinese Translations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported Chinese Translations"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入的中文翻譯"
           }
         }
       }
@@ -6409,6 +7140,23 @@
         }
       }
     },
+    "Koda Output Limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Output Limit"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 輸出上限"
+          }
+        }
+      }
+    },
     "Koda asks every source at once. Word-by-word lyrics win; among equals, the higher source wins. At least one stays on.": {
       "extractionState": "manual",
       "localizations": {
@@ -6766,6 +7514,23 @@
         }
       }
     },
+    "Last playback error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last playback error"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近一次播放錯誤"
+          }
+        }
+      }
+    },
     "Last.fm": {
       "extractionState": "manual",
       "localizations": {
@@ -6983,6 +7748,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已將〈%@〉標示為喜歡。"
+          }
+        }
+      }
+    },
+    "Liked Song Weight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liked Song Weight"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喜歡歌曲的優先程度"
           }
         }
       }
@@ -7378,6 +8160,40 @@
         }
       }
     },
+    "Low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
+          }
+        }
+      }
+    },
+    "Low Data Mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low Data Mode"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低數據模式"
+          }
+        }
+      }
+    },
     "Lyrics": {
       "extractionState": "manual",
       "localizations": {
@@ -7391,6 +8207,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "歌詞"
+          }
+        }
+      }
+    },
+    "Lyrics Display": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lyrics Display"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌詞顯示方式"
           }
         }
       }
@@ -7663,6 +8496,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "行動數據串流"
+          }
+        }
+      }
+    },
+    "Mobile data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile data"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行動數據"
           }
         }
       }
@@ -7969,6 +8819,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "名稱"
+          }
+        }
+      }
+    },
+    "Network changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network changed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路狀態已變更"
+          }
+        }
+      }
+    },
+    "Network connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network connection"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路連線"
           }
         }
       }
@@ -8364,6 +9248,40 @@
         }
       }
     },
+    "No diagnostic events": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No diagnostic events"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有診斷紀錄"
+          }
+        }
+      }
+    },
+    "No matching Chinese translation. Original lyrics are shown. Import a translation in Chinese Lyrics settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching Chinese translation. Original lyrics are shown. Import a translation in Chinese Lyrics settings."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有相符的中文翻譯，目前顯示原文。你可以在「中文歌詞」設定中匯入翻譯。"
+          }
+        }
+      }
+    },
     "None": {
       "extractionState": "manual",
       "localizations": {
@@ -8496,6 +9414,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未接受"
+          }
+        }
+      }
+    },
+    "Not buffering": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not buffering"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在緩衝"
           }
         }
       }
@@ -8874,6 +9809,23 @@
         }
       }
     },
+    "Offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未連線"
+          }
+        }
+      }
+    },
     "On": {
       "extractionState": "manual",
       "localizations": {
@@ -8925,6 +9877,23 @@
         }
       }
     },
+    "On this device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this device"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存在此裝置"
+          }
+        }
+      }
+    },
     "On this iPhone": {
       "extractionState": "manual",
       "localizations": {
@@ -8955,6 +9924,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已顯示於你的個人檔案"
+          }
+        }
+      }
+    },
+    "On-device translation is unavailable for these languages. Original lyrics are shown.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-device translation is unavailable for these languages. Original lyrics are shown."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些語言目前不支援裝置端翻譯，因此顯示原文。"
           }
         }
       }
@@ -9180,6 +10166,23 @@
         }
       }
     },
+    "Ordinary Shuffle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordinary Shuffle"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一般隨機播放"
+          }
+        }
+      }
+    },
     "Original": {
       "extractionState": "manual",
       "localizations": {
@@ -9193,6 +10196,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "原始大小"
+          }
+        }
+      }
+    },
+    "Original lyrics keep their word timing. Missing translations fall back to the original line. Changing this setting does not change playback.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original lyrics keep their word timing. Missing translations fall back to the original line. Changing this setting does not change playback."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原文歌詞保留逐字時間軸。缺少翻譯時會顯示原文。切換此設定不會影響播放。"
+          }
+        }
+      }
+    },
+    "Other connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other connection"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他連線"
           }
         }
       }
@@ -9622,6 +10659,23 @@
         }
       }
     },
+    "Play a song to import its translation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play a song to import its translation."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放歌曲後，即可匯入該歌曲的翻譯。"
+          }
+        }
+      }
+    },
     "Play counts and listening time start over. Liked songs and history stay.": {
       "extractionState": "manual",
       "localizations": {
@@ -9860,6 +10914,57 @@
         }
       }
     },
+    "Playback Status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback Status"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放狀態"
+          }
+        }
+      }
+    },
+    "Playback failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放失敗"
+          }
+        }
+      }
+    },
+    "Playback paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback paused"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放已暫停"
+          }
+        }
+      }
+    },
     "Playback position": {
       "extractionState": "manual",
       "localizations": {
@@ -9877,6 +10982,23 @@
         }
       }
     },
+    "Playback recovered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback recovered"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放已恢復"
+          }
+        }
+      }
+    },
     "Played often, not lately": {
       "extractionState": "manual",
       "localizations": {
@@ -9890,6 +11012,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "曾經常聽、最近沒播的歌曲"
+          }
+        }
+      }
+    },
+    "Player state": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player state"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放器狀態"
           }
         }
       }
@@ -10234,6 +11373,40 @@
         }
       }
     },
+    "Preamp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preamp"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前級增益"
+          }
+        }
+      }
+    },
+    "Preference changes apply to the next smart shuffle. Manually added or rearranged upcoming songs keep their positions. Your saved playlists are never changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preference changes apply to the next smart shuffle. Manually added or rearranged upcoming songs keep their positions. Your saved playlists are never changed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定變更會套用至下次智慧隨機播放。手動加入或調整順序的待播歌曲會保留位置，已儲存的播放清單不會改變。"
+          }
+        }
+      }
+    },
     "Previous": {
       "extractionState": "manual",
       "localizations": {
@@ -10366,6 +11539,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "發音"
+          }
+        }
+      }
+    },
+    "Protected Preamp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protected Preamp"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護後前級增益"
           }
         }
       }
@@ -10523,6 +11713,23 @@
         }
       }
     },
+    "Ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已就緒"
+          }
+        }
+      }
+    },
     "Ready Offline": {
       "extractionState": "manual",
       "localizations": {
@@ -10553,6 +11760,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近搜尋"
+          }
+        }
+      }
+    },
+    "Recent Diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Diagnostics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近診斷紀錄"
           }
         }
       }
@@ -10723,6 +11947,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "最近播放"
+          }
+        }
+      }
+    },
+    "Reconnecting audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting audio"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新連接音訊"
+          }
+        }
+      }
+    },
+    "Recovery attempts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery attempts"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復嘗試次數"
+          }
+        }
+      }
+    },
+    "Recovery scheduled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery scheduled"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排定恢復播放"
           }
         }
       }
@@ -10948,6 +12223,23 @@
         }
       }
     },
+    "Remove This Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove This Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除此翻譯"
+          }
+        }
+      }
+    },
     "Remove all downloads?": {
       "extractionState": "manual",
       "localizations": {
@@ -11101,6 +12393,23 @@
         }
       }
     },
+    "Rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名"
+          }
+        }
+      }
+    },
     "Rename Playlist": {
       "extractionState": "manual",
       "localizations": {
@@ -11114,6 +12423,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新命名播放清單"
+          }
+        }
+      }
+    },
+    "Rename Sound Profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Sound Profile"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名音效預設"
           }
         }
       }
@@ -11152,6 +12478,23 @@
         }
       }
     },
+    "Repeat Avoidance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeat Avoidance"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "減少重複播放"
+          }
+        }
+      }
+    },
     "Repeat One": {
       "extractionState": "manual",
       "localizations": {
@@ -11182,6 +12525,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "取代音樂庫"
+          }
+        }
+      }
+    },
+    "Replace with Current Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace with Current Settings"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以目前設定取代"
           }
         }
       }
@@ -11237,6 +12597,23 @@
         }
       }
     },
+    "Reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設"
+          }
+        }
+      }
+    },
     "Reset Listening Stats": {
       "extractionState": "manual",
       "localizations": {
@@ -11250,6 +12627,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "重置聆聽統計"
+          }
+        }
+      }
+    },
+    "Reset Smart Shuffle Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Smart Shuffle Settings"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設智慧隨機播放設定"
+          }
+        }
+      }
+    },
+    "Reset Sound Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Sound Settings"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設音效設定"
+          }
+        }
+      }
+    },
+    "Reset Sound Settings?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Sound Settings?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要重設音效設定嗎？"
           }
         }
       }
@@ -11284,6 +12712,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "重設時間"
+          }
+        }
+      }
+    },
+    "Reset Translation Appearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Translation Appearance"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設譯文外觀"
+          }
+        }
+      }
+    },
+    "Reset to Flat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Flat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重設為平坦曲線"
           }
         }
       }
@@ -11390,6 +12852,23 @@
         }
       }
     },
+    "Resume Playback on Launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Playback on Launch"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 App 時恢復播放"
+          }
+        }
+      }
+    },
     "Resumed at %@": {
       "extractionState": "manual",
       "localizations": {
@@ -11475,6 +12954,23 @@
         }
       }
     },
+    "Sample rate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample rate"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取樣率"
+          }
+        }
+      }
+    },
     "Save": {
       "extractionState": "manual",
       "localizations": {
@@ -11488,6 +12984,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "儲存"
+          }
+        }
+      }
+    },
+    "Save Current Sound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Current Sound"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存目前音效"
           }
         }
       }
@@ -11522,6 +13035,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "儲存搜尋紀錄"
+          }
+        }
+      }
+    },
+    "Save Sound Profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Sound Profile"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存音效預設"
           }
         }
       }
@@ -11573,6 +13103,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "儲存搜尋紀錄"
+          }
+        }
+      }
+    },
+    "Save up to 32 profiles for your headphones. Load a profile to adjust its values, then use Replace with Current Settings to save the changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save up to 32 profiles for your headphones. Load a profile to adjust its values, then use Replace with Current Settings to save the changes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多可儲存 32 組耳機音效預設。載入預設並調整數值後，可使用「以目前設定取代」儲存變更。"
           }
         }
       }
@@ -12920,6 +14467,91 @@
         }
       }
     },
+    "Smart Shuffle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smart Shuffle"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧隨機播放"
+          }
+        }
+      }
+    },
+    "Smart Shuffle Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smart Shuffle Settings"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧隨機播放設定"
+          }
+        }
+      }
+    },
+    "Smart Shuffle Strength": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smart Shuffle Strength"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧隨機強度"
+          }
+        }
+      }
+    },
+    "Smart Shuffle balances recent plays, repeated songs, artists, likes and skips using only local information. Ordinary Shuffle remains available from the queue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smart Shuffle balances recent plays, repeated songs, artists, likes and skips using only local information. Ordinary Shuffle remains available from the queue."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧隨機播放只使用本機資料，依最近播放、重複歌曲、藝人、喜歡的歌曲與略過紀錄安排順序。你仍可在播放佇列選擇一般隨機播放。"
+          }
+        }
+      }
+    },
+    "Some lines have no translation and show the original lyrics.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some lines have no translation and show the original lyrics."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分歌詞行沒有翻譯，因此顯示原文。"
+          }
+        }
+      }
+    },
     "Something new": {
       "extractionState": "manual",
       "localizations": {
@@ -13277,6 +14909,40 @@
         }
       }
     },
+    "Sound Center": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound Center"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音效中心"
+          }
+        }
+      }
+    },
+    "Sound Effects": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound Effects"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音效"
+          }
+        }
+      }
+    },
     "Sound On": {
       "extractionState": "manual",
       "localizations": {
@@ -13290,6 +14956,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已開啟聲音"
+          }
+        }
+      }
+    },
+    "Sound effects are unavailable for the current audio. Your Koda output limit still applies.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound effects are unavailable for the current audio. Your Koda output limit still applies."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的音訊無法套用音效。Koda 輸出上限仍會生效。"
           }
         }
       }
@@ -13311,6 +14994,40 @@
         }
       }
     },
+    "Source bitrate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source bitrate"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源宣告位元率"
+          }
+        }
+      }
+    },
+    "Source sample rate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source sample rate"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源宣告取樣率"
+          }
+        }
+      }
+    },
     "Sources": {
       "extractionState": "manual",
       "localizations": {
@@ -13324,6 +15041,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "來源"
+          }
+        }
+      }
+    },
+    "Space Between Languages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space Between Languages"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雙語間距"
           }
         }
       }
@@ -13358,6 +15092,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "體育"
+          }
+        }
+      }
+    },
+    "Standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
           }
         }
       }
@@ -13583,6 +15334,23 @@
         }
       }
     },
+    "Stream initialization failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream initialization failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "串流初始化失敗"
+          }
+        }
+      }
+    },
     "Streaming": {
       "extractionState": "manual",
       "localizations": {
@@ -13787,6 +15555,23 @@
         }
       }
     },
+    "Supported Formats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supported Formats"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支援的格式"
+          }
+        }
+      }
+    },
     "Surprise Me": {
       "extractionState": "manual",
       "localizations": {
@@ -13936,6 +15721,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "立即同步"
+          }
+        }
+      }
+    },
+    "System audio interruption began": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System audio interruption began"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統音訊中斷開始"
+          }
+        }
+      }
+    },
+    "System audio interruption ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System audio interruption ended"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統音訊中斷結束"
           }
         }
       }
@@ -14178,6 +15997,23 @@
         }
       }
     },
+    "The current sound settings stay unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current sound settings stay unchanged."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的音效設定會保持不變。"
+          }
+        }
+      }
+    },
     "The equalizer shapes every song you play, from the next moment of the one playing. Songs that are boosted are played a little quieter, so loud ones never distort.": {
       "extractionState": "manual",
       "localizations": {
@@ -14344,6 +16180,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "此內容無法使用。"
+          }
+        }
+      }
+    },
+    "This song has no synced lyrics. The original text is shown; imported translations need timestamps.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This song has no synced lyrics. The original text is shown; imported translations need timestamps."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這首歌曲沒有同步歌詞，目前顯示原文。匯入的翻譯需要時間戳記才能同步。"
           }
         }
       }
@@ -14586,6 +16439,74 @@
         }
       }
     },
+    "Translation Appearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Appearance"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "譯文外觀"
+          }
+        }
+      }
+    },
+    "Translation File": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation File"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯檔案"
+          }
+        }
+      }
+    },
+    "Translation Opacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Opacity"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "譯文不透明度"
+          }
+        }
+      }
+    },
+    "Translation Text Size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Text Size"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "譯文字體大小"
+          }
+        }
+      }
+    },
     "Translation and Pronunciation": {
       "extractionState": "manual",
       "localizations": {
@@ -14599,6 +16520,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "翻譯與發音"
+          }
+        }
+      }
+    },
+    "Translation imported for %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation imported for %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匯入「%@」的翻譯。"
+          }
+        }
+      }
+    },
+    "Translation removed. The original lyrics are unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation removed. The original lyrics are unchanged."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除翻譯，原文歌詞保持不變。"
           }
         }
       }
@@ -14654,6 +16609,23 @@
         }
       }
     },
+    "Turn Off Smart Shuffle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Smart Shuffle"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉智慧隨機播放"
+          }
+        }
+      }
+    },
     "Turn Off Timer": {
       "extractionState": "manual",
       "localizations": {
@@ -14667,6 +16639,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉計時器"
+          }
+        }
+      }
+    },
+    "Turning sound effects off bypasses EQ, bass boost and preamp. Your Koda output limit still applies.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning sound effects off bypasses EQ, bass boost and preamp. Your Koda output limit still applies."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉音效後，等化器、低頻增強與前級增益將停用。Koda 輸出上限仍會生效。"
+          }
+        }
+      }
+    },
+    "Unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法取得"
           }
         }
       }
@@ -14960,6 +16966,23 @@
         }
       }
     },
+    "Up to 100 events stay on this device. The log excludes account data, cookies, tokens, media URLs and request headers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to 100 events stay on this device. The log excludes account data, cookies, tokens, media URLs and request headers."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多保留 100 筆紀錄，僅儲存在此裝置。紀錄不包含帳號資料、Cookie、Token、媒體網址或請求標頭。"
+          }
+        }
+      }
+    },
     "Up to date": {
       "extractionState": "manual",
       "localizations": {
@@ -15007,6 +17030,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新時間：%@"
+          }
+        }
+      }
+    },
+    "Use Custom EQ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Custom EQ"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用自訂等化器"
+          }
+        }
+      }
+    },
+    "Use UTF-8 LRC with the original timestamps. A translated-only LRC or an original/translation pair at the same timestamp is supported. A timestamp must be within half a second of its original line.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use UTF-8 LRC with the original timestamps. A translated-only LRC or an original/translation pair at the same timestamp is supported. A timestamp must be within half a second of its original line."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用 UTF-8 編碼的 LRC，並保留原始時間戳記。支援純譯文 LRC，或原文與譯文共用相同時間戳記的雙語 LRC。與原始歌詞行的時間差需在半秒以內。"
           }
         }
       }
@@ -15368,6 +17425,23 @@
         }
       }
     },
+    "Waiting for a connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for a connection"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待網路連線"
+          }
+        }
+      }
+    },
     "Waiting for a song": {
       "extractionState": "manual",
       "localizations": {
@@ -15381,6 +17455,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "等待播放歌曲"
+          }
+        }
+      }
+    },
+    "Waiting for audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for audio"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待音訊"
           }
         }
       }
@@ -15589,6 +17680,23 @@
         }
       }
     },
+    "When enabled, Koda resumes a previously playing queue after reopening if audio is available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, Koda resumes a previously playing queue after reopening if audio is available."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，重新啟動 Koda 時，若音訊可用，便會恢復先前正在播放的佇列。"
+          }
+        }
+      }
+    },
     "When the queue ends, keep going with songs like the last one.": {
       "extractionState": "manual",
       "localizations": {
@@ -15636,6 +17744,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "要播放哪首歌曲？"
+          }
+        }
+      }
+    },
+    "Wi-Fi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi"
+          }
+        }
+      }
+    },
+    "Wired network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wired network"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有線網路"
           }
         }
       }

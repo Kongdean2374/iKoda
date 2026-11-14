@@ -20,6 +20,12 @@ struct NowPlayingView: View {
     /// The album's tall loop is ready to show.
     @State private var hasTallArt = false
     @State private var size: CGSize = .zero
+    @State private var utility: PlayerUtility?
+
+    private enum PlayerUtility: Identifiable {
+        case sound, translation, audio
+        var id: Self { self }
+    }
 
     /// With a tall loop the album's art moves in place of the square cover, as Music shows it:
     /// across the top of the one-column player while its cover page is open, and down the whole
@@ -63,6 +69,23 @@ struct NowPlayingView: View {
             setPanel(requested)
         }
         .playlistPicker(whenOnTop: true)
+        .sheet(item: $utility) { destination in
+            NavigationStack {
+                Group {
+                    switch destination {
+                    case .sound: AudioCenterView()
+                    case .translation: LyricsTranslationSettingsView()
+                    case .audio: AudioInformationView()
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { utility = nil }
+                    }
+                }
+            }
+            .appEnvironment(app)
+        }
     }
 
     /// The phone's player: one column, the cover giving way to lyrics or the queue.
@@ -193,6 +216,11 @@ struct NowPlayingView: View {
                     Section {
                         SleepTimerMenu()
                         if panel == .lyrics { LyricsTimingMenu(songId: song.id) }
+                    }
+                    Section {
+                        Button("Sound Center", systemImage: "slider.vertical.3") { utility = .sound }
+                        Button("Chinese Lyrics", systemImage: "translate") { utility = .translation }
+                        Button("Audio Information", systemImage: "waveform.path") { utility = .audio }
                     }
                 } label: {
                     Image(systemName: "ellipsis")

@@ -37,7 +37,10 @@ struct HistoryView: View {
         }
         .navigationTitle(String(localized: "History"))
         .confirmationDialog(String(localized: "Clear your listening history?"), isPresented: $confirmsClear, titleVisibility: .visible) {
-            Button(String(localized: "Clear History"), role: .destructive) { library.clearHistory() }
+            Button(String(localized: "Clear History"), role: .destructive) {
+                        library.clearHistory()
+                        player.clearSmartShuffleHistory()
+                    }
         } message: {
             Text(String(localized: "Recently Played and Quick picks start over. Liked songs and stats stay."))
         }

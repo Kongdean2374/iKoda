@@ -43,18 +43,28 @@ struct SettingsView: View {
                         }
                     }
                     NavigationLink {
-                        EqualizerSettingsView()
+                        AudioCenterView()
                     } label: {
                         LabeledContent {
-                            Text(player.equalizer.title)
+                            Text(player.soundSettings.customEnabled ? String(localized: "Custom EQ") : player.equalizer.title)
                         } label: {
-                            SettingLabel("Equalizer", systemImage: "slider.vertical.3", tint: .blue)
+                            SettingLabel("Sound Center", systemImage: "slider.vertical.3", tint: .blue)
                         }
                     }
                     NavigationLink {
                         AudioQualitySettingsView()
                     } label: {
                         SettingLabel("Audio Quality", systemImage: "waveform", tint: .green)
+                    }
+                    NavigationLink {
+                        SmartShuffleSettingsView()
+                    } label: {
+                        SettingLabel("Smart Shuffle", systemImage: "shuffle", tint: .purple)
+                    }
+                    NavigationLink {
+                        AudioInformationView()
+                    } label: {
+                        SettingLabel("Audio Information", systemImage: "waveform.path", tint: .teal)
                     }
                     Toggle(isOn: $settings.showsSkipButtons) {
                         SettingLabel("Skip Buttons", systemImage: settings.skipInterval.forwardSymbol, tint: .orange)
@@ -260,6 +270,13 @@ struct LyricsSettingsView: View {
         @Bindable var settings = app.settings
         Form {
             Section {
+                NavigationLink {
+                    LyricsTranslationSettingsView()
+                } label: {
+                    Label("Chinese Lyrics", systemImage: "translate")
+                }
+            }
+            Section {
                 ForEach(settings.lyricsSourceOrder) { source in
                     Toggle(isOn: Binding(get: { settings.isEnabled(source) }, set: { settings.setEnabled(source, $0) })) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -344,7 +361,9 @@ struct PrivacySettingsView: View {
                             presenting: confirm) { item in
             Button(buttonTitle(item), role: .destructive) {
                 switch item {
-                case .history: library.clearHistory()
+                case .history:
+                    library.clearHistory()
+                    app.player.clearSmartShuffleHistory()
                 case .searches: library.clearSearches()
                 case .stats: library.clearStats()
                 }

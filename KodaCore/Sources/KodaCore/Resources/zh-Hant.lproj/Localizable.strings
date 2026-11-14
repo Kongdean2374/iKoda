@@ -74,3 +74,21 @@
 "YouTube is refusing playback right now. Try again in a little while." = "YouTube 目前拒絕播放，請稍後再試。";
 "Your Last.fm sign-in can't be read while the device is locked. Plays wait and send after you unlock it." = "裝置鎖定時無法讀取你的 Last.fm 登入資訊。播放紀錄將在解鎖後傳送。";
 "New Playlist" = "新播放清單";
+
+/* Koda 0.4 enhancements. */
+"Chinese Translation" = "中文翻譯";
+"Choose a Traditional Chinese translation file (zh-Hant or zh-TW)." = "請選擇繁體中文翻譯檔案（zh-Hant 或 zh-TW）。";
+"Original Lyrics" = "原文歌詞";
+"Original and Chinese" = "原文＋中文雙語";
+"Playback failed. Automatic recovery is unavailable for this error." = "播放失敗，無法自動恢復此類錯誤。";
+"Playback was cancelled." = "播放已取消。";
+"Sign in again to continue playback." = "請重新登入以繼續播放。";
+"The audio service is temporarily unavailable." = "音訊服務暫時無法使用。";
+"The audio stream timed out." = "音訊串流連線逾時。";
+"The network connection was interrupted." = "網路連線已中斷。";
+"The service is limiting requests. Try again later." = "服務正在限制請求，請稍後再試。";
+"The service refused access. Automatic retries have stopped." = "服務拒絕存取，已停止自動重試。";
+"This audio is unavailable or cannot be decoded." = "此音訊無法取得或無法解碼。";
+"This translation file is too large. Use a file under 1 MB with at most 5,000 lines." = "翻譯檔案過大。請使用小於 1 MB、最多 5,000 行的檔案。";
+"This translation file uses an unsupported version." = "不支援此翻譯檔案的版本。";
+"Use a UTF-8 translation LRC or a valid translation JSON file." = "請使用 UTF-8 編碼的翻譯 LRC，或有效的翻譯 JSON 檔案。";

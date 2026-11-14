@@ -116,6 +116,15 @@ final class AppSettings {
 
     private let defaults = UserDefaults.standard
 
+    /// Imported translations are opt-in; the original lyric presentation stays the default.
+    var importedLyricsEnabled: Bool { didSet { defaults.set(importedLyricsEnabled, forKey: "koda.lyrics.imported.enabled") } }
+    var lyricsDisplayMode: LyricsDisplayMode { didSet { defaults.set(lyricsDisplayMode.rawValue, forKey: "koda.lyrics.imported.mode") } }
+    var translationFontSize: Double { didSet { defaults.set(translationFontSize, forKey: "koda.lyrics.imported.fontSize") } }
+    var translationOpacity: Double { didSet { defaults.set(translationOpacity, forKey: "koda.lyrics.imported.opacity") } }
+    var translationSpacing: Double { didSet { defaults.set(translationSpacing, forKey: "koda.lyrics.imported.spacing") } }
+    /// Invalidates only imported lyric display after a user import/removal; never playback.
+    var lyricsTranslationRevision = 0
+
     var theme: Theme { didSet { defaults.set(theme.rawValue, forKey: Keys.theme) } }
     /// The cover's colours drift behind Now Playing; off, they hold still.
     var animatesPlayerBackground: Bool { didSet { defaults.set(animatesPlayerBackground, forKey: Keys.animatedBackground) } }
@@ -197,6 +206,11 @@ final class AppSettings {
 
     init() {
         let d = UserDefaults.standard
+        importedLyricsEnabled = d.bool(forKey: "koda.lyrics.imported.enabled")
+        lyricsDisplayMode = d.string(forKey: "koda.lyrics.imported.mode").flatMap(LyricsDisplayMode.init(rawValue:)) ?? .original
+        translationFontSize = min(32, max(12, d.object(forKey: "koda.lyrics.imported.fontSize") as? Double ?? 18))
+        translationOpacity = min(1, max(0.3, d.object(forKey: "koda.lyrics.imported.opacity") as? Double ?? 0.75))
+        translationSpacing = min(20, max(2, d.object(forKey: "koda.lyrics.imported.spacing") as? Double ?? 6))
         theme = d.string(forKey: Keys.theme).flatMap(Theme.init(rawValue:)) ?? .system
         animatesPlayerBackground = d.object(forKey: Keys.animatedBackground) as? Bool ?? true
         // Wi-Fi only to begin with: a new album's loop is a few megabytes, about a song's worth.

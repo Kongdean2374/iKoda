@@ -45,8 +45,18 @@ final class TransitionDSP: @unchecked Sendable {
     private var lastLowPass: Float = 0
     private var formatNoted = false
     private var equalizerVersion = -1
-    private var equalizer: Equalizer.Design?
-    private var equalizerStages: [[Biquad]] = []
+    private var soundRequestSerial = 0
+    private var appliedSoundSerial = -1
+    private struct PreparedSound: Sendable {
+        var serial: Int
+        var sampleRate: Double
+        var design: Equalizer.Design
+        var protects: Bool
+    }
+    private let preparedSound = OSAllocatedUnfairLock<PreparedSound?>(initialState: nil)
+    private var soundProcessors: [SoundProcessor] = []
+    private var protectsSound = false
+    private var soundProtectionRequested = false
 
     init(label: String) {
         self.label = label
@@ -81,11 +91,19 @@ final class TransitionDSP: @unchecked Sendable {
     // MARK: Equalizer
 
     /// One curve for every channel: a change reaches the playing song at its next block.
-    private static let equalizerGains = OSAllocatedUnfairLock(initialState: (gains: [Float](), version: 0))
+    private static let equalizerGains = OSAllocatedUnfairLock(initialState: (settings: SoundSettings(), preset: EqualizerPreset.off, version: 0))
 
     static func setEqualizer(_ gains: [Float]) {
+        var settings = SoundSettings()
+        settings.customEnabled = true
+        settings.gains = gains
+        setSoundSettings(settings, preset: .off)
+    }
+
+    static func setSoundSettings(_ settings: SoundSettings, preset: EqualizerPreset) {
         equalizerGains.withLock {
-            $0.gains = gains
+            $0.settings = settings.normalized
+            $0.preset = preset
             $0.version += 1
         }
     }
@@ -107,6 +125,8 @@ final class TransitionDSP: @unchecked Sendable {
             AutoMixLog.note("tap for \(label): no audio track")
             return nil
         }
+        // Track loading yields the main actor; another attachment may have completed.
+        if let existing = of(item) { return existing }
         let dsp = TransitionDSP(label: label)
         guard let tap = makeTap(dsp) else {
             AutoMixLog.note("tap for \(label): MTAudioProcessingTapCreate failed")
@@ -220,6 +240,7 @@ final class TransitionDSP: @unchecked Sendable {
                             if lowPassOn { x = lowPassStage[channel].run(x) }
                             let g = gainFrom + (gainTo - gainFrom) * Float(i) / Float(count)
                             x *= g
+                            if protectsSound { x = SoundSafety.limit(x, ceiling: 1) }
                             data[index] = x
                             let m: Float = Swift.abs(x)
                             if m > peak { peak = m }
@@ -235,7 +256,8 @@ final class TransitionDSP: @unchecked Sendable {
                 guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
                 let n = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
                 for i in 0..<n {
-                    let sample: Float = data[i]
+                    let sample = protectsSound ? SoundSafety.limit(data[i], ceiling: 1) : data[i]
+                    data[i] = sample
                     let m: Float = Swift.abs(sample)
                     if m > peak { peak = m }
                     sumSquares += sample * sample
@@ -257,32 +279,42 @@ final class TransitionDSP: @unchecked Sendable {
     private func applyEqualizer(_ buffers: UnsafeMutableBufferPointer<AudioBuffer>, frames: Int) {
         if let fresh = Self.equalizerGains.withLockIfAvailable({ $0.version == equalizerVersion ? nil : $0 }), let fresh {
             equalizerVersion = fresh.version
-            equalizer = Equalizer.design(fresh.gains, sampleRate: sampleRate)
-            let count = equalizer?.sections.count ?? 0
-            let channels = lowPassStage.count
-            if equalizerStages.count != channels || equalizerStages.first?.count != count {
-                equalizerStages = (0..<channels).map { _ in Array(repeating: Biquad(), count: count) }
-            }
-            if let equalizer {
-                for c in equalizerStages.indices {
-                    for (i, coefficients) in equalizer.sections.enumerated() { equalizerStages[c][i].coefficients = coefficients }
-                }
+            soundRequestSerial += 1
+            let serial = soundRequestSerial
+            let rate = sampleRate
+            let mailbox = preparedSound
+            // Response analysis is never performed on the render callback. A serial prevents
+            // a slow older design from replacing a newer setting or a changed sample rate.
+            DispatchQueue.global(qos: .userInitiated).async {
+                let design = Equalizer.soundDesign(fresh.settings, preset: fresh.preset, sampleRate: rate)
+                let update = PreparedSound(serial: serial, sampleRate: rate, design: design,
+                                           protects: fresh.settings.requiresProcessing(preset: fresh.preset))
+                mailbox.withLock { if ($0?.serial ?? -1) < serial { $0 = update } }
             }
         }
-        guard let equalizer else { return }
-        let preamp = equalizer.preamp
-        let sections = equalizer.sections.count
+        if let prepared = preparedSound.withLockIfAvailable({ $0 }), let prepared,
+           prepared.serial == soundRequestSerial, prepared.serial != appliedSoundSerial,
+           prepared.sampleRate == sampleRate {
+            let firstConfiguration = appliedSoundSerial == -1
+            appliedSoundSerial = prepared.serial
+            let channels = lowPassStage.count
+            if soundProcessors.count != channels { soundProcessors = Array(repeating: SoundProcessor(), count: channels) }
+            for c in soundProcessors.indices {
+                soundProcessors[c].configure(design: prepared.design, sampleRate: sampleRate, smooth: !firstConfiguration)
+            }
+            soundProtectionRequested = prepared.protects
+        }
+        // Keep the guard only through the crossfade when switching back to bypass.
+        protectsSound = soundProtectionRequested || soundProcessors.contains { $0.isTransitioning }
         for (c, buffer) in buffers.enumerated() {
             guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
             let stride = Int(buffer.mNumberChannels)
             for ch in 0..<stride {
                 let channel = buffers.count > 1 ? c : ch
-                guard channel < equalizerStages.count else { continue }
+                guard channel < soundProcessors.count else { continue }
                 for i in 0..<frames {
                     let index = i * stride + ch
-                    var x = data[index]
-                    for s in 0..<sections { x = equalizerStages[channel][s].run(x) }
-                    data[index] = x * preamp
+                    data[index] = soundProcessors[channel].run(data[index])
                 }
             }
         }
@@ -321,7 +353,7 @@ nonisolated(unsafe) private var dspKey: UInt8 = 0
 /// One second-order filter section (Butterworth, from the Audio EQ Cookbook), direct form I,
 /// which stays quiet while its cutoff moves.
 nonisolated struct Biquad {
-    struct Coefficients {
+    struct Coefficients: Sendable {
         var b0: Float = 1, b1: Float = 0, b2: Float = 0, a1: Float = 0, a2: Float = 0
 
         static func highPass(_ frequency: Float, sampleRate: Double) -> Coefficients {
