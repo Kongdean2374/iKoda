@@ -307,7 +307,7 @@ private struct ChannelAboutSheet: View {
                         Button(String(localized: "Try Again")) { Task { await model.loadAbout(music: app.music) } }.buttonStyle(.glass)
                     }
                 case .loading, nil:
-                    content(ChannelAbout(description: page.description ?? String(localized: "A few lines about the channel."), country: String(localized: "Country"),
+                    content(ChannelAbout(description: page.description ?? String(localized: "A few lines about the channel."), country: String(localized: "channel.country", defaultValue: "Country"),
                                          subscribers: String(localized: "1M subscribers"), views: String(localized: "100,000,000 views"), joined: String(localized: "Joined Jan 1, 2010"),
                                          videoCount: String(localized: "100 videos"), links: []))
                         .loadingPlaceholder()
@@ -356,7 +356,7 @@ private struct ChannelAboutSheet: View {
                 if let videos = about.videoCount { LabeledContent(String(localized: "Videos"), value: Self.count(videos)) }
                 if let views = about.views { LabeledContent(String(localized: "Views"), value: Self.count(views)) }
                 if let joined = about.joined { LabeledContent(String(localized: "Joined"), value: joined.replacingOccurrences(of: "Joined ", with: "")) }
-                if let country = about.country { LabeledContent(String(localized: "Country"), value: country) }
+                if let country = about.country { LabeledContent(String(localized: "channel.country", defaultValue: "Country"), value: country) }
             }
         }
     }

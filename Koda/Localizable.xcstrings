@@ -16558,6 +16558,24 @@
         }
       }
     },
+    "channel.country": {
+      "extractionState": "manual",
+      "comment": "Channel location, distinct from the Country music genre.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Country"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "國家／地區"
+          }
+        }
+      }
+    },
     "liked song": {
       "extractionState": "manual",
       "localizations": {
