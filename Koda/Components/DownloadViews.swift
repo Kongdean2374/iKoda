@@ -43,6 +43,11 @@ struct DownloadIndicator: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Downloaded")
+        case .failed:
+            Image(systemName: "exclamationmark.arrow.circlepath")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Download Failed")
         }
     }
 }
@@ -55,17 +60,18 @@ struct DownloadButton: View {
     @Environment(Downloads.self) private var downloads
     @State private var confirmsRemoval = false
     @State private var started = 0
+    @State private var collectionTask: Task<Void, Never>?
+    @State private var collectionRequest: Downloads.CollectionRequest?
+    @State private var collectionGeneration = UUID()
 
     var body: some View {
         let state = downloads.state(of: songs)
         Button {
             switch state {
             case .none:
-                started += 1
-                downloads.download(songs)
-                if let allSongs {
-                    Task { downloads.download(await allSongs()) }
-                }
+                startDownload()
+            case .failed:
+                downloads.retry(songs)
             case .waiting, .downloading, .downloaded:
                 confirmsRemoval = true
             }
@@ -78,6 +84,8 @@ struct DownloadButton: View {
                     .frame(width: 20, height: 20)
             case .downloaded:
                 Label("Downloaded", systemImage: "arrow.down.circle.fill")
+            case .failed:
+                Label("Retry Downloads", systemImage: "arrow.clockwise.circle")
             }
         }
         .disabled(songs.isEmpty)
@@ -85,12 +93,51 @@ struct DownloadButton: View {
         .confirmationDialog(state == .downloaded ? String(localized: "Remove these downloads?") : String(localized: "Stop downloading?"),
                             isPresented: $confirmsRemoval, titleVisibility: .visible) {
             Button(state == .downloaded ? String(localized: "Remove Downloads") : String(localized: "Stop and Remove"), role: .destructive) {
-                downloads.remove(songs)
+                stopAndRemove()
             }
         } message: {
             Text("They'll play from YouTube again, which needs a connection.")
         }
+        .contextMenu {
+            if state == .failed {
+                Button("Remove Downloads", systemImage: "trash", role: .destructive) { stopAndRemove() }
+            }
+        }
+        .onDisappear { cancelCollection() }
         .accessibilityLabel(label(state))
+    }
+
+    private func startDownload() {
+        started += 1
+        cancelCollection()
+        guard let allSongs else { downloads.download(songs); return }
+        let request = downloads.beginCollection(songs)
+        let generation = collectionGeneration
+        collectionRequest = request
+        let task = Task {
+            let complete = await allSongs()
+            guard !Task.isCancelled, generation == collectionGeneration else { return }
+            // The downloader also verifies the intent: Remove All or another song menu may
+            // have stopped this batch while the old view was still retrieving metadata.
+            downloads.completeCollection(complete, request: request)
+            collectionRequest = nil
+            collectionTask = nil
+        }
+        collectionTask = task
+        downloads.attachCollectionTask(task, request: request)
+    }
+
+    private func cancelCollection() {
+        collectionGeneration = UUID()
+        collectionTask?.cancel()
+        collectionTask = nil
+        if let collectionRequest { downloads.cancelCollection(collectionRequest) }
+        collectionRequest = nil
+    }
+
+    private func stopAndRemove() {
+        cancelCollection()
+        downloads.remove(songs)
     }
 
     private func progress(_ state: Downloads.State) -> Double {
@@ -103,6 +150,7 @@ struct DownloadButton: View {
         case .none: String(localized: "Download")
         case .waiting, .downloading: String(localized: "Downloading")
         case .downloaded: String(localized: "Downloaded")
+        case .failed: String(localized: "Retry Downloads")
         }
     }
 }
@@ -119,6 +167,9 @@ struct DownloadMenuItem: View {
         case .waiting, .downloading:
             Button("Stop Download", systemImage: "xmark.circle") { downloads.remove([song]) }
         case .downloaded:
+            Button("Remove Download", systemImage: "trash", role: .destructive) { downloads.remove([song]) }
+        case .failed:
+            Button("Retry Download", systemImage: "arrow.clockwise") { downloads.retry([song]) }
             Button("Remove Download", systemImage: "trash", role: .destructive) { downloads.remove([song]) }
         }
     }

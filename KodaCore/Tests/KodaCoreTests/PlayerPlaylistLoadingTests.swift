@@ -181,7 +181,7 @@ struct PlayerPlaylistLoadingTests {
         #expect(h.player.queue.items.map(\.song.id) == songs(100..<120).map(\.id))
     }
 
-    @Test(arguments: ["cancel", "stop", "pause", "resume", "seek", "play", "append", "next", "move", "remove", "clear", "shuffle"])
+    @Test(arguments: ["cancel", "stop", "pause", "resume", "seek", "play", "append", "next", "move", "remove", "clear", "shuffle", "advance", "previous", "jump", "repeat"])
     func explicitIntentPreventsLatePlaylistCommit(action: String) async throws {
         let h = try Harness()
         defer { h.cleanUp() }
@@ -204,6 +204,12 @@ struct PlayerPlaylistLoadingTests {
             h.player.remove(id)
         case "clear": h.player.clearUpcoming()
         case "shuffle": h.player.setShuffle(true)
+        case "advance": h.player.next()
+        case "previous": h.player.previous()
+        case "jump":
+            let id = try #require(h.player.upcoming.first?.id)
+            h.player.jump(to: id)
+        case "repeat": h.player.setRepeat(.all)
         default: Issue.record("Unhandled test action")
         }
         let intended = h.player.queue
@@ -379,5 +385,90 @@ struct PlayerPlaylistLoadingTests {
         #expect(started.count == 1)
         #expect(started.first?.attempt == 1)
         #expect(h.player.queue.current == original)
+    }
+
+    @Test func automaticOldQueueExhaustionDoesNotCancelPreparingTheNextPlaylist() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let task = h.player.playPlaylist(songs(0..<200), continuation: "tail")
+        try await waitForRequest("tail", pages: pages)
+        h.player.extendWithRadio(thenAdvance: true) // Autoplay is off: natural exhaustion pauses the old queue.
+        #expect(h.player.playlistLoadingCount == 200)
+        #expect(!h.player.wantsToPlay)
+        await pages.complete("tail", songs: songs(200..<600), next: nil)
+        let started = await task.value
+        #expect(started)
+        #expect(h.player.queue.items.count == 600)
+    }
+
+    @Test func radioPrefetchUpgradesToAdvanceWhenTheLastSongEnds() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.autoplay = true
+        h.player.streamLoader = { _, _ in throw CancellationError() }
+        h.player.radioLoader = { try await pages.load($0).songs }
+        h.player.play(songs(0..<1))
+        h.player.extendWithRadio(thenAdvance: false)
+        try await waitForRequest("song-0", pages: pages)
+        h.player.extendWithRadio(thenAdvance: true)
+        await pages.complete("song-0", songs: songs(0..<10), next: nil)
+        for _ in 0..<200 where h.player.current?.id == "song-0" { await Task.yield() }
+        let requests = await pages.requests()
+        #expect(requests == ["song-0"])
+        #expect(h.player.current?.id == "song-1")
+        #expect(h.player.wantsToPlay)
+        #expect(h.player.queue.items.count == 10)
+    }
+
+    @Test(arguments: ["pause", "new-selection", "pause-resume"])
+    func delayedRadioCallbacksCannotOverrideLaterPlaybackIntent(action: String) async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.autoplay = true
+        h.player.streamLoader = { _, _ in throw CancellationError() }
+        h.player.radioLoader = { try await pages.load($0).songs }
+        h.player.play(songs(0..<1))
+        h.player.extendWithRadio(thenAdvance: true)
+        try await waitForRequest("song-0", pages: pages)
+        switch action {
+        case "pause": h.player.pause()
+        case "new-selection": h.player.play(songs(100..<103))
+        case "pause-resume": h.player.pause(); h.player.resume()
+        default: Issue.record("Unhandled test action")
+        }
+        let intendedQueue = h.player.queue
+        let intendedPlaying = h.player.wantsToPlay
+        if action == "pause" { await pages.complete("song-0", songs: songs(0..<10), next: nil) }
+        else { await pages.fail("song-0") }
+        for _ in 0..<100 { await Task.yield() }
+        #expect(h.player.queue == intendedQueue)
+        #expect(h.player.wantsToPlay == intendedPlaying)
+        #expect(h.player.diagnosticEvents.allSatisfy { $0.kind != .pausedByUser })
+    }
+
+    @Test func explicitMusicIntentIsPublishedBeforeMetadataOrAudioCanStart() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        var intents = 0
+        var audio = 0
+        h.player.onPlaybackRequested = { intents += 1 }
+        h.player.streamLoader = { _, _ in audio += 1; throw CancellationError() }
+        let task = h.player.playPlaylist(songs(0..<200), continuation: "tail")
+        #expect(intents == 1)
+        #expect(audio == 0)
+        try await waitForRequest("tail", pages: pages)
+        h.player.pause()
+        #expect(intents == 1)
+        await pages.complete("tail", songs: songs(200..<600), next: nil)
+        let obsolete = await task.value
+        #expect(!obsolete)
+        h.player.play(songs(700..<701))
+        #expect(intents == 2)
     }
 }

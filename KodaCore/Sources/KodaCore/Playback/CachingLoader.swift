@@ -141,29 +141,27 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     }
 
     /// Whether the response is audio for the range asked; checked once, on its first bytes.
-    private func accepts(_ response: URLResponse?) -> Bool {
-        switch (response as? HTTPURLResponse)?.statusCode {
-        case 206:
-            return true
-        case 200:
-            // The range was ignored and the whole file is coming.
-            taskOffset = 0
-            taskEnd = length
-            return true
-        default:
-            return false
-        }
+    private func accept(_ response: URLResponse?) throws {
+        let accepted = try CachingResponse.acceptedRange(response, requested: taskOffset..<taskEnd, length: length)
+        taskOffset = accepted.lowerBound
+        taskEnd = accepted.upperBound
     }
 
     fileprivate func received(_ data: Data, from task: URLSessionTask) {
         guard task === self.task else { return }
         if !taskAccepted {
-            guard accepts(task.response) else {
-                // googlevideo refused the URL; AVFoundation fails the item and the player reloads it.
-                fail(URLError(.badServerResponse))
+            do {
+                try accept(task.response)
+            } catch {
+                // Preserve the actual status through AVFoundation's underlying NSError.
+                fail(error)
                 return
             }
             taskAccepted = true
+        }
+        guard Int64(data.count) <= taskEnd - taskOffset else {
+            fail(AudioStreamResponseError.invalidRange)
+            return
         }
         do {
             try store.write(data, at: taskOffset, for: stream.videoId)
@@ -179,14 +177,23 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
         guard task === self.task else { return }
         self.task = nil
         if let error, (error as? URLError)?.code != .cancelled {
-            fail(error)
+            // A definite access verdict must not become a retryable transport failure.
+            if let response = task.response as? HTTPURLResponse, response.statusCode != 200, response.statusCode != 206 {
+                fail(AudioStreamResponseError.httpStatus(response.statusCode))
+            } else {
+                fail(error)
+            }
             return
         }
         // A refusal can come with no body, and so without any bytes to check it on; retrying
         // it would loop.
-        if error == nil, !taskAccepted, !accepts(task.response) {
-            fail(URLError(.badServerResponse))
-            return
+        if error == nil, !taskAccepted {
+            do {
+                try accept(task.response)
+            } catch {
+                fail(error)
+                return
+            }
         }
         serve()
     }

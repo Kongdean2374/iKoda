@@ -168,6 +168,7 @@ enum IntentPlaylistPlayback {
             request.cancel()
         }
         try Task.checkCancellation()
+        guard !request.isCancelled else { throw CancellationError() }
         guard started else {
             // A newer playback action superseded this request; do not announce its result.
             guard app.player.playlistLoadingError != nil else { throw CancellationError() }

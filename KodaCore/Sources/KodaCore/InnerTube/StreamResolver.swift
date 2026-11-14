@@ -16,6 +16,8 @@ public struct ResolvedStream: Sendable, Equatable {
     public var isDataSaver = false
     /// Declarations from the actual selected format; absent on legacy/local-only streams.
     public var metadata: AudioStreamMetadata? = nil
+    /// In-memory identity of AudioStore's exact local bytes, never persisted or sent online.
+    public var localFileVersion: UUID? = nil
 
     func isFresh(at now: Date = Date()) -> Bool {
         guard let expiresAt else { return true }

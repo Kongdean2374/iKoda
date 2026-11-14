@@ -119,6 +119,12 @@ final class AppModel {
         let audio = AudioStore(directory: audioDirectory, cacheLimit: settings.cacheLimit.rawValue)
         player.audioStore = audio
         downloads = Downloads(store: audio, music: music)
+        player.onLocalAudioInvalidated = { [downloads] id in
+            downloads.refreshInvalidatedDownload(id)
+        }
+        // Music intent wins immediately, including time spent loading a playlist or stream.
+        // Waiting for onSongStarted would let an old video load/countdown reclaim playback.
+        player.onPlaybackRequested = { [videos] in videos.pause() }
         player.onSongStarted = { [library, videos] song in
             // A song and a video never play over each other.
             videos.pause()
@@ -134,7 +140,7 @@ final class AppModel {
         videos.autoplays = { settings.autoplaysVideos }
         videos.defaultQuality = { settings.videoQuality }
         videos.pauseMusic = { [player] in
-            if player.wantsToPlay { player.togglePlayPause(from: "a video starting") }
+            player.pause(from: "a video starting")
         }
         player.onListened = { [library] song, seconds in
             if settings.savesListeningHistory { library.addListening(seconds, to: song) }

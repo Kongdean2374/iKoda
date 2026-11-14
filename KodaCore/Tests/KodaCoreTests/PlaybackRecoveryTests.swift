@@ -113,6 +113,24 @@ struct PlaybackRecoveryTests {
         #expect(policy.attempts == 0)
     }
 
+    @Test func confirmedLocalReplacementUsesTheSameFiniteBudgetAndNeedsConnectivity() {
+        let id = UUID()
+        var policy = PlaybackRecovery(maximumAttempts: 1)
+        let offlineResult = policy.requestLocalReplacement(for: id, at: 37, wantsToPlay: true, network: offline)
+        #expect(offlineResult == .stop(.unavailable))
+        #expect(policy.attempts == 0)
+        guard case .retry(let ticket) = policy.requestLocalReplacement(for: id, at: 37, wantsToPlay: true, network: online) else {
+            Issue.record("A confirmed invalid local file can use its legitimate online source"); return
+        }
+        #expect(ticket.position == 37)
+        #expect(policy.lastFailure == .unavailable)
+        let started = policy.consume(ticket)
+        #expect(started)
+        let exhausted = policy.requestLocalReplacement(for: id, at: 37, wantsToPlay: true, network: online)
+        #expect(exhausted == .stop(.unavailable))
+        #expect(policy.attempts == 1)
+    }
+
     @Test func pauseAndQueueChangeInvalidateDelayedWork() {
         let first = UUID(), second = UUID()
         var policy = PlaybackRecovery()
@@ -201,6 +219,23 @@ struct PlaybackRecoveryTests {
         state.began(wantsToPlay: false)
         let originallyPaused = state.ended(shouldResume: true)
         #expect(!originallyPaused)
+    }
+
+    @Test func explicitResumeClearsStaleInterruptionOnlyAfterSuccessfulActivation() {
+        var state = PlaybackInterruptionState()
+        state.began(wantsToPlay: true)
+        let refused = state.explicitResume(activationSucceeded: false)
+        #expect(!refused)
+        #expect(state.isInterrupted)
+        let allowed = state.explicitResume(activationSucceeded: true)
+        #expect(allowed)
+        #expect(!state.isInterrupted)
+        let lateNotification = state.ended(shouldResume: true)
+        #expect(!lateNotification, "a late system notification must not start playback twice")
+        state.began(wantsToPlay: false)
+        state.userPaused()
+        let deliberateNewPlay = state.explicitResume(activationSucceeded: true)
+        #expect(deliberateNewPlay, "the user's new explicit play intent may replace their old pause")
     }
 }
 

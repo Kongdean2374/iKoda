@@ -20,37 +20,60 @@ final class VoiceSearch {
     /// How loud the microphone is, 0…1, for the listening animation.
     private(set) var level: Double = 0
 
-    private let engine = AVAudioEngine()
+    private var lifecycle = VoiceSearchLifecycle()
+    private var engine: AVAudioEngine?
+    private var tapInstalled = false
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silence: Task<Void, Never>?
-    private var finished = false
     private var onFinish: ((String) -> Void)?
 
     /// How long a pause ends the search, once something has been said.
     private static let endOfSpeech: Duration = .milliseconds(1400)
 
     func start(onFinish: @escaping (String) -> Void) async {
+        guard !Task.isCancelled else { return }
+        cancel()
+        let generation = lifecycle.begin()
+        phase = .starting
+        transcript = ""
         self.onFinish = onFinish
+
+        await withTaskCancellationHandler {
+            await self.startListening(for: generation)
+        } onCancel: { [weak self] in
+            Task { @MainActor in self?.stopAudio(for: generation) }
+        }
+    }
+
+    private func startListening(for generation: VoiceSearchLifecycle.Generation) async {
         let speech = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
+        guard mayContinueStarting(generation) else { return }
         guard speech == .authorized else {
             phase = .blocked(String(localized: "Koda needs Speech Recognition to search by voice. You can allow it in Settings."))
+            stopAudio(for: generation)
             return
         }
-        guard await AVAudioApplication.requestRecordPermission() else {
+        let microphone = await AVAudioApplication.requestRecordPermission()
+        guard mayContinueStarting(generation) else { return }
+        guard microphone else {
             phase = .blocked(String(localized: "Koda needs the microphone to search by voice. You can allow it in Settings."))
+            stopAudio(for: generation)
             return
         }
         guard let recognizer = SFSpeechRecognizer(locale: .current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
               recognizer.isAvailable else {
             phase = .failed(String(localized: "Voice search isn't available right now."))
+            stopAudio(for: generation)
             return
         }
         do {
+            guard mayContinueStarting(generation) else { return }
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            lifecycle.acquiredAudioSession(for: generation)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
 
             let request = SFSpeechAudioBufferRecognitionRequest()
@@ -60,51 +83,78 @@ final class VoiceSearch {
             if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
             self.request = request
 
+            guard mayContinueStarting(generation) else { return }
+            let engine = AVAudioEngine()
+            self.engine = engine
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                phase = .failed(String(localized: "Koda couldn't start listening."))
+                stopAudio(for: generation)
+                return
+            }
             input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(feeding: request) { [weak self] level in
-                Task { @MainActor in self?.level = level }
+                Task { @MainActor in
+                    guard let self, self.lifecycle.accepts(generation) else { return }
+                    self.level = level
+                }
             })
+            tapInstalled = true
             engine.prepare()
+            guard mayContinueStarting(generation) else { return }
             try engine.start()
 
             task = recognizer.recognitionTask(with: request, resultHandler: Self.results { [weak self] text, isFinal, failed in
-                Task { @MainActor in self?.receive(text, isFinal: isFinal, failed: failed) }
+                Task { @MainActor in self?.receive(text, isFinal: isFinal, failed: failed, generation: generation) }
             })
             phase = .listening
         } catch {
+            guard lifecycle.accepts(generation) else { return }
             phase = .failed(String(localized: "Koda couldn't start listening."))
-            stopAudio()
+            stopAudio(for: generation)
         }
+    }
+
+    /// Permission APIs need not honor task cancellation. Check both cancellation
+    /// and generation immediately after every await, before touching audio resources.
+    private func mayContinueStarting(_ generation: VoiceSearchLifecycle.Generation) -> Bool {
+        guard lifecycle.accepts(generation, taskIsCancelled: Task.isCancelled) else {
+            stopAudio(for: generation)
+            return false
+        }
+        return true
     }
 
     /// Stop listening without searching.
     func cancel() {
-        finished = true
-        task?.cancel()
-        stopAudio()
+        guard let generation = lifecycle.current else { return }
+        stopAudio(for: generation)
     }
 
     /// Search for what has been heard so far.
     func finish() {
-        guard !finished else { return }
-        finished = true
-        task?.finish()
-        stopAudio()
+        guard let generation = lifecycle.current else { return }
+        finish(for: generation)
+    }
+
+    private func finish(for generation: VoiceSearchLifecycle.Generation) {
+        guard lifecycle.accepts(generation) else { return }
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let onFinish = onFinish
+        stopAudio(for: generation)
         if !text.isEmpty { onFinish?(text) }
     }
 
-    private func receive(_ text: String?, isFinal: Bool, failed: Bool) {
-        guard !finished else { return }
+    private func receive(_ text: String?, isFinal: Bool, failed: Bool, generation: VoiceSearchLifecycle.Generation) {
+        guard lifecycle.accepts(generation) else { return }
         if let text, !text.isEmpty { transcript = text }
         if isFinal || (failed && !transcript.isEmpty) {
-            finish()
+            finish(for: generation)
             return
         }
         if failed {
             phase = .failed(String(localized: "Koda didn't catch that. Try again."))
-            cancel()
+            stopAudio(for: generation)
             return
         }
         // Each new word restarts the wait; a pause after speaking ends the search.
@@ -112,17 +162,29 @@ final class VoiceSearch {
         silence = Task { [weak self] in
             try? await Task.sleep(for: Self.endOfSpeech)
             guard !Task.isCancelled else { return }
-            self?.finish()
+            self?.finish(for: generation)
         }
     }
 
-    private func stopAudio() {
+    private func stopAudio(for generation: VoiceSearchLifecycle.Generation) {
+        guard let cleanup = lifecycle.end(generation) else { return }
         silence?.cancel()
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        silence = nil
+        if let engine {
+            if engine.isRunning { engine.stop() }
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
+            engine.reset()
+        }
+        tapInstalled = false
+        engine = nil
         request?.endAudio()
         request = nil
+        task?.cancel()
+        task = nil
+        onFinish = nil
         level = 0
+        // Dismissing a pending permission prompt never owned the audio session.
+        guard cleanup.restoreAudioSession else { return }
         // Hand audio back to playback, as Koda had it.
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, policy: .longFormAudio)

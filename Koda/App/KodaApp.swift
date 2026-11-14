@@ -26,6 +26,9 @@ struct KodaApp: App {
                     model.lastFM.isPaused = !saves
                     model.player.savesSmartShuffleHistory = saves
                 }
+                .onChange(of: model.settings.mode) { _, mode in
+                    if mode == .music { model.videos.pause() }
+                }
                 .preferredColorScheme(model.settings.theme.colorScheme)
                 .frame(minWidth: Platform.isMac ? 700 : nil, minHeight: Platform.isMac ? 520 : nil)
                 // Spotlight and Siri learn the liked songs and playlists, and again when they change.

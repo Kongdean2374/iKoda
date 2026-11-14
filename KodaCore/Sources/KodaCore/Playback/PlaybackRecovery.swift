@@ -34,11 +34,7 @@ public enum PlaybackFailureReason: String, Codable, Sendable, Equatable {
             case .botCheck: return .forbidden
             case .unplayable: return .unavailable
             case .rateLimited: return .rateLimited
-            case .badResponse(let status):
-                if status == 401 { return .authentication }
-                if status == 403 { return .forbidden }
-                if status == 429 { return .rateLimited }
-                return status == 408 ? .timeout : (500...599).contains(status) ? .serviceUnavailable : .unavailable
+            case .badResponse(let status): return classifyHTTPStatus(status)
             }
         }
         return classifyNSError(error as NSError, depth: 0)
@@ -46,6 +42,7 @@ public enum PlaybackFailureReason: String, Codable, Sendable, Equatable {
 
     private static func classifyNSError(_ error: NSError, depth: Int) -> Self {
         guard depth < 5 else { return .unknown }
+        if error.domain == AudioStreamResponseError.errorDomain { return classifyHTTPStatus(error.code) }
         if error.domain == NSURLErrorDomain {
             switch error.code {
             case NSURLErrorCancelled: return .cancelled
@@ -54,16 +51,32 @@ public enum PlaybackFailureReason: String, Codable, Sendable, Equatable {
             case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
                  NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed,
                  NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed: return .network
-            default: return .unavailable
+            default:
+                if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+                    return classifyNSError(underlying, depth: depth + 1)
+                }
+                return .unavailable
             }
         }
         // These are AVFoundation's public OSStatus values; never retry an unrecognized
         // decoder/authorization failure merely because its localized text says "network".
-        if error.domain == "AVFoundationErrorDomain", error.code == -11819 { return .serviceUnavailable }
         if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
-            return classifyNSError(underlying, depth: depth + 1)
+            let reason = classifyNSError(underlying, depth: depth + 1)
+            if reason != .unknown { return reason }
         }
+        if error.domain == "AVFoundationErrorDomain", error.code == -11819 { return .serviceUnavailable }
         return .unknown
+    }
+
+    private static func classifyHTTPStatus(_ status: Int) -> Self {
+        switch status {
+        case 401: .authentication
+        case 403: .forbidden
+        case 408: .timeout
+        case 429: .rateLimited
+        case 500...599: .serviceUnavailable
+        default: .unavailable
+        }
     }
 }
 
@@ -144,6 +157,18 @@ public struct PlaybackRecovery: Sendable {
         return schedule(for: id, position: position)
     }
 
+    /// Only after AudioStore positively identified and discarded this exact invalid local
+    /// file, its legitimate remote source may replace it using the same finite retry budget.
+    public mutating func requestLocalReplacement(for id: UUID, at position: TimeInterval,
+                                                wantsToPlay: Bool, network: NetworkSnapshot) -> Decision {
+        guard wantsToPlay else { return .ignore }
+        begin(for: id)
+        guard pending == nil, !waitingForNetwork else { return .ignore }
+        lastFailure = .unavailable
+        guard network.status == .online, attempts < maximumAttempts else { return .stop(.unavailable) }
+        return schedule(for: id, position: position)
+    }
+
     private mutating func schedule(for id: UUID, position: TimeInterval) -> Decision {
         let nextAttempt = attempts + 1
         generation &+= 1
@@ -207,6 +232,14 @@ public struct PlaybackInterruptionState: Sendable, Equatable {
         resumeRequested = wantsToPlay
     }
     public mutating func userPaused() { resumeRequested = false }
+    /// A deliberate play action may recover a missing interruption-ended notification,
+    /// but only after the system actually allowed activation of the audio session.
+    public mutating func explicitResume(activationSucceeded: Bool) -> Bool {
+        guard activationSucceeded else { return false }
+        isInterrupted = false
+        resumeRequested = false
+        return true
+    }
     public mutating func ended(shouldResume: Bool) -> Bool {
         let resume = isInterrupted && resumeRequested && shouldResume
         isInterrupted = false

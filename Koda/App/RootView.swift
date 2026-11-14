@@ -25,10 +25,21 @@ struct RootView: View {
     }
 
     var body: some View {
-        if Platform.isMac {
-            MacRootView()
-        } else {
-            phone
+        Group {
+            if Platform.isMac {
+                MacRootView()
+            } else {
+                phone
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // A Home/Siri playlist request can start before a mini-player exists.
+            // Keep its progress, Retry and Cancel reachable without a current song.
+            if player.current == nil, player.playlistLoadingCount != nil {
+                PlaylistQueueLoadingView()
+                    .padding(.horizontal, 20)
+                    .background(.regularMaterial)
+            }
         }
     }
 

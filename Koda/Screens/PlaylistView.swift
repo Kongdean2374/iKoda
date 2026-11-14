@@ -38,7 +38,7 @@ struct PlaylistView: View {
             } actions: {
                 macActions
             }
-            PlaylistQueueLoadingView(sourceID: summary.id)
+            if player.current != nil { PlaylistQueueLoadingView(sourceID: summary.id) }
             AsyncContent(state: state, retry: load, placeholder: .placeholder(summary)) { page in
                 let rows = state.value == nil ? page.songs : songs
                 VStack(spacing: 12) {
@@ -92,8 +92,10 @@ struct PlaylistView: View {
                     play: { play(shuffled: false) },
                     shuffle: { play(shuffled: true) })
 
-                PlaylistQueueLoadingView(sourceID: summary.id)
-                    .padding(.horizontal, 20)
+                if player.current != nil {
+                    PlaylistQueueLoadingView(sourceID: summary.id)
+                        .padding(.horizontal, 20)
+                }
 
                 AsyncContent(state: state, retry: load, placeholder: .placeholder(summary)) { page in
                     // `songs` grows past the first page as the list scrolls; while loading it is empty.
@@ -182,17 +184,19 @@ struct PlaylistView: View {
 
     /// Every song, loading the pages not scrolled to yet, for downloading the whole playlist.
     private func allSongs() async -> [Song] {
-        while continuation != nil {
+        while continuation != nil, !Task.isCancelled {
             if loadingMore {
-                try? await Task.sleep(for: .milliseconds(100))
+                do { try await Task.sleep(for: .milliseconds(100)) }
+                catch { return [] }
                 continue
             }
             let before = songs.count
             await loadMore()
+            guard !Task.isCancelled else { return [] }
             // A page that failed to load: download what there is.
             if songs.count == before { break }
         }
-        return songs
+        return Task.isCancelled ? [] : songs
     }
 
     private func loadMore() async {

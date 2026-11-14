@@ -5117,6 +5117,23 @@
         }
       }
     },
+    "Download Failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載失敗"
+          }
+        }
+      }
+    },
     "Download over Mobile Data": {
       "extractionState": "manual",
       "localizations": {
@@ -12984,6 +13001,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "重試"
+          }
+        }
+      }
+    },
+    "Retry Download": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Download"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試下載"
+          }
+        }
+      }
+    },
+    "Retry Downloads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Downloads"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試下載"
           }
         }
       }
