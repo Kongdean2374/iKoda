@@ -98,6 +98,13 @@ public final class Downloads {
 
     public func state(of song: Song) -> State { states[song.id] ?? .none }
 
+    /// Observe both the requested collection and transfer state so finishing/removing a
+    /// download redraws the offline list, even though AudioStore itself is not observable.
+    public var readyOfflineSongs: [Song] {
+        let tracked = Set(songs.filter { states[$0.id] != nil }.map(\.id))
+        return store.readyOfflineSongs.filter { tracked.contains($0.id) }
+    }
+
     public func state(of songs: [Song]) -> State {
         guard !songs.isEmpty else { return .none }
         var here = 0.0

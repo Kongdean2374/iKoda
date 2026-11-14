@@ -477,6 +477,7 @@ public final class Player {
         let smart = shuffled && smartShuffleSettings.enabled
         if smart { queue.replaceSmart(with: songs, startAt: index, settings: smartShuffleSettings, context: shuffleContext()) }
         else { queue.replace(with: songs, startAt: index, shuffled: shuffled) }
+        queue.retainCurrentCollection()
         wantsToPlay = true
         loadCurrent(at: 0, fadeIn: fadeOutForSkip())
     }
@@ -877,6 +878,7 @@ public final class Player {
         let wasEmpty = queue.isEmpty
         queue.playNext(songs)
         if wasEmpty {
+            queue.retainCurrentCollection()
             if !songs.isEmpty { onPlaybackRequested?() }
             wantsToPlay = true
             loadCurrent(at: 0)
@@ -891,6 +893,7 @@ public final class Player {
         let wasEmpty = queue.isEmpty
         queue.append(songs)
         if wasEmpty {
+            queue.retainCurrentCollection()
             if !songs.isEmpty { onPlaybackRequested?() }
             wantsToPlay = true
             loadCurrent(at: 0)
@@ -2528,7 +2531,8 @@ public final class Player {
     private var queueFile: URL? { storage?.appending(path: "queue.json") }
     private let queueSnapshotWriter = QueueSnapshotWriter()
 
-    /// How many songs already played stay in the queue, for going back.
+    /// Recent radio/history additions kept for going back; finite collection occurrences
+    /// are retained separately so repeat-all and restored shuffle keep the complete source.
     static let historyLimit = 100
 
     /// Save the queue so the app reopens where it was. Encoding and writing happen off the
@@ -2604,7 +2608,7 @@ public final class Player {
         queue = saved.queue
         smartHistory = saved.smartHistory
         restoredPlaybackWasActive = saved.wasPlaying
-        // A queue saved by an older version kept every song ever played.
+        // Old history stays bounded; retained finite collections keep all source occurrences.
         queue.trimHistory(keeping: Self.historyLimit)
         duration = queue.current?.song.duration ?? 0
         let restoredPosition = duration > 0 ? min(saved.position, max(0, duration - 0.5)) : saved.position

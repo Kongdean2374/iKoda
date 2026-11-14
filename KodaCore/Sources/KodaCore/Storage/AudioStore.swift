@@ -105,6 +105,21 @@ public final class AudioStore: @unchecked Sendable {
         lock.withLock { entries.values.filter(\.isComplete).sorted { $0.lastUsed > $1.lastUsed }.compactMap(\.song) }
     }
 
+    /// The Offline Music list represents deliberate, finished downloads. Complete listening
+    /// cache remains available to playback and library search, but is not a user download.
+    /// Validate the candidates so a stale index cannot advertise a missing/truncated file.
+    public var readyOfflineSongs: [Song] {
+        var changed = false
+        let result = lock.withLock {
+            let candidates = entries.values.filter { $0.isDownload && $0.isComplete }.map(\.videoId)
+            for id in candidates { changed = validateStoredFile(id) || changed }
+            return entries.values.filter { $0.isDownload && $0.isComplete }
+                .sorted { $0.added > $1.added }.compactMap(\.song)
+        }
+        if changed { scheduleSave() }
+        return result
+    }
+
     public var cacheBytes: Int64 { lock.withLock { entries.values.filter { !$0.isDownload }.reduce(0) { $0 + $1.bytes } } }
     public var downloadBytes: Int64 { lock.withLock { entries.values.filter(\.isDownload).reduce(0) { $0 + $1.bytes } } }
 

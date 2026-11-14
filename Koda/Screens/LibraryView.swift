@@ -51,7 +51,7 @@ struct LibraryView: View {
                     LibraryLink(title: String(localized: "Downloads"), systemImage: "arrow.down.circle.fill", tint: .blue, count: downloads.songs.count,
                                 route: .songs(title: String(localized: "Downloads"), source: .downloaded))
                     Divider().padding(.leading, 56)
-                    LibraryLink(title: String(localized: "Ready Offline"), systemImage: "airplane", tint: .green, count: 0,
+                    LibraryLink(title: String(localized: "Ready Offline"), systemImage: "airplane", tint: .green, count: downloads.readyOfflineSongs.count,
                                 route: .songs(title: String(localized: "Ready Offline"), source: .offline))
                     Divider().padding(.leading, 56)
                     LibraryLink(title: String(localized: "Recently Played"), systemImage: "clock.fill", tint: .orange, count: library.recent.count,

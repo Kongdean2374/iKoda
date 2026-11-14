@@ -23,7 +23,7 @@ struct NowPlayingView: View {
     @State private var utility: PlayerUtility?
 
     private enum PlayerUtility: Identifiable {
-        case sound, translation, audio
+        case sound, audio
         var id: Self { self }
     }
 
@@ -74,7 +74,6 @@ struct NowPlayingView: View {
                 Group {
                     switch destination {
                     case .sound: AudioCenterView()
-                    case .translation: LyricsTranslationSettingsView()
                     case .audio: AudioInformationView()
                     }
                 }
@@ -212,6 +211,9 @@ struct NowPlayingView: View {
             Spacer()
             if let song = player.current {
                 Menu {
+                    Section {
+                        Button("Audio Information", systemImage: "waveform.path") { utility = .audio }
+                    }
                     SongMenuItems(song: song)
                     Section {
                         SleepTimerMenu()
@@ -219,8 +221,6 @@ struct NowPlayingView: View {
                     }
                     Section {
                         Button("Sound Center", systemImage: "slider.vertical.3") { utility = .sound }
-                        Button("Chinese Lyrics", systemImage: "translate") { utility = .translation }
-                        Button("Audio Information", systemImage: "waveform.path") { utility = .audio }
                     }
                 } label: {
                     Image(systemName: "ellipsis")

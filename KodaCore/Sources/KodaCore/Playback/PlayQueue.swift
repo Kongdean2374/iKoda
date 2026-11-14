@@ -40,6 +40,10 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     public var repeatMode: RepeatMode = .off
     /// The order before shuffle, by occurrence. Empty while not shuffled.
     private var unshuffledOrder: [UUID] = []
+    /// A finite collection remains available for repeat/shuffle after its songs have played.
+    /// Radio additions are not retained here, so their old history can still be bounded.
+    private var retainedCollectionOccurrenceIDs: Set<UUID> = []
+    public static let maximumRetainedCollectionCount = 20_000
 
     public init() {}
 
@@ -63,6 +67,17 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         var restored: Set<UUID> = []
         unshuffledOrder = unshuffledOrder.filter { available.contains($0) && restored.insert($0).inserted }
         protectedUpcoming = (try c.decodeIfPresent(Set<UUID>.self, forKey: .protectedUpcoming) ?? []).intersection(available)
+        let retained: Set<UUID>
+        if c.contains(.retainedCollectionOccurrenceIDs) {
+            // An explicitly empty set belongs to a newer queue that chose bounded history.
+            retained = (try c.decodeIfPresent(Set<UUID>.self, forKey: .retainedCollectionOccurrenceIDs) ?? []).intersection(available)
+        } else {
+            // An older snapshot cannot identify its source, but every occurrence still in
+            // that bounded snapshot is known. Preserve that pool once; later radio additions
+            // remain unretained. Songs already removed by an older build cannot be invented.
+            retained = items.count <= Self.maximumRetainedCollectionCount ? available : []
+        }
+        retainedCollectionOccurrenceIDs = retained.count <= Self.maximumRetainedCollectionCount ? retained : []
     }
 
     public var current: QueueItem? { currentIndex.map { items[$0] } }
@@ -101,7 +116,14 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         isSmartShuffled = false
         protectedUpcoming = []
         unshuffledOrder = []
+        retainedCollectionOccurrenceIDs = []
         if shuffled { setShuffle(true, using: &rng) }
+    }
+
+    /// Mark a complete, explicitly selected collection before playback trims its history.
+    /// The pagination limit also bounds this set; future radio results never grow it.
+    public mutating func retainCurrentCollection() {
+        retainedCollectionOccurrenceIDs = items.count <= Self.maximumRetainedCollectionCount ? Set(items.map(\.id)) : []
     }
 
     /// A new shuffled collection has no played history: the tapped song starts first and
@@ -166,6 +188,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         items.remove(at: index)
         unshuffledOrder.removeAll { $0 == id }
         protectedUpcoming.remove(id)
+        retainedCollectionOccurrenceIDs.remove(id)
         if let currentIndex, index < currentIndex { self.currentIndex = currentIndex - 1 }
         return true
     }
@@ -180,6 +203,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         items.removeSubrange((currentIndex + 1)...)
         unshuffledOrder.removeAll { dropped.contains($0) }
         protectedUpcoming.subtract(dropped)
+        retainedCollectionOccurrenceIDs.subtract(dropped)
     }
 
     /// Undo Clear by putting those songs before whatever was queued afterward. Restored
@@ -204,15 +228,18 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         protectedUpcoming.formUnion(upcoming.map(\.id))
     }
 
-    /// Forget all but the last `keeping` songs already played, so a long session's queue
-    /// stays small; going back still reaches the recent ones.
+    /// Bound old radio/history additions while retaining an explicitly selected finite
+    /// collection. Removing played collection occurrences would shrink repeat-all and
+    /// future shuffle pools, including after restoring queue.json.
     public mutating func trimHistory(keeping: Int) {
         let keeping = max(0, keeping)
         guard let currentIndex, currentIndex > keeping else { return }
         let dropCount = currentIndex - keeping
-        let dropped = Set(items[..<dropCount].map(\.id))
-        items.removeFirst(dropCount)
-        self.currentIndex = currentIndex - dropCount
+        let retained = retainedCollectionOccurrenceIDs
+        let dropped = Set(items[..<dropCount].lazy.map(\.id).filter { !retained.contains($0) })
+        guard !dropped.isEmpty else { return }
+        items.removeAll { dropped.contains($0.id) }
+        self.currentIndex = currentIndex - dropped.count
         if isShuffled { unshuffledOrder.removeAll { dropped.contains($0) } }
         protectedUpcoming.subtract(dropped)
     }

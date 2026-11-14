@@ -101,3 +101,12 @@
 "This playlist exceeds the safe limit of %lld songs. No partial queue was started." = "This playlist exceeds the safe limit of %lld songs. No partial queue was started.";
 "This playlist has no playable songs." = "This playlist has no playable songs.";
 "YouTube returned a repeated playlist page. The complete playlist could not be prepared." = "YouTube returned a repeated playlist page. The complete playlist could not be prepared.";
+
+/* Koda 0.4.2 lyrics sources. */
+"Enter a source name with 1–80 characters." = "Enter a source name with 1–80 characters.";
+"Use an HTTPS URL without a username, password, or fragment." = "Use an HTTPS URL without a username, password, or fragment.";
+"Use only {title}, {artist}, {album}, and {duration} placeholders." = "Use only {title}, {artist}, {album}, and {duration} placeholders.";
+"Include {title} or {artist} in the URL path or query." = "Include {title} or {artist} in the URL path or query.";
+"The lyrics source URL is too long." = "The lyrics source URL is too long.";
+"Synced lyrics from a public lyrics catalogue" = "Synced lyrics from a public lyrics catalogue";
+"Plain lyrics as an additional fallback" = "Plain lyrics as an additional fallback";

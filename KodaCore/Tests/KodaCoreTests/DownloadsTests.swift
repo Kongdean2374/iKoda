@@ -114,6 +114,34 @@ struct DownloadsTests {
         for _ in 0..<30 { await Task.yield() }
     }
 
+    @Test func offlineListRequiresDownloadIntentAndCompletedLocalBytes() async throws {
+        let h = Harness()
+        defer { h.cleanUp() }
+        h.downloads.networkSnapshotOverride = .init(status: .offline, interface: .unknown)
+        let tracks = songs(["cached", "waiting"])
+        let cached = tracks[0]
+        let stream = ResolvedStream(videoId: cached.id, url: URL(string: "https://example.invalid/cached")!,
+                                    userAgent: "test", itag: 140, contentLength: 4,
+                                    duration: 180, loudnessDb: nil, expiresAt: nil)
+        h.store.prepare(stream, song: cached)
+        try h.store.write(Data(count: 4), at: 0, for: cached.id)
+        #expect(h.store.completeSongs == [cached])
+        #expect(h.downloads.readyOfflineSongs.isEmpty)
+
+        h.downloads.download(tracks)
+        try await waitUntil { h.downloads.state(of: cached) == .downloaded }
+        #expect(h.downloads.readyOfflineSongs == [cached])
+        #expect(Set(h.downloads.songs.map(\.id)) == Set(tracks.map(\.id)))
+        #expect(h.downloads.state(of: tracks[1]) == .waiting)
+        #expect(h.io.metadataRequests.isEmpty, "promoting complete cache must not require a network request")
+
+        h.store.beginUse(cached.id)
+        h.downloads.remove([cached])
+        #expect(h.downloads.readyOfflineSongs.isEmpty)
+        #expect(h.store.completeStream(cached.id) != nil)
+        h.store.endUse(cached.id)
+    }
+
     @Test func backoffReleasesBothTransferSlotsForLaterSongs() async throws {
         let h = Harness()
         defer { h.cleanUp() }

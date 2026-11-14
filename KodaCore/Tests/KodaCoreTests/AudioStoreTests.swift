@@ -69,6 +69,81 @@ struct AudioStoreTests {
         #expect(reopened.completeStream("a") != nil)
     }
 
+    @Test func offlineLibraryContainsOnlyExplicitCompleteDownloadsWithoutDeletingPlaybackCache() throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cached = Song(id: "cached", title: "Cached", artistLine: "Artist")
+        let downloaded = Song(id: "downloaded", title: "Downloaded", artistLine: "Artist")
+        let partial = Song(id: "partial", title: "Partial", artistLine: "Artist")
+        let waiting = Song(id: "waiting", title: "Waiting", artistLine: "Artist")
+        store.markDownloaded([downloaded, partial, waiting])
+        for song in [cached, downloaded, partial] {
+            store.prepare(stream(song.id, length: 4), song: song)
+            try store.write(Data(count: song.id == partial.id ? 2 : 4), at: 0, for: song.id)
+        }
+        #expect(store.readyOfflineSongs == [downloaded])
+        #expect(Set(store.completeSongs.map(\.id)) == [cached.id, downloaded.id])
+        #expect(store.completeStream(cached.id) != nil)
+        #expect(store.entry(cached.id)?.isDownload == false)
+        #expect(Set(store.downloads.map(\.videoId)) == [downloaded.id, partial.id, waiting.id])
+    }
+
+    @Test func removingADownloadInUseDoesNotLeaveItInTheOfflineLibrary() throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let song = Song(id: "playing", title: "Playing", artistLine: "Artist")
+        store.prepare(stream(song.id, length: 4), song: song)
+        try store.write(Data(count: 4), at: 0, for: song.id)
+        #expect(store.readyOfflineSongs.isEmpty)
+        store.markDownloaded([song])
+        #expect(store.readyOfflineSongs == [song])
+        store.beginUse(song.id)
+        store.removeDownloads([song.id])
+        #expect(store.readyOfflineSongs.isEmpty)
+        #expect(store.completeStream(song.id) != nil, "removing the download must not interrupt its current playback")
+        #expect(store.completeSongs == [song])
+        #expect(store.entry(song.id)?.isDownload == false)
+        store.endUse(song.id)
+    }
+
+    @Test(arguments: [0, 2, 6])
+    func offlineLibraryRevalidatesMissingOrReplacedFiles(replacementSize: Int) throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let song = Song(id: "local", title: "Local", artistLine: "Artist")
+        store.markDownloaded([song])
+        store.prepare(stream(song.id, length: 4), song: song)
+        try store.write(Data(count: 4), at: 0, for: song.id)
+        #expect(store.readyOfflineSongs == [song])
+        if replacementSize == 0 { try FileManager.default.removeItem(at: store.fileURL(song.id)) }
+        else { try Data(count: replacementSize).write(to: store.fileURL(song.id)) }
+        #expect(store.readyOfflineSongs.isEmpty)
+        #expect(store.entry(song.id)?.isDownload == true)
+        #expect(store.entry(song.id)?.isComplete == false)
+    }
+
+    @Test func reopeningLegacyCacheNeverPromotesItToAnOfflineDownload() throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cached = Song(id: "legacy-cache", title: "Cached", artistLine: "Artist")
+        let downloaded = Song(id: "downloaded", title: "Downloaded", artistLine: "Artist")
+        store.markDownloaded([downloaded])
+        for song in [cached, downloaded] {
+            store.prepare(stream(song.id, length: 4), song: song)
+            try store.write(Data(count: 4), at: 0, for: song.id)
+        }
+        store.flush()
+        let index = directory.appending(path: "index.json")
+        var entries = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: index)) as? [[String: Any]])
+        let old = try #require(entries.firstIndex { $0["videoId"] as? String == cached.id })
+        entries[old].removeValue(forKey: "isDownload")
+        try JSONSerialization.data(withJSONObject: entries).write(to: index)
+        let reopened = AudioStore(directory: directory)
+        #expect(reopened.readyOfflineSongs == [downloaded])
+        #expect(Set(reopened.completeSongs.map(\.id)) == [cached.id, downloaded.id])
+        #expect(reopened.entry(cached.id)?.isDownload == false)
+    }
+
     @Test func evictsTheLeastRecentlyPlayedButNeverADownload() throws {
         let (store, directory) = try makeStore(limit: 10)
         defer { try? FileManager.default.removeItem(at: directory) }
