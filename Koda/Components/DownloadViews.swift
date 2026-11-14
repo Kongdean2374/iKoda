@@ -103,7 +103,6 @@ struct DownloadButton: View {
                 Button("Remove Downloads", systemImage: "trash", role: .destructive) { stopAndRemove() }
             }
         }
-        .onDisappear { cancelCollection() }
         .accessibilityLabel(label(state))
     }
 

@@ -141,14 +141,14 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     }
 
     /// Whether the response is audio for the range asked; checked once, on its first bytes.
-    private func accept(_ response: URLResponse?) throws {
-        let accepted = try CachingResponse.acceptedRange(response, requested: taskOffset..<taskEnd, length: length)
+    private func accept(_ response: URLResponse?, hasBody: Bool = true) throws {
+        let accepted = try CachingResponse.acceptedRange(response, requested: taskOffset..<taskEnd, length: length, hasBody: hasBody)
         taskOffset = accepted.lowerBound
         taskEnd = accepted.upperBound
     }
 
     fileprivate func received(_ data: Data, from task: URLSessionTask) {
-        guard task === self.task else { return }
+        guard task === self.task, !data.isEmpty else { return }
         if !taskAccepted {
             do {
                 try accept(task.response)
@@ -189,7 +189,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
         // it would loop.
         if error == nil, !taskAccepted {
             do {
-                try accept(task.response)
+                try accept(task.response, hasBody: false)
             } catch {
                 fail(error)
                 return

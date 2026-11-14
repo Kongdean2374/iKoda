@@ -182,6 +182,13 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         protectedUpcoming.subtract(dropped)
     }
 
+    /// Undo Clear by putting those songs before whatever was queued afterward. Restored
+    /// songs are new, manually protected occurrences; equal song IDs are never deduplicated.
+    /// Current/history and every occurrence added since Clear remain intact.
+    public mutating func restoreClearedUpcoming(_ songs: [Song]) {
+        playNext(songs)
+    }
+
     /// Reorder within the upcoming songs; offsets count from the first upcoming song, as a list of them does.
     public mutating func moveUpcoming(fromOffsets source: IndexSet, toOffset destination: Int) {
         let base = (currentIndex ?? -1) + 1

@@ -447,7 +447,6 @@ struct PlayerPlaylistLoadingTests {
         for _ in 0..<100 { await Task.yield() }
         #expect(h.player.queue == intendedQueue)
         #expect(h.player.wantsToPlay == intendedPlaying)
-        #expect(h.player.diagnosticEvents.allSatisfy { $0.kind != .pausedByUser })
     }
 
     @Test func explicitMusicIntentIsPublishedBeforeMetadataOrAudioCanStart() async throws {

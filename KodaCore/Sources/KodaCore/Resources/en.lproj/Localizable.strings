@@ -1,4 +1,5 @@
 /* KodaCore user-facing text. Media metadata and persisted values are never localized. */
+"The audio session could not be activated. Try playing again." = "The audio session could not be activated. Try playing again.";
 "%@ (Last.fm error %lld)" = "%@ (Last.fm error %lld)";
 "%lld plays are waiting to be sent, so new ones aren't being kept. Sync to send them." = "%lld plays are waiting to be sent, so new ones aren't being kept. Sync to send them.";
 "Acoustic" = "Acoustic";

@@ -154,9 +154,8 @@ struct QueuePanel: View {
         withAnimation {
             switch undo {
             case .cleared(let songs):
-                // Autoplay may have filled the queue again since; what was cleared comes back in its place.
-                player.clearUpcoming()
-                player.addToQueue(songs)
+                // Restore before later additions without discarding their occurrences.
+                player.restoreClearedUpcoming(songs)
             case .removed(let song, let index):
                 // Back where it was: inserted first, then moved down; a move to offset n lands it at n - 1.
                 player.playNext([song])

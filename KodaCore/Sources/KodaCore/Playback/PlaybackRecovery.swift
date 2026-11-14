@@ -42,7 +42,10 @@ public enum PlaybackFailureReason: String, Codable, Sendable, Equatable {
 
     private static func classifyNSError(_ error: NSError, depth: Int) -> Self {
         guard depth < 5 else { return .unknown }
+        if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return .cancelled }
         if error.domain == AudioStreamResponseError.errorDomain { return classifyHTTPStatus(error.code) }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+           let verdict = permanentHTTPVerdict(underlying, depth: depth + 1) { return verdict }
         if error.domain == NSURLErrorDomain {
             switch error.code {
             case NSURLErrorCancelled: return .cancelled
@@ -66,6 +69,20 @@ public enum PlaybackFailureReason: String, Codable, Sendable, Equatable {
         }
         if error.domain == "AVFoundationErrorDomain", error.code == -11819 { return .serviceUnavailable }
         return .unknown
+    }
+
+    /// A generic outer timeout cannot turn an actual access/not-found/rate-limit verdict
+    /// into a retry. Explicit cancellation still takes priority over any inner response.
+    private static func permanentHTTPVerdict(_ error: NSError, depth: Int) -> Self? {
+        guard depth < 5 else { return nil }
+        if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return .cancelled }
+        if error.domain == AudioStreamResponseError.errorDomain, [401, 403, 404, 429].contains(error.code) {
+            return classifyHTTPStatus(error.code)
+        }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return permanentHTTPVerdict(underlying, depth: depth + 1)
+        }
+        return nil
     }
 
     private static func classifyHTTPStatus(_ status: Int) -> Self {

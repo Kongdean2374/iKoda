@@ -1,4 +1,5 @@
 /* KodaCore user-facing text. Media metadata and persisted values are never localized. */
+"The audio session could not be activated. Try playing again." = "無法啟用音訊工作階段，請再次嘗試播放。";
 "%@ (Last.fm error %lld)" = "%@（Last.fm 錯誤 %lld）";
 "%lld plays are waiting to be sent, so new ones aren't being kept. Sync to send them." = "已有 %lld 筆播放紀錄等待傳送，因此無法再儲存新紀錄。請同步以傳送這些紀錄。";
 "Acoustic" = "原音";

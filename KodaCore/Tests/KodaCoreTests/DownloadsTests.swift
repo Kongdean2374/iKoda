@@ -180,20 +180,21 @@ struct DownloadsTests {
         #expect(h.io.metadataRequests.last == "c")
     }
 
-    @Test func cellularPolicyRestartsActiveWorkWithANewSession() async throws {
-        let h = Harness(allowsCellular: false)
+    @Test(arguments: [true, false])
+    func cellularPolicyRestartsActiveWorkWithANewSession(initialAllowsCellular: Bool) async throws {
+        let h = Harness(allowsCellular: initialAllowsCellular)
         defer { h.cleanUp() }
         let track = songs(["session"])[0]
         h.downloads.download([track])
         try await waitUntil { h.io.metadataRequests.count == 1 }
         h.io.resolve(0)
         try await waitUntil { h.io.transfers.count == 1 }
-        #expect(!h.io.transfers[0].allowsCellular)
-        h.downloads.allowsCellular = true
+        #expect(h.io.transfers[0].allowsCellular == initialAllowsCellular)
+        h.downloads.allowsCellular = !initialAllowsCellular
         try await waitUntil { h.io.metadataRequests.count == 2 }
         h.io.resolve(1)
         try await waitUntil { h.io.transfers.count == 2 }
-        #expect(h.io.transfers[1].allowsCellular)
+        #expect(h.io.transfers[1].allowsCellular == !initialAllowsCellular)
         #expect(h.io.transfers[0].session != h.io.transfers[1].session)
         h.io.finish(0)
         await drainReadyTasks()
@@ -202,7 +203,34 @@ struct DownloadsTests {
         h.io.finish(1)
         try await waitUntil { h.downloads.state(of: track) == .downloaded }
         #expect(h.downloads.bytes == 4)
-        #expect(h.defaults.bool(forKey: "koda.downloads.cellular"))
+        #expect(h.defaults.bool(forKey: "koda.downloads.cellular") == !initialAllowsCellular)
+    }
+
+    @Test func disablingCellularCancelsItsActiveTransferAndWaitsForWiFi() async throws {
+        let h = Harness(allowsCellular: true)
+        defer { h.cleanUp() }
+        let track = songs(["cellular-transfer"])[0]
+        h.downloads.networkSnapshotOverride = .init(status: .online, interface: .cellular, isExpensive: true)
+        h.downloads.download([track])
+        try await waitUntil { h.io.metadataRequests.count == 1 }
+        h.io.resolve(0)
+        try await waitUntil { h.io.transfers.count == 1 }
+        #expect(h.io.transfers[0].allowsCellular)
+        h.downloads.allowsCellular = false
+        h.io.finish(0)
+        await drainReadyTasks()
+        #expect(h.store.entry(track.id)?.bytes == 0)
+        #expect(h.downloads.state(of: track) == .waiting)
+        #expect(h.io.metadataRequests.count == 1)
+        h.downloads.networkSnapshotOverride = .init(status: .online, interface: .wifi)
+        try await waitUntil { h.io.metadataRequests.count == 2 }
+        h.io.resolve(1)
+        try await waitUntil { h.io.transfers.count == 2 }
+        #expect(!h.io.transfers[1].allowsCellular)
+        #expect(h.io.transfers[0].session != h.io.transfers[1].session)
+        h.io.finish(1)
+        try await waitUntil { h.downloads.state(of: track) == .downloaded }
+        #expect(h.downloads.bytes == 4)
     }
 
     @Test func cellularOnlyPathWaitsUntilCellularDownloadsAreEnabled() async throws {
@@ -274,11 +302,15 @@ struct DownloadsTests {
         let tracks = songs(["prefix", "later-page"])
         let request = h.downloads.beginCollection([tracks[0]])
         try await waitUntil { h.io.metadataRequests.count == 1 }
+        let metadataTask = Task<Void, Never> { try? await h.io.sleep(.seconds(3_600)) }
+        try await waitUntil { h.io.delays.count == 1 }
+        h.downloads.attachCollectionTask(metadataTask, request: request)
         switch action {
         case "remove": h.downloads.remove([tracks[0]])
         case "removeAll": h.downloads.removeAll()
         default: h.downloads.cancelCollection(request)
         }
+        #expect(metadataTask.isCancelled)
         #expect(!h.downloads.completeCollection(tracks, request: request))
         #expect(h.downloads.state(of: tracks[1]) == .none)
         #expect(!h.store.downloads.contains { $0.videoId == tracks[1].id })
@@ -288,6 +320,11 @@ struct DownloadsTests {
             #expect(h.downloads.songs.isEmpty)
             #expect(h.io.transfers.isEmpty)
         }
+        // A view may attach its task after removal; the expired intent must reject it too.
+        let lateTask = Task<Void, Never> { try? await h.io.sleep(.seconds(3_600)) }
+        try await waitUntil { h.io.delays.count == 2 }
+        h.downloads.attachCollectionTask(lateTask, request: request)
+        #expect(lateTask.isCancelled)
     }
 
     @Test func aCollectionCommitsOnlyOnceWithoutDuplicatingItsInitialPage() async throws {

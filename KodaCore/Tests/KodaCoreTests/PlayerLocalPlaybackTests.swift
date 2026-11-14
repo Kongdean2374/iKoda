@@ -95,7 +95,9 @@ struct PlayerLocalPlaybackTests {
         let oldItem = h.player.currentPlayerItem
         #expect(h.player.duration == 120)
         h.player.next()
-        try await waitFor("the actual second AVPlayerItem") { h.player.currentPlayerItem !== oldItem && h.player.current?.id == "long" }
+        try await waitFor("the actual second AVPlayerItem and its metadata") {
+            h.player.currentPlayerItem !== oldItem && h.player.current?.id == "long" && h.player.duration == 360
+        }
         #expect(h.player.duration == 360)
         #expect(h.player.position() < 2)
         #expect(h.player.queue.currentIndex == 1)
@@ -134,7 +136,10 @@ struct PlayerLocalPlaybackTests {
         }
         h.player.play([h.songs[0]])
         h.player.pause() // Pause before the asynchronous stream is installed and fails.
-        try await waitFor("paused failed AVPlayerItem") { h.player.phase == .ready && h.player.currentPlayerItem?.status == .failed }
+        try await waitFor("paused failed AVPlayerItem") {
+            h.player.diagnosticEvents.contains(where: { $0.kind == .playbackFailed })
+                && (h.player.currentPlayerItem?.status == .failed || h.player.currentPlayerItem == nil)
+        }
         let occurrence = h.player.queue.current?.id
         let failed = h.player.currentPlayerItem
         #expect(!h.player.wantsToPlay)
@@ -170,6 +175,62 @@ struct PlayerLocalPlaybackTests {
         #expect(h.player.position() >= 42 && h.player.position() < 44)
     }
 
+    @Test func automaticAVItemHandoverPersistsTheNewSongsClock() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        h.player.play(h.songs)
+        try await waitFor("two prepared PCM items") { h.player.loadedItemCount == 2 }
+        h.player.pause()
+        let sought = await h.player.playbackEngine.seek(to: CMTime(seconds: 119.5, preferredTimescale: 600),
+                                                       toleranceBefore: .zero, toleranceAfter: .zero)
+        #expect(sought)
+        h.player.pause()
+        h.player.persistQueueNow()
+        // Simulate AVQueuePlayer's automatic item advance without first moving PlayQueue.
+        h.player.playbackEngine.advanceToNextItem()
+        try await waitFor("automatic handover metadata") { h.player.current?.id == "long" && h.player.duration == 360 }
+        try await Task.sleep(for: .milliseconds(450))
+        let data = try Data(contentsOf: h.directory.appending(path: "queue.json"))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let position = try #require(object["position"] as? Double)
+        let queueObject = try #require(object["queue"] as? [String: Any])
+        let queueData = try JSONSerialization.data(withJSONObject: queueObject)
+        let restored = try JSONDecoder().decode(PlayQueue.self, from: queueData)
+        #expect(restored.current?.song.id == "long")
+        #expect(position < 2)
+        #expect(position >= 0)
+    }
+
+    @Test(arguments: [false, true])
+    func mediaServerResetRebuildsOnePipelineAndPreservesPlaybackIntent(paused: Bool) async throws {
+        let h = try Harness(savedPosition: 42)
+        defer { h.cleanUp() }
+        h.player.resume()
+        try await waitFor("initial PCM stream at saved position") {
+            h.player.currentPlayerItem?.status == .readyToPlay && h.player.position() >= 42
+        }
+        if paused { h.player.pause() }
+        let occurrence = h.player.queue.current?.id
+        let oldEngine = h.player.engineIdentifier
+        let position = h.player.position()
+        h.player.handleMediaServicesReset()
+        let newEngine = h.player.engineIdentifier
+        #expect(newEngine != oldEngine)
+        #expect(h.player.queue.current?.id == occurrence)
+        #expect(h.player.wantsToPlay == !paused)
+        if paused {
+            #expect(h.player.loadedItemCount == 0)
+            #expect(h.player.phase == .idle)
+            #expect(abs(h.player.position() - position) < 0.01)
+        } else {
+            try await waitFor("new media-server pipeline") { h.player.currentPlayerItem?.status == .readyToPlay }
+            #expect(abs(h.player.position() - position) < 2)
+            #expect(h.player.loadedItemCount <= 2)
+        }
+        #expect(h.player.engineIdentifier == newEngine)
+        #expect(h.player.queue.current?.id == occurrence)
+    }
+
     @Test(arguments: [false, true])
     func confirmedBadLocalAudioIsReplacedOnceWithoutChangingOccurrenceOrPosition(initiallyOffline: Bool) async throws {
         let h = try Harness(savedPosition: 42)
@@ -187,7 +248,7 @@ struct PlayerLocalPlaybackTests {
         var invalidations = 0
         let good = h.short
         h.player.remoteStreamLoader = { song, _ in
-            remoteLoads += 1
+            if song.id == "short" { remoteLoads += 1 }
             return Harness.stream(song.id, url: good, duration: song.duration)
         }
         h.player.onLocalAudioInvalidated = { _ in invalidations += 1 }

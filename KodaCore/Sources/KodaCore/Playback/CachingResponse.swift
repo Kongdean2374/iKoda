@@ -25,11 +25,15 @@ enum AudioStreamResponseError: Error, CustomNSError, Equatable, Sendable {
 /// Validates metadata before a response is allowed to write bytes into the audio cache.
 /// A server may ignore Range and send the full file with HTTP 200; its offset then resets.
 enum CachingResponse {
-    static func acceptedRange(_ response: URLResponse?, requested: Range<Int64>, length: Int64) throws -> Range<Int64> {
+    static func acceptedRange(_ response: URLResponse?, requested: Range<Int64>, length: Int64,
+                              hasBody: Bool = true) throws -> Range<Int64> {
         guard let response = response as? HTTPURLResponse else { throw AudioStreamResponseError.invalidResponse }
         guard response.statusCode == 200 || response.statusCode == 206 else {
             throw AudioStreamResponseError.httpStatus(response.statusCode)
         }
+        // An empty successful response cannot fill a positive-length gap. Failing it here
+        // prevents the loader from repeatedly requesting the same missing bytes forever.
+        guard hasBody else { throw AudioStreamResponseError.invalidRange }
         guard length > 0, requested.lowerBound >= 0, requested.upperBound <= length else {
             throw AudioStreamResponseError.invalidRange
         }

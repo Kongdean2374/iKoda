@@ -53,6 +53,38 @@ struct CachingResponseTests {
                 "A concrete access verdict takes priority over a generic media-services error")
     }
 
+    @Test(arguments: [401, 403, 404, 429])
+    func permanentHTTPVerdictWinsAnOuterTimeoutButNotCancellation(status: Int) {
+        let actual = AudioStreamResponseError.httpStatus(status) as NSError
+        let expected = PlaybackFailureReason.classify(actual)
+        let timeout = NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut,
+                              userInfo: [NSUnderlyingErrorKey: actual])
+        let outer = NSError(domain: "AVFoundationErrorDomain", code: -11800,
+                            userInfo: [NSUnderlyingErrorKey: timeout])
+        #expect(PlaybackFailureReason.classify(outer) == expected)
+        #expect(!PlaybackFailureReason.classify(outer).isRetryable)
+        let cancelled = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled,
+                                userInfo: [NSUnderlyingErrorKey: outer])
+        #expect(PlaybackFailureReason.classify(cancelled) == .cancelled)
+    }
+
+    @Test(arguments: [200, 206, 503, 403])
+    func emptyResponsesFailWithoutStartingAnEndlessGapRefetch(status: Int) {
+        let headers = status == 206 ? ["Content-Type": "audio/mp4", "Content-Range": "bytes 0-999/1000"] : ["Content-Type": "audio/mp4"]
+        do {
+            _ = try CachingResponse.acceptedRange(response(status, headers: headers), requested: 0..<1_000,
+                                                 length: 1_000, hasBody: false)
+            Issue.record("An empty body must never be accepted as a successfully filled gap")
+        } catch {
+            if status == 200 || status == 206 {
+                #expect(error as? AudioStreamResponseError == .invalidRange)
+                #expect(PlaybackFailureReason.classify(error) == .unavailable)
+            } else {
+                #expect(error as? AudioStreamResponseError == .httpStatus(status))
+            }
+        }
+    }
+
     @Test func validPartialAndIgnoredRangeResponsesKeepTheirCacheOffsets() throws {
         let partial = response(206, headers: ["Content-Type": "audio/mp4", "Content-Range": "bytes 500-999/1000", "Content-Length": "500"])
         #expect(try CachingResponse.acceptedRange(partial, requested: 500..<1_000, length: 1_000) == 500..<1_000)

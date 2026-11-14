@@ -71,6 +71,7 @@ public final class Player {
     @ObservationIgnored private var playlistRequest: PlaylistRequest?
     @ObservationIgnored private var playlistLoadingTask: Task<Bool, Never>?
     @ObservationIgnored private var playlistRequestGeneration = 0
+    @ObservationIgnored public private(set) var playbackIntentRevision: UInt64 = 0
     /// Metadata-only test seams; no audio URLs are resolved while preparing the source.
     @ObservationIgnored var playlistFirstPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?
     @ObservationIgnored var playlistPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?
@@ -310,6 +311,8 @@ public final class Player {
     var networkSnapshotOverride: NetworkSnapshot?
     private var recoveryNetwork: NetworkSnapshot { networkSnapshotOverride ?? latestNetwork }
     var engineIdentifier: ObjectIdentifier { ObjectIdentifier(avPlayer) }
+    /// Internal integration-test seam for real AVFoundation item transitions.
+    var playbackEngine: AVQueuePlayer { avPlayer }
     var currentPlayerItem: AVPlayerItem? { avPlayer.currentItem }
     var standbyPlayer: AVQueuePlayer? { standby?.player }
     private var generation = 0
@@ -545,6 +548,7 @@ public final class Player {
     /// Explicit queue/transport edits also call this: a late metadata response must never
     /// overwrite a queue the listener has edited since requesting the playlist.
     public func cancelPlaylistLoading() {
+        playbackIntentRevision &+= 1
         playlistRequestGeneration += 1
         playlistLoadingTask?.cancel()
         playlistLoadingTask = nil
@@ -553,6 +557,18 @@ public final class Player {
         playlistLoadingError = nil
         playlistLoadCanRetry = false
         playlistLoadingSourceID = nil
+    }
+
+    /// A link may need metadata before it can select a song. Claim its intent now and let
+    /// the caller reject a late response if any newer transport/queue request changes revision.
+    @discardableResult
+    public func beginExternalPlaybackRequest() -> UInt64 {
+        cancelPlaylistLoading()
+        cancelRadioLoading()
+        restoredPlaybackWasActive = false
+        mayResumeRestoredQueue = false
+        onPlaybackRequested?()
+        return playbackIntentRevision
     }
 
     private func playlistStartIndex(count: Int, requested: Int?, shuffled: Bool) -> Int {
@@ -625,7 +641,7 @@ public final class Player {
                 return false
             }
             } onCancel: { [weak self] in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self, self.playlistRequestGeneration == token else { return }
                     self.cancelPlaylistLoading()
                 }
@@ -673,7 +689,8 @@ public final class Player {
         }
         cancelRecovery()
         let failedItem = avPlayer.currentItem?.status == .failed
-        if failedItem { _ = invalidateFailedLocalAudio(error: avPlayer.currentItem?.error) }
+            || (avPlayer.currentItem == nil && lastAVItem?.status == .failed)
+        if failedItem { _ = invalidateFailedLocalAudio(error: avPlayer.currentItem?.error ?? lastAVItem?.error) }
         if invalidatedLocalOccurrence == queue.current?.id, recoveryNetwork.status != .online,
            let song = queue.current?.song, audioStore?.completeStream(song.id) == nil {
             wantsToPlay = false
@@ -902,6 +919,13 @@ public final class Player {
         queueChanged()
     }
 
+    public func restoreClearedUpcoming(_ songs: [Song]) {
+        cancelPlaylistLoading()
+        cancelRadioLoading()
+        queue.restoreClearedUpcoming(songs)
+        queueChanged()
+    }
+
     /// Stop and empty the queue.
     public func stop() {
         cancelPlaylistLoading()
@@ -976,7 +1000,11 @@ public final class Player {
         timeAnchor = TimeAnchor(position: position, date: Date(), rate: 0)
         updateNowPlaying()
         persistQueue()
-        if wantsToPlay && !interruption.isInterrupted { activateAudioSession() }
+        if wantsToPlay && !interruption.isInterrupted && !activateAudioSession() {
+            recordDiagnostic(.streamInitializationFailed, reason: .serviceUnavailable)
+            applyRecovery(.stop(.serviceUnavailable), position: position)
+            return
+        }
         refreshAudioInformation()
 
         Task {
@@ -998,6 +1026,10 @@ public final class Player {
                 invalidatedLocalOccurrence = nil
                 streamByItem[ObjectIdentifier(playerItem)] = stream
                 occurrences[ObjectIdentifier(playerItem)] = item.id
+                // Watch before insertion: AVQueuePlayer can reject and remove a bad local
+                // item before its asynchronous currentItem KVO callback reaches this actor.
+                lastAVItem = playerItem
+                watchStatus(of: playerItem, id: item.id)
                 avPlayer.insert(playerItem, after: nil)
                 if position > 1 {
                     await avPlayer.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -1682,9 +1714,10 @@ public final class Player {
                 let songs: [Song]
                 if let loader { songs = try await loader(last.song.id) }
                 else { songs = try await music.radio(for: last.song.id).songs }
-                guard let self, !Task.isCancelled, let request = radioRequest,
-                      request.generation == token, request.anchor == queue.current?.id,
-                      wantsToPlay else { return }
+                guard let self else { return }
+                defer { self.finishRadioLoading(generation: token) }
+                guard !Task.isCancelled, let request = radioRequest,
+                      request.generation == token, request.anchor == queue.current?.id, wantsToPlay else { return }
                 radioRequest = nil
                 radioTask = nil
                 let known = Set(queue.items.suffix(100).map(\.song.id))
@@ -1698,14 +1731,21 @@ public final class Player {
                 if request.advanceWhenReady { move(to: queue.advance(automatic: false)) }
                 else { prepareNext() }
             } catch {
-                guard let self, !Task.isCancelled, let request = radioRequest,
-                      request.generation == token, request.anchor == queue.current?.id,
-                      wantsToPlay else { return }
+                guard let self else { return }
+                defer { self.finishRadioLoading(generation: token) }
+                guard !Task.isCancelled, let request = radioRequest,
+                      request.generation == token, request.anchor == queue.current?.id, wantsToPlay else { return }
                 radioRequest = nil
                 radioTask = nil
                 if request.advanceWhenReady { pauseCurrentPlayback(from: "the queue ending with no radio") }
             }
         }
+    }
+
+    private func finishRadioLoading(generation token: Int) {
+        guard radioRequest?.generation == token else { return }
+        radioRequest = nil
+        radioTask = nil
     }
 
     // MARK: - Observing AVFoundation
@@ -1763,7 +1803,14 @@ public final class Player {
 
     /// AVQueuePlayer moved on by itself: the preloaded song is now playing.
     private func currentItemChanged(_ item: ObjectIdentifier?) {
-        guard let item, let id = occurrences[item], avPlayer.currentItem.map(ObjectIdentifier.init) == item else { return }
+        guard let item else {
+            if avPlayer.currentItem == nil, let failed = lastAVItem, failed.status == .failed,
+               let id = occurrences[ObjectIdentifier(failed)], queue.current?.id == id {
+                recover(id, at: position(), error: failed.error)
+            }
+            return
+        }
+        guard let id = occurrences[item], avPlayer.currentItem.map(ObjectIdentifier.init) == item else { return }
         // Its first time reading can still be the previous item's, so a preloaded song starts its clock at zero.
         let startsFresh = preloaded.remove(item) != nil
         // A preloaded copy of the song already current is repeat one coming round again:
@@ -1802,13 +1849,12 @@ public final class Player {
             }
             cancelRecovery()
             recovery.begin(for: id)
-            queue.trimHistory(keeping: Self.historyLimit)
-            persistQueue()
         }
         // Manual next already advances PlayQueue before AVQueuePlayer changes its item.
         // Metadata belongs to the actual AV item, not to whether that queue mutation was needed.
         if changedItem || startsFresh {
             recovery.begin(for: id)
+            queue.trimHistory(keeping: Self.historyLimit)
             duration = queue.current?.song.duration ?? 0
             soundProcessingAvailable = avPlayer.currentItem.map { TransitionDSP.of($0) != nil }
             if let stream = streamByItem[item] {
@@ -1829,6 +1875,9 @@ public final class Player {
             // Our own load of the current song; it may be seeking to a resume position.
             sampleTime()
         }
+        // The saved occurrence, duration and position must describe the same AV item.
+        // Persisting before the fresh clock reset saved the outgoing song's position.
+        if changedItem || startsFresh { persistQueue() }
         updateNowPlaying()
         prepareNext()
         armCrossfade()
@@ -1936,16 +1985,21 @@ public final class Player {
     private func itemFailed(_ item: ObjectIdentifier?, error: Error? = nil) {
         trace("itemFailed known=\(item.flatMap { occurrences[$0] } != nil) isCurrent=\(item.flatMap { occurrences[$0] } == queue.current?.id)")
         guard let item, let id = occurrences[item], id == queue.current?.id,
-              avPlayer.currentItem.map(ObjectIdentifier.init) == item else { return }
+              avPlayer.currentItem.map(ObjectIdentifier.init) == item
+                || (avPlayer.currentItem == nil && lastAVItem.map(ObjectIdentifier.init) == item) else { return }
         recover(id, at: position(), error: error ?? avPlayer.currentItem?.error)
     }
 
     /// A broken URL does not always post a failure; the item's status turns failed and the player waits forever.
     private func watchStatus(of item: AVPlayerItem?, id: UUID) {
+        let token = generation
+        let source = ObjectIdentifier(avPlayer)
         itemStatusObservation = item?.observe(\.status, options: [.initial, .new]) { @Sendable [weak self] item, _ in
             guard item.status == .failed else { return }
             Task { @MainActor in
-                guard let self, self.queue.current?.id == id, self.avPlayer.currentItem === item,
+                guard let self, self.generation == token, ObjectIdentifier(self.avPlayer) == source,
+                      self.queue.current?.id == id,
+                      self.avPlayer.currentItem === item || self.avPlayer.currentItem == nil,
                       self.occurrences[ObjectIdentifier(item)] == id else { return }
                 trace("current item status failed")
                 self.recover(id, at: self.position(), error: item.error)
@@ -1983,18 +2037,18 @@ public final class Player {
     private func recover(_ id: UUID, at seconds: TimeInterval, error: Error? = nil) {
         guard queue.current?.id == id else { return }
         let rejectedLocalFile = invalidateFailedLocalAudio(error: error)
+        let isRejectedLocalItem = rejectedLocalFile
+            || (invalidatedLocalOccurrence == id && currentStream?.url.isFileURL == true)
         guard wantsToPlay, !interruption.isInterrupted else {
-            if rejectedLocalFile {
-                recordDiagnostic(.playbackFailed, reason: .unavailable)
-                refreshAudioInformation()
-            }
+            recordDiagnostic(.playbackFailed, reason: isRejectedLocalItem ? .unavailable : PlaybackFailureReason.classify(error))
+            refreshAudioInformation()
             return
         }
-        let decision = rejectedLocalFile
+        let decision = isRejectedLocalItem
             ? recovery.requestLocalReplacement(for: id, at: seconds, wantsToPlay: true, network: recoveryNetwork)
             : recovery.request(for: id, at: seconds, error: error, wantsToPlay: true, network: recoveryNetwork)
         guard decision != .ignore else { return }
-        recordDiagnostic(.playbackFailed, reason: rejectedLocalFile ? .unavailable : PlaybackFailureReason.classify(error))
+        recordDiagnostic(.playbackFailed, reason: isRejectedLocalItem ? .unavailable : PlaybackFailureReason.classify(error))
         applyRecovery(decision, position: seconds)
     }
 
@@ -2237,6 +2291,57 @@ public final class Player {
         #endif
     }
 
+    /// Media-server resets invalidate AVFoundation objects. Rebuild the one main pipeline
+    /// without treating the reset as a next-song request or as permission to resume a pause.
+    func handleMediaServicesReset() {
+        let savedPosition = position()
+        let savedIntent = wantsToPlay
+        generation += 1
+        nextGeneration += 1
+        cancelRecovery()
+        cancelRadioLoading()
+        stallWatchdog?.cancel()
+        stallWatchdog = nil
+        endTransition()
+        finishTail()
+        cancelFadeIn()
+        discardStandby()
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        detach(avPlayer)
+        avPlayer.pause()
+        avPlayer.removeAllItems()
+        occurrences = [:]
+        preloaded = []
+        streamByItem = [:]
+        attachingChannels = []
+        lastAVItem = nil
+        currentStream = nil
+        soundProcessingAvailable = nil
+        measuredCodec = nil
+        measuredSampleRate = nil
+        measuredChannels = nil
+        adopt(AVQueuePlayer())
+        wantsToPlay = savedIntent
+        isBuffering = false
+        phase = .idle
+        timeAnchor = TimeAnchor(position: savedPosition, date: Date(), rate: 0)
+        // A reset can occur in the background; the interrupted/paused intention still wins.
+        if let id = queue.current?.id, savedIntent, !interruption.isInterrupted {
+            if activateAudioSession() {
+                loadCurrent(at: savedPosition)
+            } else {
+                // This notification itself is evidence of a reset, not an inferred HTTP or
+                // decoder failure. Existing bounded recovery may try the new pipeline again.
+                recover(id, at: savedPosition,
+                        error: NSError(domain: AVFoundationErrorDomain, code: AVError.Code.mediaServicesWereReset.rawValue))
+            }
+        }
+        updateNowPlaying()
+        refreshAudioInformation()
+        persistQueueNow()
+    }
+
     private func observeAudioSession() {
         #if os(iOS)
         let center = NotificationCenter.default
@@ -2252,6 +2357,7 @@ public final class Player {
                 switch type {
                 case .began:
                     self.cancelPlaylistLoading()
+                    self.cancelRadioLoading()
                     // A call or another app took the audio; remember the intent so it can come back.
                     self.interruption.began(wantsToPlay: self.wantsToPlay)
                     self.cancelRecovery()
@@ -2263,6 +2369,9 @@ public final class Player {
                     self.sampleTime()
                     self.persistQueueNow()
                 case .ended:
+                    // Explicit resume may already have reactivated a stale interruption.
+                    // Its delayed/duplicate ended event must not pause the new intention.
+                    guard self.interruption.isInterrupted else { break }
                     let shouldResume = self.interruption.ended(shouldResume: options.contains(.shouldResume))
                     self.recordDiagnostic(.interruptionEnded)
                     if shouldResume { self.resume() }
@@ -2279,6 +2388,9 @@ public final class Player {
                 // Headphones out: stop rather than play out loud.
                 if reason == .oldDeviceUnavailable { self?.pause(from: "headphones disconnecting") }
             }
+        }
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleMediaServicesReset() }
         }
         #endif
     }
@@ -2414,7 +2526,7 @@ public final class Player {
     }
 
     private var queueFile: URL? { storage?.appending(path: "queue.json") }
-    private let saveClock = SaveClock()
+    private let queueSnapshotWriter = QueueSnapshotWriter()
 
     /// How many songs already played stay in the queue, for going back.
     static let historyLimit = 100
@@ -2425,13 +2537,13 @@ public final class Player {
     public func persistQueue() {
         lastPersisted = Date()
         guard let queueFile else { return }
-        let version = saveClock.next()
+        let version = queueSnapshotWriter.reserve()
         let saved = Saved(queue: queue, position: position(), smartHistory: smartHistory, wasPlaying: wantsToPlay)
-        let clock = saveClock
+        let writer = queueSnapshotWriter
         Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(300))
-            guard clock.isNewest(version), let data = try? JSONEncoder().encode(saved), clock.isNewest(version) else { return }
-            try? data.write(to: queueFile, options: .atomic)
+            guard writer.isCurrent(version), let data = try? JSONEncoder().encode(saved) else { return }
+            _ = try? writer.write(data, version: version, to: queueFile)
         }
     }
 
@@ -2439,9 +2551,9 @@ public final class Player {
     public func persistQueueNow() {
         lastPersisted = Date()
         guard let queueFile else { return }
-        _ = saveClock.next()
+        let version = queueSnapshotWriter.reserve()
         if let data = try? JSONEncoder().encode(Saved(queue: queue, position: position(), smartHistory: smartHistory, wasPlaying: wantsToPlay)) {
-            try? data.write(to: queueFile, options: .atomic)
+            _ = try? queueSnapshotWriter.write(data, version: version, to: queueFile)
         }
     }
 

@@ -190,11 +190,12 @@ struct PlaylistView: View {
                 catch { return [] }
                 continue
             }
-            let before = songs.count
+            let before = continuation
             await loadMore()
             guard !Task.isCancelled else { return [] }
-            // A page that failed to load: download what there is.
-            if songs.count == before { break }
+            // A failed or repeated page leaves its cursor unchanged. An empty page can
+            // still advance to more playable songs, so song count is not a completion test.
+            if continuation == before { break }
         }
         return Task.isCancelled ? [] : songs
     }
