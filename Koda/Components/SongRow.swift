@@ -84,7 +84,7 @@ struct NowPlayingBars: View {
             .font(.body.weight(.semibold))
             .foregroundStyle(Color.accentColor)
             .symbolEffect(.variableColor.iterative.reversing, options: .repeat(.continuous), isActive: isPlaying)
-            .accessibilityLabel(isPlaying ? "Playing" : "Paused")
+            .accessibilityLabel(isPlaying ? String(localized: "Playing") : String(localized: "Paused"))
     }
 }
 

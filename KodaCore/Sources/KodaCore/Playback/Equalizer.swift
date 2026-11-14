@@ -10,28 +10,28 @@ public enum EqualizerPreset: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .off: "Off"
-        case .acoustic: "Acoustic"
-        case .bassBooster: "Bass Booster"
-        case .bassReducer: "Bass Reducer"
-        case .classical: "Classical"
-        case .dance: "Dance"
-        case .deep: "Deep"
-        case .electronic: "Electronic"
-        case .hipHop: "Hip-Hop"
-        case .jazz: "Jazz"
-        case .latin: "Latin"
-        case .loudness: "Loudness"
-        case .lounge: "Lounge"
-        case .piano: "Piano"
-        case .pop: "Pop"
-        case .rnb: "R&B"
-        case .rock: "Rock"
-        case .smallSpeakers: "Small Speakers"
-        case .spokenWord: "Spoken Word"
-        case .trebleBooster: "Treble Booster"
-        case .trebleReducer: "Treble Reducer"
-        case .vocalBooster: "Vocal Booster"
+        case .off: NSLocalizedString("Off", bundle: KodaLocalization.bundle, comment: "")
+        case .acoustic: NSLocalizedString("Acoustic", bundle: KodaLocalization.bundle, comment: "")
+        case .bassBooster: NSLocalizedString("Bass Booster", bundle: KodaLocalization.bundle, comment: "")
+        case .bassReducer: NSLocalizedString("Bass Reducer", bundle: KodaLocalization.bundle, comment: "")
+        case .classical: NSLocalizedString("Classical", bundle: KodaLocalization.bundle, comment: "")
+        case .dance: NSLocalizedString("Dance", bundle: KodaLocalization.bundle, comment: "")
+        case .deep: NSLocalizedString("Deep", bundle: KodaLocalization.bundle, comment: "")
+        case .electronic: NSLocalizedString("Electronic", bundle: KodaLocalization.bundle, comment: "")
+        case .hipHop: NSLocalizedString("Hip-Hop", bundle: KodaLocalization.bundle, comment: "")
+        case .jazz: NSLocalizedString("Jazz", bundle: KodaLocalization.bundle, comment: "")
+        case .latin: NSLocalizedString("Latin", bundle: KodaLocalization.bundle, comment: "")
+        case .loudness: NSLocalizedString("Loudness", bundle: KodaLocalization.bundle, comment: "")
+        case .lounge: NSLocalizedString("Lounge", bundle: KodaLocalization.bundle, comment: "")
+        case .piano: NSLocalizedString("Piano", bundle: KodaLocalization.bundle, comment: "")
+        case .pop: NSLocalizedString("Pop", bundle: KodaLocalization.bundle, comment: "")
+        case .rnb: NSLocalizedString("R&B", bundle: KodaLocalization.bundle, comment: "")
+        case .rock: NSLocalizedString("Rock", bundle: KodaLocalization.bundle, comment: "")
+        case .smallSpeakers: NSLocalizedString("Small Speakers", bundle: KodaLocalization.bundle, comment: "")
+        case .spokenWord: NSLocalizedString("Spoken Word", bundle: KodaLocalization.bundle, comment: "")
+        case .trebleBooster: NSLocalizedString("Treble Booster", bundle: KodaLocalization.bundle, comment: "")
+        case .trebleReducer: NSLocalizedString("Treble Reducer", bundle: KodaLocalization.bundle, comment: "")
+        case .vocalBooster: NSLocalizedString("Vocal Booster", bundle: KodaLocalization.bundle, comment: "")
         }
     }
 

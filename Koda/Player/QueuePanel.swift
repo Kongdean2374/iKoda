@@ -17,8 +17,8 @@ struct QueuePanel: View {
 
         var label: String {
             switch self {
-            case .cleared: "Undo"
-            case .removed: "Undo Remove"
+            case .cleared: String(localized: "Undo")
+            case .removed: String(localized: "Undo Remove")
             }
         }
     }
@@ -29,7 +29,7 @@ struct QueuePanel: View {
             // Above the list rather than a sticky section header: iOS draws those on a band
             // of their own, which showed as an outline over the songs scrolling under it.
             HStack {
-                Text(player.upcoming.isEmpty ? "Nothing Up Next" : "Up Next")
+                Text(player.upcoming.isEmpty ? String(localized: "Nothing Up Next") : String(localized: "Up Next"))
                     .font(.headline)
                     .foregroundStyle(Color.primary)
                 Spacer()
@@ -100,7 +100,7 @@ struct QueuePanel: View {
         }
         Section {
             let liked = library.isLiked(item.song)
-            Button(liked ? "Remove from Liked" : "Like", systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(item.song) }
+            Button(liked ? String(localized: "Remove from Liked") : String(localized: "Like"), systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(item.song) }
             AddToPlaylistMenu(songs: [item.song])
             if let album = item.song.album {
                 Button("Go to Album", systemImage: "square.stack") {
@@ -164,7 +164,7 @@ struct QueuePanel: View {
         }
     }
 
-    private func toggle(_ title: String, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func toggle(_ title: LocalizedStringKey, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .labelStyle(.iconOnly)
@@ -175,7 +175,7 @@ struct QueuePanel: View {
         .buttonStyle(PlayerToggleStyle(isOn: isOn, offFill: 0.12))
         .sensoryFeedback(.selection, trigger: isOn)
         .accessibilityLabel(title)
-        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityValue(isOn ? String(localized: "On") : String(localized: "Off"))
     }
 }
 

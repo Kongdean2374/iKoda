@@ -4,15 +4,15 @@ import SwiftUI
 extension StreamQuality {
     var title: String {
         switch self {
-        case .high: "High Quality"
-        case .dataSaver: "Data Saver"
+        case .high: String(localized: "High Quality")
+        case .dataSaver: String(localized: "Data Saver")
         }
     }
 
     var detail: String {
         switch self {
-        case .high: "AAC 128 kbps"
-        case .dataSaver: "HE-AAC 48 kbps, about a third of the data"
+        case .high: String(localized: "AAC 128 kbps")
+        case .dataSaver: String(localized: "HE-AAC 48 kbps, about a third of the data")
         }
     }
 }
@@ -59,8 +59,8 @@ struct AudioQualitySettingsView: View {
         @Bindable var player = player
         Form {
             Section {
-                picker("Wi‑Fi Streaming", selection: $player.unmeteredQuality)
-                picker("Mobile Data Streaming", selection: $player.meteredQuality)
+                picker(String(localized: "Wi‑Fi Streaming"), selection: $player.unmeteredQuality)
+                picker(String(localized: "Mobile Data Streaming"), selection: $player.meteredQuality)
             } footer: {
                 Text("Data Saver streams use about a third of the data. In Low Data Mode, Koda always uses Data Saver. Downloads and songs kept as you play them are always High Quality, so a Data Saver stream isn't kept.")
             }

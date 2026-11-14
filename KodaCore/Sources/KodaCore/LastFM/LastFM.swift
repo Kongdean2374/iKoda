@@ -266,7 +266,7 @@ public final class LastFM {
 
     private func enqueue(_ play: LastFMPlay) {
         guard queued.count < Self.queueLimit else {
-            notice = "\(Self.queueLimit) plays are waiting to be sent, so new ones aren't being kept. Sync to send them."
+            notice = String(format: NSLocalizedString("%lld plays are waiting to be sent, so new ones aren't being kept. Sync to send them.", bundle: KodaLocalization.bundle, comment: ""), Int64(Self.queueLimit))
             return
         }
         queued.append(play)
@@ -314,11 +314,11 @@ public final class LastFM {
 
     private static func ignoredReason(_ code: Int) -> String {
         switch code {
-        case 1: "Last.fm ignored a play: it didn't accept the artist's name."
-        case 2: "Last.fm ignored a play: it didn't accept the song's title."
-        case 3: "Last.fm ignored a play: its time was too far in the past."
-        case 4: "Last.fm ignored a play: its time was in the future."
-        default: "Last.fm ignored a play (reason \(code))."
+        case 1: NSLocalizedString("Last.fm ignored a play: it didn't accept the artist's name.", bundle: KodaLocalization.bundle, comment: "")
+        case 2: NSLocalizedString("Last.fm ignored a play: it didn't accept the song's title.", bundle: KodaLocalization.bundle, comment: "")
+        case 3: NSLocalizedString("Last.fm ignored a play: its time was too far in the past.", bundle: KodaLocalization.bundle, comment: "")
+        case 4: NSLocalizedString("Last.fm ignored a play: its time was in the future.", bundle: KodaLocalization.bundle, comment: "")
+        default: String(format: NSLocalizedString("Last.fm ignored a play (reason %lld).", bundle: KodaLocalization.bundle, comment: ""), Int64(code))
         }
     }
 

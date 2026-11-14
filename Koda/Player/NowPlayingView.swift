@@ -305,7 +305,7 @@ struct NowPlayingView: View {
     }
 
     /// `activeImage` is spelled out because not every symbol has a filled form; `list.bullet.fill` draws nothing.
-    private func panelButton(_ target: Panel, systemImage: String, activeImage: String, label: String) -> some View {
+    private func panelButton(_ target: Panel, systemImage: String, activeImage: String, label: LocalizedStringKey) -> some View {
         let active = panel == target
         return Button {
             setPanel(active ? .artwork : target)
@@ -374,7 +374,7 @@ struct LikeButton: View {
         }
         .buttonStyle(.plain)
         .sensoryFeedback(.impact(weight: .light), trigger: liked)
-        .accessibilityLabel(liked ? "Unlike" : "Like")
+        .accessibilityLabel(liked ? String(localized: "Unlike") : String(localized: "Like"))
     }
 }
 
@@ -427,7 +427,7 @@ struct TransportControls: View {
     }
 
     /// Only the pressed button answers: its own symbol bounces.
-    private func skipButton(_ symbol: String, label: String, size: CGFloat = 32, taps: Int, action: @escaping () -> Void) -> some View {
+    private func skipButton(_ symbol: String, label: LocalizedStringKey, size: CGFloat = 32, taps: Int, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size))
@@ -533,7 +533,7 @@ private struct LyricsTimingMenu: View {
                 Button("Reset Timing", systemImage: "arrow.counterclockwise") { library.setLyricsOffset(0, for: songId) }
             }
         } label: {
-            Label(offset == 0 ? "Lyrics Timing" : String(format: "Lyrics Timing (%+.1fs)", offset), systemImage: "timer")
+            Label(offset == 0 ? String(localized: "Lyrics Timing") : String(format: String(localized: "Lyrics Timing (%+.1fs)"), locale: Locale.current, offset), systemImage: "timer")
         }
         // The menu stays open between steps, so the listener can nudge and watch the lyrics move.
         .menuActionDismissBehavior(.disabled)

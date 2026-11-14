@@ -24,7 +24,7 @@ struct MiniPlayer: View {
             HStack(spacing: 12) {
                 ArtworkView(artwork: player.current?.artwork, size: isInline ? 28 : 36, cornerRadius: isInline ? 8 : 10)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(player.current?.title ?? "Not Playing")
+                    Text(player.current?.title ?? String(localized: "Not Playing"))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     if !isInline, let artist = player.current?.artistLine {
@@ -131,7 +131,7 @@ struct PlayPauseButton: View {
         .buttonStyle(.plain)
         .disabled(player.current == nil)
         .sensoryFeedback(.impact(weight: .medium), trigger: taps)
-        .accessibilityLabel(player.wantsToPlay ? "Pause" : "Play")
-        .accessibilityValue(player.isBuffering ? "Loading" : "")
+        .accessibilityLabel(player.wantsToPlay ? String(localized: "Pause") : String(localized: "Play"))
+        .accessibilityValue(player.isBuffering ? String(localized: "Loading") : "")
     }
 }

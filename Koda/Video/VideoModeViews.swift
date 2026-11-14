@@ -19,14 +19,14 @@ struct ModeToggle: View {
     var body: some View {
         Group {
             if Platform.isMac {
-                Picker("Mode", selection: mode) {
+                Picker(String(localized: "Mode"), selection: mode) {
                     ForEach(AppSettings.Mode.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
             } else {
                 Menu {
-                    Picker("Mode", selection: mode) {
+                    Picker(String(localized: "Mode"), selection: mode) {
                         ForEach(AppSettings.Mode.allCases) { mode in
                             Label(mode.title, systemImage: mode.systemImage).tag(mode)
                         }
@@ -44,9 +44,9 @@ struct ModeToggle: View {
                     .font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 4)
                 }
-                .accessibilityLabel("Mode")
+                .accessibilityLabel(String(localized: "Mode"))
                 .accessibilityValue(app.settings.mode.title)
-                .accessibilityHint("Switches between music and videos")
+                .accessibilityHint(String(localized: "Switches between music and videos"))
             }
         }
         .sensoryFeedback(.selection, trigger: app.settings.mode)
@@ -74,8 +74,8 @@ struct VideoSearchView: View {
                 .padding(.vertical, 8)
             }
         }
-        .navigationTitle("Search")
-        .searchable(text: $search.query, prompt: "Videos and channels")
+        .navigationTitle(String(localized: "Search"))
+        .searchable(text: $search.query, prompt: String(localized: "Videos and channels"))
         .onSubmit(of: .search) { Task { await search.search(search.query, music: app.music) } }
         .onChange(of: search.query) { _, text in if text.isEmpty { search.clear() } }
     }
@@ -94,9 +94,9 @@ struct VideoLibraryView: View {
         Group {
             if Platform.isMac {
                 MacPage {
-                    MacPageTitle(title: "Watched") {
+                    MacPageTitle(title: String(localized: "Watched")) {
                         if !library.watched.isEmpty {
-                            Button("Clear…") { confirmsClear = true }
+                            Button(String(localized: "Clear…")) { confirmsClear = true }
                         }
                     }
                     if library.watched.isEmpty {
@@ -109,14 +109,14 @@ struct VideoLibraryView: View {
                 List {
                     if signedIn {
                         Section {
-                            NavigationLink(value: Route.videoPlaylist(id: "WL", title: "Watch Later")) {
-                                Label("Watch Later", systemImage: "clock")
+                            NavigationLink(value: Route.videoPlaylist(id: "WL", title: String(localized: "Watch Later"))) {
+                                Label(String(localized: "Watch Later"), systemImage: "clock")
                             }
-                            NavigationLink(value: Route.videoPlaylist(id: "LL", title: "Liked Videos")) {
-                                Label("Liked Videos", systemImage: "hand.thumbsup")
+                            NavigationLink(value: Route.videoPlaylist(id: "LL", title: String(localized: "Liked Videos"))) {
+                                Label(String(localized: "Liked Videos"), systemImage: "hand.thumbsup")
                             }
                             NavigationLink(value: Route.subscribedChannels) {
-                                Label("Channels", systemImage: "person.2")
+                                Label(String(localized: "Channels"), systemImage: "person.2")
                             }
                         }
                         .font(.body.weight(.medium))
@@ -125,37 +125,37 @@ struct VideoLibraryView: View {
                     ForEach(library.watched) { video in
                         NavigationLink(value: Route.video(video)) { VideoRow(video: video) }
                             .swipeActions {
-                                Button("Remove", systemImage: "trash", role: .destructive) {
+                                Button(String(localized: "Remove"), systemImage: "trash", role: .destructive) {
                                     withAnimation { library.removeWatched(video.id) }
                                 }
                             }
                     }
                     } header: {
-                        if signedIn, !library.watched.isEmpty { Text("History") }
+                        if signedIn, !library.watched.isEmpty { Text(String(localized: "History")) }
                     }
                 }
                 .listStyle(.plain)
                 .overlay { if library.watched.isEmpty, !signedIn { empty } }
                 .toolbar {
                     if !library.watched.isEmpty {
-                        Button("Clear", role: .destructive) { confirmsClear = true }
+                        Button(String(localized: "Clear"), role: .destructive) { confirmsClear = true }
                     }
                 }
             }
         }
-        .navigationTitle(Platform.isMac ? "Watched" : "Library")
-        .confirmationDialog("Clear what you've watched?", isPresented: $confirmsClear, titleVisibility: .visible) {
-            Button("Clear Watched", role: .destructive) {
+        .navigationTitle(Platform.isMac ? String(localized: "Watched") : String(localized: "Library"))
+        .confirmationDialog(String(localized: "Clear what you've watched?"), isPresented: $confirmsClear, titleVisibility: .visible) {
+            Button(String(localized: "Clear Watched"), role: .destructive) {
                 for video in library.watched { library.removeWatched(video.id) }
             }
         } message: {
-            Text("Videos you've watched are removed from this list and no longer shape the Home feed.")
+            Text(String(localized: "Videos you've watched are removed from this list and no longer shape the Home feed."))
         }
     }
 
     private var empty: some View {
-        ContentUnavailableView("Nothing Watched Yet", systemImage: "play.rectangle",
-                               description: Text("Videos you watch appear here."))
+        ContentUnavailableView(String(localized: "Nothing Watched Yet"), systemImage: "play.rectangle",
+                               description: Text(String(localized: "Videos you watch appear here.")))
     }
 }
 
@@ -163,7 +163,7 @@ struct VideoLibraryView: View {
 private struct ExploreGrid: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Explore").font(.title3.bold())
+            Text(String(localized: "Explore")).font(.title3.bold())
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(ExploreTopic.allCases) { topic in
                     NavigationLink(value: Route.explore(topic)) {

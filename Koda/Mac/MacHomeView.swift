@@ -22,11 +22,11 @@ struct MacHomeView: View {
                     .loadingPlaceholder()
             case .failed(let message):
                 ContentUnavailableView {
-                    Label("Couldn't Load Home", systemImage: "wifi.exclamationmark")
+                    Label(String(localized: "Couldn't Load Home"), systemImage: "wifi.exclamationmark")
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try Again") { Task { await load() } }
+                    Button(String(localized: "Try Again")) { Task { await load() } }
                         .buttonStyle(.glass)
                 }
                 .frame(maxWidth: .infinity, minHeight: 360)
@@ -37,7 +37,7 @@ struct MacHomeView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .animation(.smooth, value: model.state.value == nil)
-        .navigationTitle("Home")
+        .navigationTitle(String(localized: "Home"))
         .task {
             // Loaded already: shown as it was. Last launch's snapshot, or a Home half an hour
             // old, refreshes quietly in place.
@@ -50,7 +50,7 @@ struct MacHomeView: View {
     private var header: some View {
         MacPageTitle(title: greeting, subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day())) {
             if refreshing { ProgressView().controlSize(.small) }
-            Button("Refresh", systemImage: "arrow.clockwise") {
+            Button(String(localized: "Refresh"), systemImage: "arrow.clockwise") {
                 Task {
                     refreshing = true
                     await app.music.clearPageCache()
@@ -61,7 +61,7 @@ struct MacHomeView: View {
             .buttonStyle(.glass)
             .disabled(refreshing)
             .keyboardShortcut("r", modifiers: .command)
-            .help("Refresh Home (⌘R)")
+            .help(String(localized: "Refresh Home (⌘R)"))
         }
     }
 
@@ -71,7 +71,7 @@ struct MacHomeView: View {
 
         let jump = JumpBackIn.items(in: library)
         if jump.count >= 2 {
-            MacShelf(title: "Jump back in") {
+            MacShelf(title: String(localized: "Jump back in")) {
                 ForEach(jump) { item in
                     NavigationLink(value: JumpBackIn.route(item)) {
                         MacCoverCard(title: JumpBackIn.title(item), subtitle: JumpBackIn.subtitle(item)) {
@@ -83,7 +83,7 @@ struct MacHomeView: View {
             }
         }
         if !library.recent.isEmpty {
-            MacShelf(title: "Recently played", seeAll: .songs(title: "Recently Played", source: .recent)) {
+            MacShelf(title: String(localized: "Recently played"), seeAll: .songs(title: String(localized: "Recently Played"), source: .recent)) {
                 ForEach(Array(library.recent.prefix(16).enumerated()), id: \.element.id) { index, song in
                     Button { player.play(Array(library.recent.prefix(50)), startAt: index) } label: {
                         MacCoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine,
@@ -101,7 +101,7 @@ struct MacHomeView: View {
         }
         let yours = model.yourArtists
         if yours.count >= 3 {
-            MacShelf(title: "Your top artists", subtitle: "Based on your listening") {
+            MacShelf(title: String(localized: "Your top artists"), subtitle: String(localized: "Based on your listening")) {
                 ForEach(yours, id: \.name) { ref in
                     if let id = ref.id {
                         MacArtistCard(artist: ArtistSummary(id: id, name: ref.name, artwork: model.artistPhotos[id]))
@@ -111,7 +111,7 @@ struct MacHomeView: View {
         }
         ForEach(model.similar) { MacItemShelf(shelf: HomeModel.similarShelf($0)) }
         if model.forgotten.count >= 4 {
-            MacShelf(title: "Forgotten favourites", subtitle: "Played often, not lately") {
+            MacShelf(title: String(localized: "Forgotten favourites"), subtitle: String(localized: "Played often, not lately")) {
                 ForEach(Array(model.forgotten.enumerated()), id: \.element.id) { index, song in
                     Button { player.play(model.forgotten, startAt: index) } label: {
                         MacCoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine,
@@ -123,7 +123,7 @@ struct MacHomeView: View {
             }
         }
         if app.settings.showsChartsOnHome, !content.charts.isEmpty {
-            MacShelf(title: "Charts", subtitle: "Global and near you") {
+            MacShelf(title: String(localized: "Charts"), subtitle: String(localized: "Global and near you")) {
                 ForEach(content.charts) { MacItemCard(item: .playlist($0)) }
             }
         }
@@ -145,7 +145,7 @@ struct MacHomeView: View {
                 .frame(maxWidth: width > 900 ? nil : 520, alignment: .leading)
             if !picks.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    MacSectionTitle(title: content.quickPicksTitle, subtitle: content.quickPicks == content.trending ? "Trending now" : "Start with these")
+                    MacSectionTitle(title: content.quickPicksTitle == "Quick picks" ? String(localized: "Quick picks") : content.quickPicksTitle, subtitle: content.quickPicks == content.trending ? String(localized: "Trending now") : String(localized: "Start with these"))
                         .padding(.leading, 6)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: columns), spacing: 2) {
                         ForEach(Array(picks.enumerated()), id: \.offset) { index, song in
@@ -176,10 +176,10 @@ struct MacHomeView: View {
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: Date()) {
-        case 5..<12: "Good morning"
-        case 12..<17: "Good afternoon"
-        case 17..<22: "Good evening"
-        default: "Up late"
+        case 5..<12: String(localized: "Good morning")
+        case 12..<17: String(localized: "Good afternoon")
+        case 17..<22: String(localized: "Good evening")
+        default: String(localized: "Up late")
         }
     }
 }

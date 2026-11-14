@@ -24,7 +24,7 @@ struct UserPlaylistView: View {
         if let playlist = library.userPlaylist(id) {
             if Platform.isMac { macContent(playlist) } else { content(playlist) }
         } else {
-            ContentUnavailableView("Playlist Deleted", systemImage: "music.note.list")
+            ContentUnavailableView(String(localized: "Playlist Deleted"), systemImage: "music.note.list")
         }
     }
 
@@ -48,7 +48,7 @@ struct UserPlaylistView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                 .listRowSeparator(.hidden)
                 .swipeActions(edge: .leading) {
-                    Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
+                    Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
                         .tint(.indigo)
                 }
             }
@@ -63,11 +63,11 @@ struct UserPlaylistView: View {
 
             if playlist.songs.isEmpty {
                 ContentUnavailableView {
-                    Label("No Songs Yet", systemImage: "music.note.list")
+                    Label(String(localized: "No Songs Yet"), systemImage: "music.note.list")
                 } description: {
-                    Text("Long-press any song, or open its ••• menu, and choose Add to Playlist.")
+                    Text(String(localized: "Long-press any song, or open its ••• menu, and choose Add to Playlist."))
                 } actions: {
-                    Button("Find Music") {
+                    Button(String(localized: "Find Music")) {
                         app.selectedTab = .search
                     }
                     .buttonStyle(.glass)
@@ -78,13 +78,13 @@ struct UserPlaylistView: View {
         }
         .listStyle(.plain)
         .environment(\.editMode, $editMode)
-        .searchable(text: $query, placement: .navigationBarDrawer, prompt: "Find in Playlist")
+        .searchable(text: $query, placement: .navigationBarDrawer, prompt: String(localized: "Find in Playlist"))
         .background { PlaylistGlow(songs: playlist.songs) }
         .navigationBarTitleDisplayMode(.inline)
         .revealsTitle(playlist.name, after: 300)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(editMode.isEditing ? "Done" : "Edit") {
+                Button(editMode.isEditing ? String(localized: "Done") : String(localized: "Edit")) {
                     if editMode.isEditing {
                         saveDetails()
                     } else {
@@ -102,13 +102,13 @@ struct UserPlaylistView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("More", systemImage: "ellipsis") {
+                Menu(String(localized: "More"), systemImage: "ellipsis") {
                     if !playlist.songs.isEmpty {
-                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
-                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
                     }
                     PinMenuItem(pin: .userPlaylist(playlist.id))
-                    Button("Delete Playlist", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                    Button(String(localized: "Delete Playlist"), systemImage: "trash", role: .destructive) { confirmDelete = true }
                 }
             }
         }
@@ -118,13 +118,13 @@ struct UserPlaylistView: View {
         }
         // Leaving mid-edit keeps what was typed, as Done would.
         .onDisappear { if editMode.isEditing { saveDetails() } }
-        .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete Playlist", role: .destructive) {
+        .confirmationDialog(String(localized: "Delete “\(playlist.name)”?"), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button(String(localized: "Delete Playlist"), role: .destructive) {
                 dismiss()
                 library.deletePlaylist(id)
             }
         } message: {
-            Text("The songs stay wherever else you saved them.")
+            Text(String(localized: "The songs stay wherever else you saved them."))
         }
     }
 
@@ -133,7 +133,7 @@ struct UserPlaylistView: View {
     private func macContent(_ playlist: UserPlaylist) -> some View {
         MacPage(spacing: 28) {
             MacCollectionHeader(
-                kind: "Your Playlist",
+                kind: String(localized: "Your Playlist"),
                 title: playlist.name,
                 byline: nil,
                 detail: detail(playlist),
@@ -150,34 +150,34 @@ struct UserPlaylistView: View {
                 }
                 MacMoreMenu {
                     if !playlist.songs.isEmpty {
-                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
-                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
                         Divider()
                     }
                     PinMenuItem(pin: .userPlaylist(playlist.id))
-                    Button("Edit Details…", systemImage: "pencil") { editingDetails = true }
-                    Button("Delete Playlist…", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                    Button(String(localized: "Edit Details…"), systemImage: "pencil") { editingDetails = true }
+                    Button(String(localized: "Delete Playlist…"), systemImage: "trash", role: .destructive) { confirmDelete = true }
                 }
             }
             if playlist.songs.isEmpty {
                 ContentUnavailableView {
-                    Label("No Songs Yet", systemImage: "music.note.list")
+                    Label(String(localized: "No Songs Yet"), systemImage: "music.note.list")
                 } description: {
-                    Text("Right-click any song, or open its ••• menu, and choose Add to Playlist.")
+                    Text(String(localized: "Right-click any song, or open its ••• menu, and choose Add to Playlist."))
                 }
                 .frame(maxWidth: .infinity, minHeight: 280)
             } else {
                 MacTrackList(songs: playlist.songs, play: { player.play(playlist.songs, startAt: $0) }, rowMenu: { index in
                     AnyView(Section {
-                        Button("Move Up", systemImage: "arrow.up") {
+                        Button(String(localized: "Move Up"), systemImage: "arrow.up") {
                             library.moveSongs(fromOffsets: IndexSet(integer: index), toOffset: index - 1, inPlaylist: id)
                         }
                         .disabled(index == 0)
-                        Button("Move Down", systemImage: "arrow.down") {
+                        Button(String(localized: "Move Down"), systemImage: "arrow.down") {
                             library.moveSongs(fromOffsets: IndexSet(integer: index), toOffset: index + 2, inPlaylist: id)
                         }
                         .disabled(index >= playlist.songs.count - 1)
-                        Button("Remove from Playlist", systemImage: "minus.circle", role: .destructive) {
+                        Button(String(localized: "Remove from Playlist"), systemImage: "minus.circle", role: .destructive) {
                             library.removeSongs(atOffsets: IndexSet(integer: index), fromPlaylist: id)
                         }
                     })
@@ -189,10 +189,10 @@ struct UserPlaylistView: View {
         .sheet(isPresented: $editingDetails) {
             MacPlaylistDetailsSheet(playlist: playlist).appEnvironment(app)
         }
-        .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete Playlist", role: .destructive) { library.deletePlaylist(id) }
+        .confirmationDialog(String(localized: "Delete “\(playlist.name)”?"), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button(String(localized: "Delete Playlist"), role: .destructive) { library.deletePlaylist(id) }
         } message: {
-            Text("The songs stay wherever else you saved them.")
+            Text(String(localized: "The songs stay wherever else you saved them."))
         }
     }
 
@@ -231,9 +231,9 @@ struct UserPlaylistView: View {
     private func editableHeader(_ playlist: UserPlaylist) -> some View {
         VStack(spacing: 14) {
             Menu {
-                PhotosPicker(playlist.hasCover ? "Choose Another Photo" : "Choose Photo", selection: $photo, matching: .images)
+                PhotosPicker(playlist.hasCover ? String(localized: "Choose Another Photo") : String(localized: "Choose Photo"), selection: $photo, matching: .images)
                 if playlist.hasCover {
-                    Button("Remove Photo", systemImage: "trash", role: .destructive) { library.setPlaylistCover(nil, for: id) }
+                    Button(String(localized: "Remove Photo"), systemImage: "trash", role: .destructive) { library.setPlaylistCover(nil, for: id) }
                 }
             } label: {
                 PlaylistCover(playlist: playlist, size: 232, cornerRadius: 16)
@@ -246,12 +246,12 @@ struct UserPlaylistView: View {
                     }
                     .shadow(color: .black.opacity(0.25), radius: 24, y: 12)
             }
-            .accessibilityLabel("Playlist Photo")
-            TextField("Playlist Name", text: $draftName)
+            .accessibilityLabel(String(localized: "Playlist Photo"))
+            TextField(String(localized: "Playlist Name"), text: $draftName)
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
                 .submitLabel(.done)
-            TextField("Description", text: $draftSummary, axis: .vertical)
+            TextField(String(localized: "Description"), text: $draftSummary, axis: .vertical)
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .lineLimit(1...5)
@@ -272,10 +272,10 @@ struct UserPlaylistView: View {
     }
 
     private func detail(_ playlist: UserPlaylist) -> String {
-        var parts = ["Made by \(app.roster.active.displayName)"]
-        parts.append(playlist.songs.count == 1 ? "1 song" : "\(playlist.songs.count) songs")
+        var parts = [String(localized: "Made by \(app.roster.active.displayName)")]
+        parts.append(playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"))
         let minutes = Int(playlist.duration / 60)
-        if minutes > 0 { parts.append(minutes >= 60 ? "\(minutes / 60) hr \(minutes % 60) min" : "\(minutes) min") }
+        if minutes > 0 { parts.append(minutes >= 60 ? String(localized: "\(minutes / 60) hr \(minutes % 60) min") : String(localized: "\(minutes) min")) }
         return parts.joined(separator: " · ")
     }
 }
@@ -409,13 +409,13 @@ struct AddToPlaylistSheet: View {
                                 .foregroundStyle(Color.accentColor)
                                 .frame(width: 52, height: 52)
                                 .background(.quaternary, in: .rect(cornerRadius: 8, style: .continuous))
-                            Text("New Playlist").font(.body.weight(.medium))
+                            Text(String(localized: "New Playlist")).font(.body.weight(.medium))
                         }
                     }
                     .buttonStyle(.plain)
                 }
                 if !library.userPlaylists.isEmpty {
-                    Section("Your Playlists") {
+                    Section(String(localized: "Your Playlists")) {
                         ForEach(library.userPlaylists) { playlist in
                             let inside = Set(playlist.songs.map(\.id))
                             let already = Set(target.songs.map(\.id)).intersection(inside).count
@@ -430,16 +430,16 @@ struct AddToPlaylistSheet: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(playlist.name).font(.body.weight(.medium)).lineLimit(1)
                                         // Songs already in it are skipped, never added twice; said before the tap.
-                                        Text([playlist.songs.count == 1 ? "1 song" : "\(playlist.songs.count) songs",
-                                              containsAll ? (target.songs.count == 1 ? "Already added" : "All already added")
-                                                  : already > 0 ? "\(already) already in it" : nil]
+                                        Text([playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"),
+                                              containsAll ? (target.songs.count == 1 ? String(localized: "Already added") : String(localized: "All already added"))
+                                                  : already > 0 ? String(localized: "\(already) already in it") : nil]
                                             .compactMap { $0 }.joined(separator: " · "))
                                             .font(.subheadline).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     if containsAll {
                                         Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
-                                            .accessibilityLabel("Already added")
+                                            .accessibilityLabel(String(localized: "Already added"))
                                     }
                                 }
                                 .contentShape(.rect)
@@ -450,23 +450,23 @@ struct AddToPlaylistSheet: View {
                     }
                 }
             }
-            .navigationTitle(target.songs.count == 1 ? "Add to Playlist" : "Add \(target.songs.count) Songs")
+            .navigationTitle(target.songs.count == 1 ? String(localized: "Add to Playlist") : String(localized: "Add \(target.songs.count) Songs"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", systemImage: "xmark") { dismiss() }
+                    Button(String(localized: "Cancel"), systemImage: "xmark") { dismiss() }
                 }
             }
-            .alert("New Playlist", isPresented: $naming) {
-                TextField("Name", text: $draftName)
-                Button("Cancel", role: .cancel) {}
-                Button("Create") {
+            .alert(String(localized: "New Playlist"), isPresented: $naming) {
+                TextField(String(localized: "Name"), text: $draftName)
+                Button(String(localized: "Cancel"), role: .cancel) {}
+                Button(String(localized: "Create")) {
                     added += 1
                     library.createPlaylist(named: draftName, songs: target.songs)
                     dismiss()
                 }
             } message: {
-                Text(target.songs.count == 1 ? "“\(target.songs[0].title)” will be its first song." : "These \(target.songs.count) songs will be its first.")
+                Text(target.songs.count == 1 ? String(localized: "“\(target.songs[0].title)” will be its first song.") : String(localized: "These \(target.songs.count) songs will be its first."))
             }
         }
         .presentationDetents([.medium, .large])
@@ -507,8 +507,8 @@ struct AddToPlaylistMenu: View {
 
     var body: some View {
         if Platform.isMac {
-            Menu("Add to Playlist", systemImage: "text.badge.plus") {
-                Button("New Playlist…", systemImage: "plus") { app.addToPlaylist(songs) }
+            Menu(String(localized: "Add to Playlist"), systemImage: "text.badge.plus") {
+                Button(String(localized: "New Playlist…"), systemImage: "plus") { app.addToPlaylist(songs) }
                 if !library.userPlaylists.isEmpty {
                     Divider()
                     ForEach(library.userPlaylists) { playlist in
@@ -521,7 +521,7 @@ struct AddToPlaylistMenu: View {
                 }
             }
         } else {
-            Button("Add to Playlist…", systemImage: "text.badge.plus") { app.addToPlaylist(songs) }
+            Button(String(localized: "Add to Playlist…"), systemImage: "text.badge.plus") { app.addToPlaylist(songs) }
         }
     }
 }
@@ -540,22 +540,22 @@ struct MacNewPlaylistSheet: View {
             HStack(spacing: 14) {
                 PlaylistMosaic(songs: target.songs, size: 64, cornerRadius: 8)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("New Playlist").font(.headline)
-                    Text(target.songs.count == 1 ? "With “\(target.songs[0].title)”" : "With these \(target.songs.count) songs")
+                    Text(String(localized: "New Playlist")).font(.headline)
+                    Text(target.songs.count == 1 ? String(localized: "With “\(target.songs[0].title)”") : String(localized: "With these \(target.songs.count) songs"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            TextField("Name", text: $name)
+            TextField(String(localized: "Name"), text: $name)
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
                 .onSubmit(create)
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button(String(localized: "Cancel"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Create Playlist", action: create)
+                Button(String(localized: "Create Playlist"), action: create)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -564,7 +564,7 @@ struct MacNewPlaylistSheet: View {
         .padding(20)
         .frame(width: 400)
         .onAppear {
-            name = "Playlist \(library.userPlaylists.count + 1)"
+            name = String(localized: "Playlist \(library.userPlaylists.count + 1)")
             focused = true
         }
     }
@@ -595,24 +595,24 @@ struct MacPlaylistDetailsSheet: View {
             HStack(alignment: .top, spacing: 18) {
                 PlaylistCover(playlist: current, size: 120, cornerRadius: 10)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Edit Details").font(.headline)
-                    PhotosPicker(current.hasCover ? "Choose Another Photo…" : "Choose Photo…", selection: $photo, matching: .images)
+                    Text(String(localized: "Edit Details")).font(.headline)
+                    PhotosPicker(current.hasCover ? String(localized: "Choose Another Photo…") : String(localized: "Choose Photo…"), selection: $photo, matching: .images)
                     if current.hasCover {
-                        Button("Remove Photo", role: .destructive) { library.setPlaylistCover(nil, for: playlist.id) }
+                        Button(String(localized: "Remove Photo"), role: .destructive) { library.setPlaylistCover(nil, for: playlist.id) }
                     }
                 }
             }
             Form {
-                TextField("Name", text: $name)
-                TextField("Description", text: $summary, axis: .vertical)
+                TextField(String(localized: "Name"), text: $name)
+                TextField(String(localized: "Description"), text: $summary, axis: .vertical)
                     .lineLimit(3...6)
             }
             .formStyle(.columns)
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button(String(localized: "Cancel"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Done") {
+                Button(String(localized: "Done")) {
                     library.renamePlaylist(playlist.id, to: name)
                     library.setPlaylistSummary(playlist.id, to: summary)
                     dismiss()

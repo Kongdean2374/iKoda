@@ -133,19 +133,21 @@ public enum LastFMError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidCredentials: "An API key and shared secret are each 32 letters and digits. Copy them from your Last.fm API account."
-        case .notConnected: "Connect your Last.fm account first."
-        case .paused: "Last.fm is off."
-        case .noPendingSignIn: "Start signing in again."
-        case .signInExpired: "That sign-in expired after an hour. Start again."
-        case .notApprovedYet: "Approve Koda on the Last.fm page first, then come back."
-        case .sessionRevoked: "Last.fm no longer accepts this sign-in. Connect again."
-        case .rateLimited: "Last.fm asked Koda to slow down. Plays wait and send in a few minutes."
-        case .dailyLimit: "Last.fm's daily scrobble limit is reached. Plays wait and send later."
-        case .unexpectedResponse: "Last.fm sent something Koda didn't understand."
-        case .network: "Couldn't reach Last.fm. Plays wait and send when you're back online."
-        case .credentialsLocked: "Your Last.fm sign-in can't be read while the device is locked. Plays wait and send after you unlock it."
-        case .api(let code, let message): message.isEmpty ? "Last.fm error \(code)." : "\(message) (Last.fm error \(code))"
+        case .invalidCredentials: NSLocalizedString("An API key and shared secret are each 32 letters and digits. Copy them from your Last.fm API account.", bundle: KodaLocalization.bundle, comment: "")
+        case .notConnected: NSLocalizedString("Connect your Last.fm account first.", bundle: KodaLocalization.bundle, comment: "")
+        case .paused: NSLocalizedString("Last.fm is off.", bundle: KodaLocalization.bundle, comment: "")
+        case .noPendingSignIn: NSLocalizedString("Start signing in again.", bundle: KodaLocalization.bundle, comment: "")
+        case .signInExpired: NSLocalizedString("That sign-in expired after an hour. Start again.", bundle: KodaLocalization.bundle, comment: "")
+        case .notApprovedYet: NSLocalizedString("Approve Koda on the Last.fm page first, then come back.", bundle: KodaLocalization.bundle, comment: "")
+        case .sessionRevoked: NSLocalizedString("Last.fm no longer accepts this sign-in. Connect again.", bundle: KodaLocalization.bundle, comment: "")
+        case .rateLimited: NSLocalizedString("Last.fm asked Koda to slow down. Plays wait and send in a few minutes.", bundle: KodaLocalization.bundle, comment: "")
+        case .dailyLimit: NSLocalizedString("Last.fm's daily scrobble limit is reached. Plays wait and send later.", bundle: KodaLocalization.bundle, comment: "")
+        case .unexpectedResponse: NSLocalizedString("Last.fm sent something Koda didn't understand.", bundle: KodaLocalization.bundle, comment: "")
+        case .network: NSLocalizedString("Couldn't reach Last.fm. Plays wait and send when you're back online.", bundle: KodaLocalization.bundle, comment: "")
+        case .credentialsLocked: NSLocalizedString("Your Last.fm sign-in can't be read while the device is locked. Plays wait and send after you unlock it.", bundle: KodaLocalization.bundle, comment: "")
+        case .api(let code, let message): message.isEmpty
+            ? String(format: NSLocalizedString("Last.fm error %lld.", bundle: KodaLocalization.bundle, comment: ""), Int64(code))
+            : String(format: NSLocalizedString("%@ (Last.fm error %lld)", bundle: KodaLocalization.bundle, comment: ""), message, Int64(code))
         }
     }
 

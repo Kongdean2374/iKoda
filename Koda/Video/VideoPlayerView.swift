@@ -144,7 +144,7 @@ struct VideoPlayerView: View {
     private var topBar: some View {
         HStack(spacing: 8) {
             if isFullScreen {
-                ControlButton(systemImage: "xmark", label: "Exit Full Screen") { playback.isFullScreen = false }
+                ControlButton(systemImage: "xmark", label: String(localized: "Exit Full Screen")) { playback.isFullScreen = false }
                     .keyboardShortcut(.cancelAction)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(playback.current?.title ?? video.title).font(.headline).lineLimit(1)
@@ -154,7 +154,7 @@ struct VideoPlayerView: View {
                 }
                 .padding(.leading, 4)
             } else if let onBack {
-                ControlButton(systemImage: "chevron.backward", label: "Back", action: onBack)
+                ControlButton(systemImage: "chevron.backward", label: String(localized: "Back"), action: onBack)
             }
             Spacer(minLength: 0)
             if hasPicture {
@@ -163,7 +163,7 @@ struct VideoPlayerView: View {
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("AirPlay")
                 if playback.canPictureInPicture {
-                    ControlButton(systemImage: playback.isInPictureInPicture ? "pip.exit" : "pip.enter", label: "Picture in Picture") {
+                    ControlButton(systemImage: playback.isInPictureInPicture ? "pip.exit" : "pip.enter", label: String(localized: "Picture in Picture")) {
                         poke()
                         playback.togglePictureInPicture()
                     }
@@ -171,11 +171,11 @@ struct VideoPlayerView: View {
                 VideoSettingsMenu(playback: playback) { poke() }
                 if Platform.isMac, !isFullScreen {
                     ControlButton(systemImage: app.settings.videoTheater ? "rectangle.inset.filled" : "rectangle.ratio.16.to.9",
-                                  label: app.settings.videoTheater ? "Default View" : "Theater Mode") {
+                                  label: app.settings.videoTheater ? String(localized: "Default View") : String(localized: "Theater Mode")) {
                         poke()
                         toggleTheater()
                     }
-                    .help(app.settings.videoTheater ? "Default View (T)" : "Theater Mode (T)")
+                    .help(app.settings.videoTheater ? String(localized: "Default View (T)") : String(localized: "Theater Mode (T)"))
                 }
             }
         }
@@ -192,20 +192,20 @@ struct VideoPlayerView: View {
         } else if hasPicture {
             HStack(spacing: isFullScreen ? 56 : 36) {
                 if !playback.isLive {
-                    ControlButton(systemImage: "gobackward.10", label: "Back 10 Seconds", size: 44) {
+                    ControlButton(systemImage: "gobackward.10", label: String(localized: "Back 10 Seconds"), size: 44) {
                         poke()
                         playback.skip(by: -10)
                     }
                 }
                 ControlButton(systemImage: playback.hasEnded ? "arrow.counterclockwise" : playback.isPlaying ? "pause.fill" : "play.fill",
-                              label: playback.hasEnded ? "Replay" : playback.isPlaying ? "Pause" : "Play",
+                              label: playback.hasEnded ? String(localized: "Replay") : playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"),
                               size: isFullScreen ? 72 : 60) {
                     poke()
                     playback.togglePlay()
                 }
                 .contentTransition(.symbolEffect(.replace))
                 if !playback.isLive {
-                    ControlButton(systemImage: "goforward.10", label: "Forward 10 Seconds", size: 44) {
+                    ControlButton(systemImage: "goforward.10", label: String(localized: "Forward 10 Seconds"), size: 44) {
                         poke()
                         playback.skip(by: 10)
                     }
@@ -213,7 +213,7 @@ struct VideoPlayerView: View {
             }
         } else if !isThis {
             // Another video is on: this page's starts with a tap.
-            ControlButton(systemImage: "play.fill", label: "Play", size: 64) { playback.play(video) }
+            ControlButton(systemImage: "play.fill", label: String(localized: "Play"), size: 64) { playback.play(video) }
         }
     }
 
@@ -229,7 +229,7 @@ struct VideoPlayerView: View {
             HStack(alignment: .bottom, spacing: 12) {
                 if hasPicture {
                     if playback.isLive {
-                        Label("Live", systemImage: "dot.radiowaves.left.and.right")
+                        Label(String(localized: "Live"), systemImage: "dot.radiowaves.left.and.right")
                             .font(.caption.weight(.bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -239,7 +239,7 @@ struct VideoPlayerView: View {
                         VideoScrubber(time: playback.time, duration: playback.duration, isScrubbing: $isScrubbing) { playback.seek(to: $0) }
                     }
                     ControlButton(systemImage: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                  label: isFullScreen ? "Exit Full Screen" : "Full Screen") {
+                                  label: isFullScreen ? String(localized: "Exit Full Screen") : String(localized: "Full Screen")) {
                         playback.isFullScreen.toggle()
                     }
                     .padding(.bottom, playback.isLive ? 0 : 18)
@@ -271,7 +271,7 @@ struct VideoPlayerView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
             if drag == .brightness, let brightness {
-                LevelIndicator(value: brightness, systemImage: "sun.max.fill", label: "Brightness")
+                LevelIndicator(value: brightness, systemImage: "sun.max.fill", label: String(localized: "Brightness"))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 40)
                     .transition(.opacity)
@@ -293,16 +293,16 @@ struct VideoPlayerView: View {
 
     private func errorView(_ message: String) -> some View {
         ContentUnavailableView {
-            Label("Can't Play This Video", systemImage: "exclamationmark.triangle")
+            Label(String(localized: "Can't Play This Video"), systemImage: "exclamationmark.triangle")
         } description: {
             Text(message)
         } actions: {
-            Button("Try Again") { playback.retry() }.buttonStyle(.glass)
+            Button(String(localized: "Try Again")) { playback.retry() }.buttonStyle(.glass)
         }
         .foregroundStyle(.white)
         .overlay(alignment: .topLeading) {
             if let onBack, !isFullScreen {
-                ControlButton(systemImage: "chevron.backward", label: "Back", action: onBack).padding(10)
+                ControlButton(systemImage: "chevron.backward", label: String(localized: "Back"), action: onBack).padding(10)
             }
         }
     }
@@ -475,7 +475,7 @@ struct VideoPlayerView: View {
                 guard fills != fillsScreen else { return }
                 withAnimation(.smooth) {
                     fillsScreen = fills
-                    note = fills ? "Zoomed to Fill" : "Original"
+                    note = fills ? String(localized: "Zoomed to Fill") : String(localized: "Original")
                 }
                 commits += 1
             }
@@ -485,20 +485,20 @@ struct VideoPlayerView: View {
     /// F full screen (Esc leaves it), T theater mode, M mute.
     private var keyboardShortcuts: some View {
         Group {
-            Button("Play/Pause") { playback.togglePlay() }.keyboardShortcut(.space, modifiers: [])
-            Button("Play/Pause") { playback.togglePlay() }.keyboardShortcut("k", modifiers: [])
-            Button("Back 10 Seconds") { playback.skip(by: -10) }.keyboardShortcut("j", modifiers: [])
-            Button("Forward 10 Seconds") { playback.skip(by: 10) }.keyboardShortcut("l", modifiers: [])
-            Button("Back 5 Seconds") { playback.skip(by: -5) }.keyboardShortcut(.leftArrow, modifiers: [])
-            Button("Forward 5 Seconds") { playback.skip(by: 5) }.keyboardShortcut(.rightArrow, modifiers: [])
-            Button("Full Screen") { playback.isFullScreen.toggle() }.keyboardShortcut("f", modifiers: [])
+            Button(String(localized: "Play/Pause")) { playback.togglePlay() }.keyboardShortcut(.space, modifiers: [])
+            Button(String(localized: "Play/Pause")) { playback.togglePlay() }.keyboardShortcut("k", modifiers: [])
+            Button(String(localized: "Back 10 Seconds")) { playback.skip(by: -10) }.keyboardShortcut("j", modifiers: [])
+            Button(String(localized: "Forward 10 Seconds")) { playback.skip(by: 10) }.keyboardShortcut("l", modifiers: [])
+            Button(String(localized: "Back 5 Seconds")) { playback.skip(by: -5) }.keyboardShortcut(.leftArrow, modifiers: [])
+            Button(String(localized: "Forward 5 Seconds")) { playback.skip(by: 5) }.keyboardShortcut(.rightArrow, modifiers: [])
+            Button(String(localized: "Full Screen")) { playback.isFullScreen.toggle() }.keyboardShortcut("f", modifiers: [])
             if isFullScreen {
-                Button("Exit Full Screen") { playback.isFullScreen = false }.keyboardShortcut(.escape, modifiers: [])
+                Button(String(localized: "Exit Full Screen")) { playback.isFullScreen = false }.keyboardShortcut(.escape, modifiers: [])
             }
-            Button("Theater Mode") { toggleTheater() }.keyboardShortcut("t", modifiers: [])
-            Button("Mute") {
+            Button(String(localized: "Theater Mode")) { toggleTheater() }.keyboardShortcut("t", modifiers: [])
+            Button(String(localized: "Mute")) {
                 playback.isMuted.toggle()
-                note = playback.isMuted ? "Muted" : "Sound On"
+                note = playback.isMuted ? String(localized: "Muted") : String(localized: "Sound On")
             }
             .keyboardShortcut("m", modifiers: [])
         }
@@ -570,7 +570,7 @@ private struct SkipBadge: View {
         .frame(width: max(width, 1))
         .clipped()
         .accessibilityElement()
-        .accessibilityLabel(skipping.forward ? "Forward \(skipping.seconds) seconds" : "Back \(skipping.seconds) seconds")
+        .accessibilityLabel(skipping.forward ? String(localized: "Forward \(skipping.seconds) seconds") : String(localized: "Back \(skipping.seconds) seconds"))
     }
 }
 
@@ -609,7 +609,7 @@ private struct ResumedNote: View {
             Text("Resumed at \(VideoScrubber.format(from))")
                 .font(.footnote.weight(.medium))
                 .monospacedDigit()
-            Button("Start Over", action: startOver)
+            Button(String(localized: "Start Over"), action: startOver)
                 .font(.footnote.weight(.semibold))
                 .buttonStyle(.plain)
                 .foregroundStyle(.white)
@@ -650,8 +650,8 @@ private struct UpNextCountdown: View {
                         Text(channel).font(.caption).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
                     }
                     HStack(spacing: 8) {
-                        Button("Cancel", action: cancel).buttonStyle(.glass)
-                        Button("Play Now", action: play).buttonStyle(.glassProminent)
+                        Button(String(localized: "Cancel"), action: cancel).buttonStyle(.glass)
+                        Button(String(localized: "Play Now"), action: play).buttonStyle(.glassProminent)
                     }
                     .controlSize(isCompact ? .small : .regular)
                     .padding(.top, 6)
@@ -693,7 +693,7 @@ private struct VideoSettingsMenu: View {
     var body: some View {
         Menu {
             Picker(selection: Binding(get: { playback.quality }, set: { playback.setQuality($0) })) {
-                Text("Auto").tag(0)
+                Text(String(localized: "Auto")).tag(0)
                 ForEach(playback.qualities, id: \.self) { lines in
                     Text(Self.qualityName(lines)).tag(lines)
                 }
@@ -702,31 +702,31 @@ private struct VideoSettingsMenu: View {
                     Text(Self.qualityName(playback.quality)).tag(playback.quality)
                 }
             } label: {
-                Label("Quality", systemImage: "dial.medium")
-                Text(playback.quality == 0 ? "Auto" : Self.qualityName(playback.quality))
+                Label(String(localized: "Quality"), systemImage: "dial.medium")
+                Text(playback.quality == 0 ? String(localized: "Auto") : Self.qualityName(playback.quality))
             }
             .pickerStyle(.menu)
             .disabled(playback.qualities.isEmpty)
 
             Picker(selection: Binding(get: { playback.speed }, set: { playback.setSpeed($0) })) {
                 ForEach(VideoPlayback.speeds, id: \.self) { rate in
-                    Text(rate == 1 ? "Normal" : Self.speedName(rate)).tag(rate)
+                    Text(rate == 1 ? String(localized: "Normal") : Self.speedName(rate)).tag(rate)
                 }
             } label: {
-                Label("Playback Speed", systemImage: "gauge.with.dots.needle.67percent")
-                Text(playback.speed == 1 ? "Normal" : Self.speedName(playback.speed))
+                Label(String(localized: "Playback Speed"), systemImage: "gauge.with.dots.needle.67percent")
+                Text(playback.speed == 1 ? String(localized: "Normal") : Self.speedName(playback.speed))
             }
             .pickerStyle(.menu)
 
             if !playback.captions.isEmpty {
                 Picker(selection: Binding(get: { playback.caption }, set: { playback.setCaption($0) })) {
-                    Text("Off").tag(AVMediaSelectionOption?.none)
+                    Text(String(localized: "Off")).tag(AVMediaSelectionOption?.none)
                     ForEach(playback.captions, id: \.self) { option in
                         Text(option.displayName).tag(Optional(option))
                     }
                 } label: {
-                    Label("Captions", systemImage: "captions.bubble")
-                    Text(playback.caption?.displayName ?? "Off")
+                    Label(String(localized: "Captions"), systemImage: "captions.bubble")
+                    Text(playback.caption?.displayName ?? String(localized: "Off"))
                 }
                 .pickerStyle(.menu)
             }
@@ -740,7 +740,7 @@ private struct VideoSettingsMenu: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
         .simultaneousGesture(TapGesture().onEnded(touched))
-        .accessibilityLabel("Video Settings")
+        .accessibilityLabel(String(localized: "Video Settings"))
     }
 
     static func qualityName(_ lines: Int) -> String {
@@ -799,7 +799,7 @@ struct VideoScrubber: View {
             .foregroundStyle(.white.opacity(0.85))
         }
         .accessibilityElement()
-        .accessibilityLabel("Playback position")
+        .accessibilityLabel(String(localized: "Playback position"))
         .accessibilityValue("\(Self.format(shown)) of \(Self.format(duration))")
         .accessibilityAdjustableAction { direction in
             seek(time + (direction == .increment ? 10 : -10))
@@ -948,7 +948,7 @@ struct InteractivePopEnabler: UIViewControllerRepresentable {
 enum VideoQualityName {
     static func short(_ lines: Int) -> String {
         switch lines {
-        case 0: "Auto"
+        case 0: String(localized: "Auto")
         case 2160...: "4K"
         default: "\(lines)p"
         }
@@ -956,7 +956,7 @@ enum VideoQualityName {
 
     static func long(_ lines: Int) -> String {
         switch lines {
-        case 0: "Auto"
+        case 0: String(localized: "Auto")
         case 2160...: "4K (2160p)"
         case 1440: "1440p (2K)"
         case 1080: "1080p (Full HD)"

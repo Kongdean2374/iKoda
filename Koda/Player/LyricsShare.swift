@@ -14,9 +14,9 @@ enum LyricsCardStyle: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .colors: "Colours"
-        case .cover: "Cover"
-        case .dark: "Dark"
+        case .colors: String(localized: "Colours")
+        case .cover: String(localized: "Cover")
+        case .dark: String(localized: "Dark")
         }
     }
 }
@@ -67,7 +67,7 @@ struct LyricsShareSheet: View {
     }
 
     private var hint: some View {
-        Text(selected.count >= Self.maxLines ? "Up to \(Self.maxLines) lines" : "Click lines to add or remove them")
+        Text(selected.count >= Self.maxLines ? String(localized: "Up to \(Self.maxLines) lines") : String(localized: "Click lines to add or remove them"))
             .font(.footnote.weight(.medium))
             .foregroundStyle(.white.opacity(0.65))
             .contentTransition(.opacity)
@@ -126,7 +126,7 @@ struct LyricsShareSheet: View {
 
                 stylePicker
 
-                Text(selected.count >= Self.maxLines ? "Up to \(Self.maxLines) lines" : "Tap lines to add or remove them")
+                Text(selected.count >= Self.maxLines ? String(localized: "Up to \(Self.maxLines) lines") : String(localized: "Tap lines to add or remove them"))
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.white.opacity(0.65))
                     .contentTransition(.opacity)
@@ -273,7 +273,7 @@ struct LyricsShareSheet: View {
         if let rendered {
             let image = Image(uiImage: rendered)
             ShareLink(item: image, preview: SharePreview("\(song.title) · \(song.artistLine)", image: image)) {
-                Label(Platform.isMac ? "Share…" : "Share Card", systemImage: "square.and.arrow.up")
+                Label(Platform.isMac ? String(localized: "Share…") : String(localized: "Share Card"), systemImage: "square.and.arrow.up")
                     .font(.body.weight(.semibold))
                     .padding(.horizontal, Platform.isMac ? 0 : 24)
             }

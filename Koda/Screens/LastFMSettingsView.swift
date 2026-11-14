@@ -49,8 +49,8 @@ struct LastFMSettingsView: View {
             Button("Disconnect and Forget Keys", role: .destructive) { lastFM.disconnect() }
         } message: {
             Text(lastFM.queued.isEmpty
-                 ? "Koda forgets your account and API keys on this iPhone. Your Last.fm history stays on Last.fm."
-                 : "\(lastFM.queued.count) plays haven't been sent yet and will be lost. Your Last.fm history stays on Last.fm.")
+                 ? String(localized: "Koda forgets your account and API keys on this iPhone. Your Last.fm history stays on Last.fm.")
+                 : String(localized: "\(lastFM.queued.count) plays haven't been sent yet and will be lost. Your Last.fm history stays on Last.fm."))
         }
     }
 

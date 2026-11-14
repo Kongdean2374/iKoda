@@ -38,18 +38,18 @@ struct YouTubeSignInView: View {
             case .finishing:
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text("Bringing in your YouTube Music…").font(.headline)
+                    Text(String(localized: "Bringing in your YouTube Music…")).font(.headline)
                 }
                 .padding(24)
                 .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             case .failed(let message):
                 ContentUnavailableView {
-                    Label("Couldn't Sign In", systemImage: "person.crop.circle.badge.exclamationmark")
+                    Label(String(localized: "Couldn't Sign In"), systemImage: "person.crop.circle.badge.exclamationmark")
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try Again") {
+                    Button(String(localized: "Try Again")) {
                         phase = .browsing
                         attempt += 1
                     }
@@ -66,7 +66,7 @@ struct YouTubeSignInView: View {
             }
         }
         .animation(.smooth, value: phase)
-        .navigationTitle("Sign In")
+        .navigationTitle(String(localized: "Sign In"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -74,7 +74,7 @@ struct YouTubeSignInView: View {
                     .labelStyle(.titleAndIcon)
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel("Secure Google sign-in page")
+                    .accessibilityLabel(String(localized: "Secure Google sign-in page"))
             }
         }
     }
@@ -87,7 +87,7 @@ struct YouTubeSignInView: View {
                 onFinish()
                 dismiss()
             } catch {
-                phase = .failed((error as? LocalizedError)?.errorDescription ?? "YouTube Music didn't accept the sign-in. Try again in a moment.")
+                phase = .failed((error as? LocalizedError)?.errorDescription ?? String(localized: "YouTube Music didn't accept the sign-in. Try again in a moment."))
             }
         }
     }

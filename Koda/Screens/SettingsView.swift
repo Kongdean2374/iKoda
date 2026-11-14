@@ -30,7 +30,7 @@ struct SettingsView: View {
                     }
                     if player.transitions == .crossfade {
                         VStack(alignment: .leading, spacing: 4) {
-                            LabeledContent("Overlap", value: "\(Int(player.crossfadeDuration)) s")
+                            LabeledContent(String(localized: "Overlap"), value: String(localized: "\(Int(player.crossfadeDuration)) s"))
                             Slider(value: $player.crossfadeDuration, in: 1...12, step: 1) {
                                 Text("Overlap")
                             } minimumValueLabel: {
@@ -136,7 +136,7 @@ struct SettingsView: View {
                             HStack {
                                 SettingLabel("Last.fm", systemImage: "dot.radiowaves.left.and.right", tint: .red)
                                 Spacer()
-                                Text(app.lastFM.isConnected ? (app.lastFM.isEnabled ? "On" : "Off") : "Not Connected")
+                                Text(app.lastFM.isConnected ? (app.lastFM.isEnabled ? String(localized: "On") : String(localized: "Off")) : String(localized: "Not Connected"))
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -146,7 +146,7 @@ struct SettingsView: View {
                             LastFMSettingsView()
                         } label: {
                             LabeledContent {
-                                Text(app.lastFM.isConnected ? (app.lastFM.isEnabled ? "On" : "Off") : "Not Connected")
+                                Text(app.lastFM.isConnected ? (app.lastFM.isEnabled ? String(localized: "On") : String(localized: "Off")) : String(localized: "Not Connected"))
                             } label: {
                                 SettingLabel("Last.fm", systemImage: "dot.radiowaves.left.and.right", tint: .red)
                             }
@@ -197,7 +197,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
+                    LabeledContent(String(localized: "Version"), value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                     Link(destination: URL(string: "https://github.com/Ivorisnoob/Koda-iOS")!) {
                         Label("Koda on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                     }
@@ -240,7 +240,7 @@ struct SettingLabel: View {
 
     var body: some View {
         Label {
-            Text(title)
+            Text(LocalizedStringKey(title))
         } icon: {
             Image(systemName: systemImage)
                 .font(.footnote.weight(.semibold))
@@ -327,7 +327,7 @@ struct PrivacySettingsView: View {
                 NavigationLink {
                     SuggestLessView()
                 } label: {
-                    LabeledContent("Suggest Less", value: library.notInterested.isEmpty ? "" : "\(library.notInterested.songs.count + library.notInterested.artists.count)")
+                    LabeledContent(String(localized: "Suggest Less"), value: library.notInterested.isEmpty ? "" : "\(library.notInterested.songs.count + library.notInterested.artists.count)")
                 }
             }
             Section {
@@ -356,26 +356,26 @@ struct PrivacySettingsView: View {
 
     private var title: String {
         switch confirm {
-        case .history: "Clear your listening history?"
-        case .searches: "Clear your search history?"
-        case .stats: "Reset your listening stats?"
+        case .history: String(localized: "Clear your listening history?")
+        case .searches: String(localized: "Clear your search history?")
+        case .stats: String(localized: "Reset your listening stats?")
         case nil: ""
         }
     }
 
     private func buttonTitle(_ item: Confirmation) -> String {
         switch item {
-        case .history: "Clear History"
-        case .searches: "Clear Searches"
-        case .stats: "Reset Stats"
+        case .history: String(localized: "Clear History")
+        case .searches: String(localized: "Clear Searches")
+        case .stats: String(localized: "Reset Stats")
         }
     }
 
     private func message(_ item: Confirmation) -> String {
         switch item {
-        case .history: "Recently Played and Quick picks start over. Liked songs and stats stay."
-        case .searches: "Recent searches are removed."
-        case .stats: "Play counts, listening time and streaks start over. Liked songs and history stay."
+        case .history: String(localized: "Recently Played and Quick picks start over. Liked songs and stats stay.")
+        case .searches: String(localized: "Recent searches are removed.")
+        case .stats: String(localized: "Play counts, listening time and streaks start over. Liked songs and history stay.")
         }
     }
 }
@@ -397,7 +397,7 @@ struct StorageSettingsView: View {
         @Bindable var settings = app.settings
         Form {
             Section {
-                LabeledContent("Downloads", value: downloads.bytes.formatted(.byteCount(style: .file)))
+                LabeledContent(String(localized: "Downloads"), value: downloads.bytes.formatted(.byteCount(style: .file)))
                 Toggle("Download over Mobile Data", isOn: $downloads.allowsCellular)
                 Button("Remove All Downloads", role: .destructive) { confirmsRemoveAll = true }
                     .disabled(downloads.songs.isEmpty)
@@ -415,7 +415,7 @@ struct StorageSettingsView: View {
                     downloads.store.cacheLimit = limit.rawValue
                     Task { await measure() }
                 }
-                LabeledContent("Used") {
+                LabeledContent(String(localized: "Used")) {
                     if let cacheBytes {
                         Text(cacheBytes.formatted(.byteCount(style: .file))).contentTransition(.numericText())
                     } else {
@@ -434,7 +434,7 @@ struct StorageSettingsView: View {
                 Text("Songs are kept as you play them, so they start at once next time and play without a connection. Past the limit, the ones played longest ago are removed.")
             }
             Section {
-                LabeledContent("Artwork") {
+                LabeledContent(String(localized: "Artwork")) {
                     if let artworkBytes {
                         Text(artworkBytes.formatted(.byteCount(style: .file)))
                             .contentTransition(.numericText())
@@ -480,20 +480,20 @@ struct StorageSettingsView: View {
 /// A library backup as a file for the share sheet and Files.
 extension AndroidImportSummary {
     /// What importing takes, said beside the button.
-    static let explanation = "Adds liked songs, listening history and stats, searches, the playlists you made and the albums and playlists you saved from a Koda for Android backup file. Nothing here is replaced. Videos, subscriptions, settings and songs that were files on the phone stay behind."
+    static let explanation = String(localized: "Adds liked songs, listening history and stats, searches, the playlists you made and the albums and playlists you saved from a Koda for Android backup file. Nothing here is replaced. Videos, subscriptions, settings and songs that were files on the phone stay behind.")
 
     /// What was added, as one sentence.
     var sentence: String {
-        guard !isEmpty else { return "Everything in that backup is already in your library." }
+        guard !isEmpty else { return String(localized: "Everything in that backup is already in your library.") }
         func count(_ n: Int, _ one: String, _ many: String) -> String? { n > 0 ? "\(n.formatted()) \(n == 1 ? one : many)" : nil }
         let parts = [
-            count(likedSongs, "liked song", "liked songs"),
-            count(playlists, "playlist", "playlists"),
-            count(saved, "saved album or playlist", "saved albums and playlists"),
-            count(plays, "play", "plays"),
-            count(searches, "search", "searches"),
+            count(likedSongs, String(localized: "liked song"), String(localized: "liked songs")),
+            count(playlists, String(localized: "playlist"), String(localized: "playlists")),
+            count(saved, String(localized: "saved album or playlist"), String(localized: "saved albums and playlists")),
+            count(plays, String(localized: "play"), String(localized: "plays")),
+            count(searches, String(localized: "search"), String(localized: "searches")),
         ].compactMap { $0 }
-        return "Added \(parts.formatted(.list(type: .and)))."
+        return String(localized: "Added \(parts.formatted(.list(type: .and))).")
     }
 }
 
@@ -521,7 +521,7 @@ private struct AndroidBackupImporter: ViewModifier {
             } catch let error as AndroidBackup.ReadError {
                 outcome = error.localizedDescription
             } catch {
-                outcome = "Koda couldn't read that file."
+                outcome = String(localized: "Koda couldn't read that file.")
             }
         }
     }
@@ -589,7 +589,7 @@ struct BackupSettingsView: View {
         .fileExporter(isPresented: Binding(get: { exportDocument != nil }, set: { if !$0 { exportDocument = nil } }),
                       document: exportDocument, contentType: .json,
                       defaultFilename: "Koda Library \(Date().formatted(.iso8601.year().month().day()))") { result in
-            if case .success = result { outcome = "Your library is backed up." }
+            if case .success = result { outcome = String(localized: "Your library is backed up.") }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
@@ -598,7 +598,7 @@ struct BackupSettingsView: View {
             if let data = try? Data(contentsOf: url) {
                 pendingRestore = data
             } else {
-                outcome = "Koda couldn't read that file."
+                outcome = String(localized: "Koda couldn't read that file.")
             }
         }
         .confirmationDialog("Replace your library with this backup?", isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
@@ -607,7 +607,7 @@ struct BackupSettingsView: View {
                 guard let data = pendingRestore else { return }
                 do {
                     try library.restore(from: data)
-                    outcome = "Your library is restored."
+                    outcome = String(localized: "Your library is restored.")
                 } catch {
                     outcome = error.localizedDescription
                 }

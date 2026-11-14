@@ -94,11 +94,11 @@ struct SearchView: View {
                 landing
             }
         }
-        .navigationTitle("Search")
-        .searchable(text: $model.query, prompt: model.scope == .library ? "Your Library" : "Songs, artists, albums or a link")
+        .navigationTitle(String(localized: "Search"))
+        .searchable(text: $model.query, prompt: model.scope == .library ? String(localized: "Your Library") : String(localized: "Songs, artists, albums or a link"))
         .searchScopes($model.scope, activation: .onSearchPresentation) {
-            Text("YouTube Music").tag(SearchModel.Scope.catalog)
-            Text("Your Library").tag(SearchModel.Scope.library)
+            Text(String(localized: "YouTube Music")).tag(SearchModel.Scope.catalog)
+            Text(String(localized: "Your Library")).tag(SearchModel.Scope.library)
         }
         .onSubmit(of: .search) { submit(model.query) }
         .onChange(of: model.query) { _, text in
@@ -106,7 +106,7 @@ struct SearchView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Search by Voice", systemImage: "mic") {
+                Button(String(localized: "Search by Voice"), systemImage: "mic") {
                     resumeAfterVoice = player.wantsToPlay
                     if resumeAfterVoice { player.pause(from: "voice search") }
                     listening = true
@@ -165,9 +165,9 @@ struct SearchView: View {
                 if !library.searches.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            SectionHeader(title: "Recent")
+                            SectionHeader(title: String(localized: "Recent"))
                             Spacer()
-                            Button("Clear") { library.clearSearches() }.font(.subheadline)
+                            Button(String(localized: "Clear")) { library.clearSearches() }.font(.subheadline)
                         }
                         ForEach(library.searches.prefix(8), id: \.self) { query in
                             Button { submit(query) } label: {
@@ -181,7 +181,7 @@ struct SearchView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button("Remove", systemImage: "trash", role: .destructive) { library.removeSearch(query) }
+                                Button(String(localized: "Remove"), systemImage: "trash", role: .destructive) { library.removeSearch(query) }
                             }
                         }
                     }
@@ -189,7 +189,7 @@ struct SearchView: View {
                 }
                 if !model.moods.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Moods & genres")
+                        SectionHeader(title: String(localized: "Moods & genres"))
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                             ForEach(model.moods) { mood in
                                 NavigationLink(value: Route.mood(mood)) { MoodTile(mood: mood) }
@@ -279,7 +279,7 @@ struct SearchResultsView: View {
         }
         if !found.songs.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                SectionHeader(title: "Songs")
+                SectionHeader(title: String(localized: "Songs"))
                 ForEach(Array(found.songs.prefix(5).enumerated()), id: \.element.id) { _, song in
                     SongRow(song: song) { player.startRadio(from: song) }
                 }
@@ -287,7 +287,7 @@ struct SearchResultsView: View {
             .padding(.horizontal, 20)
         }
         if !found.albums.isEmpty {
-            ShelfView(title: "Albums") {
+            ShelfView(title: String(localized: "Albums")) {
                 ForEach(found.albums) { album in
                     NavigationLink(value: Route.album(album)) {
                         CoverCard(artwork: album.artwork, title: album.title, subtitle: album.cardSubtitle, width: 140)
@@ -297,7 +297,7 @@ struct SearchResultsView: View {
             }
         }
         if !found.artists.isEmpty {
-            ShelfView(title: "Artists") {
+            ShelfView(title: String(localized: "Artists")) {
                 ForEach(found.artists) { artist in
                     NavigationLink(value: Route.artist(artist)) { ArtistCard(artist: artist, width: 100) }
                         .buttonStyle(.plain)
@@ -305,7 +305,7 @@ struct SearchResultsView: View {
             }
         }
         if !found.playlists.isEmpty {
-            ShelfView(title: "Playlists") {
+            ShelfView(title: String(localized: "Playlists")) {
                 ForEach(found.playlists) { playlist in
                     NavigationLink(value: Route.playlist(playlist)) {
                         CoverCard(artwork: playlist.artwork, title: playlist.title, subtitle: playlist.subtitle, width: 140)
@@ -316,7 +316,7 @@ struct SearchResultsView: View {
         }
         if !found.videos.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                SectionHeader(title: "Videos")
+                SectionHeader(title: String(localized: "Videos"))
                 ForEach(found.videos.prefix(4)) { song in
                     SongRow(song: song) { player.startRadio(from: song) }
                 }
@@ -393,11 +393,11 @@ private struct FilterChips: View {
 extension SearchFilter {
     var title: String {
         switch self {
-        case .all: "All"
-        case .songs: "Songs"
-        case .albums: "Albums"
-        case .artists: "Artists"
-        case .playlists: "Playlists"
+        case .all: String(localized: "All")
+        case .songs: String(localized: "Songs")
+        case .albums: String(localized: "Albums")
+        case .artists: String(localized: "Artists")
+        case .playlists: String(localized: "Playlists")
         }
     }
 }
@@ -410,7 +410,7 @@ private struct TopResultCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Top result")
+            SectionHeader(title: String(localized: "Top result"))
             if let route = Route(item) {
                 NavigationLink(value: route) { header }
                     .buttonStyle(.plain)
@@ -444,10 +444,10 @@ private struct TopResultCard: View {
 
     private var kind: String {
         switch item {
-        case .artist(let a): ["Artist", a.subtitle].compactMap { $0 }.joined(separator: " · ")
+        case .artist(let a): [String(localized: "Artist"), a.subtitle].compactMap { $0 }.joined(separator: " · ")
         case .album(let a): a.cardSubtitle
-        case .playlist(let p): ["Playlist", p.subtitle].compactMap { $0 }.joined(separator: " · ")
-        case .song(let s): ["Song", s.artistLine].joined(separator: " · ")
+        case .playlist(let p): [String(localized: "Playlist"), p.subtitle].compactMap { $0 }.joined(separator: " · ")
+        case .song(let s): [String(localized: "Song"), s.artistLine].joined(separator: " · ")
         }
     }
 }
@@ -456,10 +456,10 @@ extension YouTubeLink {
     /// The row offered when a link is pasted into search.
     var openTitle: String {
         switch self {
-        case .song: "Play Song from Link"
-        case .album: "Open Album from Link"
-        case .playlist: "Open Playlist from Link"
-        case .artist: "Open Artist from Link"
+        case .song: String(localized: "Play Song from Link")
+        case .album: String(localized: "Open Album from Link")
+        case .playlist: String(localized: "Open Playlist from Link")
+        case .artist: String(localized: "Open Artist from Link")
         }
     }
 }

@@ -21,7 +21,7 @@ struct AlbumView: View {
     private var macBody: some View {
         MacPage(spacing: 28) {
             MacCollectionHeader(
-                kind: [album.kind?.rawValue ?? "Album", album.year.map(String.init)].compactMap { $0 }.joined(separator: " · "),
+                kind: [album.kind?.title ?? String(localized: "Album"), album.year.map(String.init)].compactMap { $0 }.joined(separator: " · "),
                 title: album.title,
                 byline: album.artistLine,
                 bylineArtists: album.artists,
@@ -43,7 +43,7 @@ struct AlbumView: View {
                                  showsArtist: page.songs.contains { $0.artistLine != page.album.artistLine },
                                  showsAlbum: false) { player.play(page.songs, startAt: $0) }
                     if !page.otherVersions.isEmpty {
-                        MacShelf(title: "Other versions") {
+                        MacShelf(title: String(localized: "Other versions")) {
                             ForEach(page.otherVersions) { MacItemCard(item: .album($0)) }
                         }
                     }
@@ -59,21 +59,21 @@ struct AlbumView: View {
     @ViewBuilder
     private var macActions: some View {
         let saved = library.isSaved(album: summary.id)
-        Button(saved ? "Remove from Library" : "Add to Library", systemImage: saved ? "checkmark" : "plus") {
+        Button(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"), systemImage: saved ? "checkmark" : "plus") {
             library.toggleSave(album)
         }
         .buttonStyle(MacIconButtonStyle())
-        .help(saved ? "Remove from Library" : "Add to Library")
+        .help(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"))
         if let songs = state.value?.songs, !songs.isEmpty {
             DownloadButton(songs: songs)
                 .buttonStyle(MacIconButtonStyle())
             MacMoreMenu {
-                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
-                Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
+                Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
                 AddToPlaylistMenu(songs: songs)
                 PinMenuItem(pin: .album(summary))
                 ShareLink(item: URL(string: "https://music.youtube.com/browse/\(summary.id)")!) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                 }
             }
         }
@@ -88,7 +88,7 @@ struct AlbumView: View {
                     byline: album.artistLine,
                     bylineArtists: album.artists,
                     openArtist: { app.open(.artist($0)) },
-                    detail: [album.kind?.rawValue, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · "),
+                    detail: [album.kind?.title, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · "),
                     description: state.value?.description,
                     accent: palette.palette.accent,
                     play: { play(shuffled: false) },
@@ -116,7 +116,7 @@ struct AlbumView: View {
                                 .padding(.horizontal, 20)
                         }
                         if !page.otherVersions.isEmpty {
-                            ShelfView(title: "Other versions") {
+                            ShelfView(title: String(localized: "Other versions")) {
                                 ForEach(page.otherVersions) { other in
                                     NavigationLink(value: Route.album(other)) {
                                         CoverCard(artwork: other.artwork, title: other.title, subtitle: other.cardSubtitle)
@@ -136,7 +136,7 @@ struct AlbumView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 let saved = library.isSaved(album: summary.id)
-                Button(saved ? "Remove from Library" : "Add to Library", systemImage: saved ? "checkmark" : "plus") {
+                Button(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"), systemImage: saved ? "checkmark" : "plus") {
                     library.toggleSave(album)
                 }
                 .sensoryFeedback(.success, trigger: saved)
@@ -147,15 +147,15 @@ struct AlbumView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("More", systemImage: "ellipsis") {
+                Menu(String(localized: "More"), systemImage: "ellipsis") {
                     if let songs = state.value?.songs, !songs.isEmpty {
-                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
-                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
                         AddToPlaylistMenu(songs: songs)
                     }
                     PinMenuItem(pin: .album(summary))
                     ShareLink(item: URL(string: "https://music.youtube.com/browse/\(summary.id)")!) {
-                        Label("Share", systemImage: "square.and.arrow.up")
+                        Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                     }
                 }
             }

@@ -10,11 +10,11 @@ enum ExploreTopic: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .music: "Music"
-        case .live: "Live"
-        case .news: "News"
-        case .sports: "Sports"
-        case .learning: "Learning"
+        case .music: String(localized: "Music")
+        case .live: String(localized: "Live")
+        case .news: String(localized: "News")
+        case .sports: String(localized: "Sports")
+        case .learning: String(localized: "Learning")
         }
     }
 
@@ -47,13 +47,13 @@ struct ExploreView: View {
     @Environment(AppModel.self) private var app
     @State private var state: LoadState<[VideoShelf]> = .loading
 
-    private static let placeholder = (0..<3).map { _ in VideoShelf(title: "A shelf of videos", videos: Array(Video.placeholders.prefix(4))) }
+    private static let placeholder = (0..<3).map { _ in VideoShelf(title: String(localized: "A shelf of videos"), videos: Array(Video.placeholders.prefix(4))) }
 
     var body: some View {
         Group {
             if Platform.isMac {
                 MacPage {
-                    MacPageTitle(title: topic.title, subtitle: "Explore")
+                    MacPageTitle(title: topic.title, subtitle: String(localized: "Explore"))
                     content
                 }
             } else {
@@ -79,7 +79,7 @@ struct ExploreView: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await load() } }.buttonStyle(.glass)
+                Button(String(localized: "Try Again")) { Task { await load() } }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, minHeight: 320)
         case .loaded(let loaded):
@@ -132,7 +132,7 @@ struct VideoPlaylistView: View {
             if Platform.isMac {
                 MacPage {
                     MacPageTitle(title: title) {
-                        Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }
+                        Button(String(localized: "Refresh"), systemImage: "arrow.clockwise") { Task { await load() } }
                             .labelStyle(.iconOnly)
                             .keyboardShortcut("r", modifiers: .command)
                     }
@@ -161,13 +161,13 @@ struct VideoPlaylistView: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await load() } }.buttonStyle(.glass)
+                Button(String(localized: "Try Again")) { Task { await load() } }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, minHeight: 320)
         case .loaded(let page) where page.videos.isEmpty:
-            ContentUnavailableView(playlistId == "WL" ? "Nothing Saved for Later" : "No Liked Videos", systemImage: systemImage,
-                                   description: Text(playlistId == "WL" ? "Videos you save to Watch Later on YouTube appear here."
-                                                     : "Videos you like appear here."))
+            ContentUnavailableView(playlistId == "WL" ? String(localized: "Nothing Saved for Later") : String(localized: "No Liked Videos"), systemImage: systemImage,
+                                   description: Text(playlistId == "WL" ? String(localized: "Videos you save to Watch Later on YouTube appear here.")
+                                                     : String(localized: "Videos you like appear here.")))
                 .frame(maxWidth: .infinity, minHeight: 320)
         case .loaded(let page):
             list(page.videos)
@@ -222,7 +222,7 @@ struct SubscribedChannelsView: View {
             if let channels = app.subscribedChannels, !channels.isEmpty {
                 if Platform.isMac {
                     MacPage {
-                        MacPageTitle(title: "Channels")
+                        MacPageTitle(title: String(localized: "Channels"))
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 130, maximum: 160), spacing: 20, alignment: .top)], spacing: 24) {
                             ForEach(channels, id: \.id) { channel in cell(channel) }
                         }
@@ -245,11 +245,11 @@ struct SubscribedChannelsView: View {
             } else if app.subscribedChannels == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView("No Subscriptions", systemImage: "person.2",
-                                       description: Text("Channels you subscribe to appear here."))
+                ContentUnavailableView(String(localized: "No Subscriptions"), systemImage: "person.2",
+                                       description: Text(String(localized: "Channels you subscribe to appear here.")))
             }
         }
-        .navigationTitle("Channels")
+        .navigationTitle(String(localized: "Channels"))
         .task { if app.subscribedChannels == nil { await app.loadSubscribedChannels() } }
     }
 

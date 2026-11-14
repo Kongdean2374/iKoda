@@ -63,9 +63,9 @@ extension TimeInterval {
     /// "2 hr 5 min", "42 min", "under a minute".
     var listeningText: String {
         let minutes = Int(self / 60)
-        if minutes == 0 { return self > 0 ? "Under a minute" : "0 min" }
-        if minutes < 60 { return "\(minutes) min" }
-        return minutes % 60 == 0 ? "\(minutes / 60) hr" : "\(minutes / 60) hr \(minutes % 60) min"
+        if minutes == 0 { return self > 0 ? String(localized: "Under a minute") : String(localized: "0 min") }
+        if minutes < 60 { return String(localized: "\(minutes) min") }
+        return minutes % 60 == 0 ? String(localized: "\(minutes / 60) hr") : String(localized: "\(minutes / 60) hr \(minutes % 60) min")
     }
 }
 
@@ -84,7 +84,7 @@ struct ProfileView: View {
                 VStack(spacing: 28) {
                     header(summary)
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Profiles")
+                        SectionHeader(title: String(localized: "Profiles"))
                         ProfilesGrid()
                     }
                     .padding(.horizontal, 20)
@@ -164,10 +164,10 @@ struct ProfileView: View {
 
     private func tiles(_ summary: ListeningSummary) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatTile(title: "This week", value: summary.totalSeconds.listeningText, systemImage: "headphones", tint: .accentColor)
-            StatTile(title: "Day streak", value: summary.streak == 1 ? "1 day" : "\(summary.streak) days", systemImage: "flame.fill", tint: .orange)
-            StatTile(title: "Songs played", value: summary.totalPlays.formatted(), systemImage: "music.note", tint: .pink)
-            StatTile(title: "Liked songs", value: library.liked.count.formatted(), systemImage: "heart.fill", tint: .red)
+            StatTile(title: String(localized: "This week"), value: summary.totalSeconds.listeningText, systemImage: "headphones", tint: .accentColor)
+            StatTile(title: String(localized: "Day streak"), value: summary.streak == 1 ? String(localized: "1 day") : String(localized: "\(summary.streak) days"), systemImage: "flame.fill", tint: .orange)
+            StatTile(title: String(localized: "Songs played"), value: summary.totalPlays.formatted(), systemImage: "music.note", tint: .pink)
+            StatTile(title: String(localized: "Liked songs"), value: library.liked.count.formatted(), systemImage: "heart.fill", tint: .red)
         }
         .padding(.horizontal, 20)
     }
@@ -178,7 +178,7 @@ struct ProfileView: View {
     private func topSongs(_ summary: ListeningSummary) -> some View {
         if !summary.topSongs.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                SectionHeader(title: "Your top songs")
+                SectionHeader(title: String(localized: "Your top songs"))
                 TopSongsList(stats: Array(summary.topSongs.prefix(5)))
             }
             .padding(.horizontal, 20)
@@ -189,7 +189,7 @@ struct ProfileView: View {
     private func topArtists(_ summary: ListeningSummary) -> some View {
         if !summary.topArtists.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: "Your top artists")
+                SectionHeader(title: String(localized: "Your top artists"))
                     .padding(.horizontal, 20)
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 16) {
@@ -240,7 +240,7 @@ struct StatTile: View {
 /// Minutes per day as bars; tap or drag across to read one.
 struct WeekChart: View {
     let days: [ListeningSummary.Day]
-    var title = "Last 7 days"
+    var title = String(localized: "Last 7 days")
     @State private var selected: Date?
 
     private var shown: ListeningSummary.Day? {
@@ -265,7 +265,7 @@ struct WeekChart: View {
                 }
             }
             Chart(days) { day in
-                BarMark(x: .value("Day", day.date, unit: .day), y: .value("Minutes", day.minutes), width: .ratio(0.55))
+                BarMark(x: .value(String(localized: "Day"), day.date, unit: .day), y: .value(String(localized: "Minutes"), day.minutes), width: .ratio(0.55))
                     .cornerRadius(4)
                     .foregroundStyle(Color.accentColor.opacity(shown == nil || shown?.id == day.id ? 1 : 0.35))
             }
@@ -300,7 +300,7 @@ struct TopSongsList: View {
     var body: some View {
         LazyVStack(spacing: 0) {
             ForEach(Array(stats.enumerated()), id: \.element.song.id) { index, stat in
-                SongRow(song: stat.song, subtitle: "\(stat.song.artistLine) · \(stat.plays == 1 ? "1 play" : "\(stat.plays) plays")") {
+                SongRow(song: stat.song, subtitle: "\(stat.song.artistLine) · \(stat.plays == 1 ? String(localized: "1 play") : String(localized: "\(stat.plays) plays"))") {
                     player.play(stats.map(\.song), startAt: index)
                 }
                 .overlay(alignment: .leading) {
@@ -384,9 +384,9 @@ struct StatsView: View {
     private var macBody: some View {
         let summary = ListeningSummary(library: library, days: range.days)
         return MacPage(spacing: 28) {
-            MacPageTitle(title: "Listening Stats", subtitle: "Library") {
+            MacPageTitle(title: String(localized: "Listening Stats"), subtitle: String(localized: "Library")) {
                 Picker("Range", selection: $range) {
-                    ForEach(Span.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(Span.allCases) { Text(LocalizedStringKey($0.rawValue)).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -411,25 +411,25 @@ struct StatsView: View {
                     : AnyLayout(HStackLayout(alignment: .top, spacing: 40))
                 top {
                     tiles {
-                        StatTile(title: "Listened", value: summary.totalSeconds.listeningText, systemImage: "headphones", tint: .accentColor)
-                        StatTile(title: "Day streak", value: summary.streak == 1 ? "1 day" : "\(summary.streak) days", systemImage: "flame.fill", tint: .orange)
+                        StatTile(title: String(localized: "Listened"), value: summary.totalSeconds.listeningText, systemImage: "headphones", tint: .accentColor)
+                        StatTile(title: String(localized: "Day streak"), value: summary.streak == 1 ? String(localized: "1 day") : String(localized: "\(summary.streak) days"), systemImage: "flame.fill", tint: .orange)
                     }
                     .frame(width: narrow ? nil : 240)
                     if range != .year {
-                        WeekChart(days: summary.days, title: range == .week ? "Last 7 days" : "Last 30 days")
+                        WeekChart(days: summary.days, title: range == .week ? String(localized: "Last 7 days") : String(localized: "Last 30 days"))
                             .frame(maxWidth: .infinity)
                     }
                 }
                 .padding(.horizontal, MacMetrics.gutter)
                 lists {
                     VStack(alignment: .leading, spacing: 8) {
-                        MacSectionTitle(title: "Top songs", subtitle: "All time")
+                        MacSectionTitle(title: String(localized: "Top songs"), subtitle: String(localized: "All time"))
                         TopSongsList(stats: Array(summary.topSongs.prefix(25)))
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     if !summary.topArtists.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            MacSectionTitle(title: "Top artists", subtitle: "All time")
+                            MacSectionTitle(title: String(localized: "Top artists"), subtitle: String(localized: "All time"))
                             ForEach(Array(summary.topArtists.prefix(10).enumerated()), id: \.element.id) { index, artist in
                                 HStack(spacing: 12) {
                                     Text("\(index + 1)")
@@ -439,7 +439,7 @@ struct StatsView: View {
                                     ArtworkView(artwork: artist.artwork, size: 40, circle: true)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(artist.name).font(.callout.weight(.medium)).lineLimit(1)
-                                        Text("\(artist.seconds.listeningText) · \(artist.plays == 1 ? "1 play" : "\(artist.plays) plays")")
+                                        Text("\(artist.seconds.listeningText) · \(artist.plays == 1 ? String(localized: "1 play") : String(localized: "\(artist.plays) plays"))")
                                             .font(.subheadline).foregroundStyle(.secondary)
                                     }
                                     Spacer()
@@ -469,32 +469,32 @@ struct StatsView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Picker("Range", selection: $range) {
-                    ForEach(Span.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(Span.allCases) { Text(LocalizedStringKey($0.rawValue)).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 20)
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    StatTile(title: "Listened", value: summary.totalSeconds.listeningText, systemImage: "headphones", tint: .accentColor)
-                    StatTile(title: "Day streak", value: summary.streak == 1 ? "1 day" : "\(summary.streak) days", systemImage: "flame.fill", tint: .orange)
+                    StatTile(title: String(localized: "Listened"), value: summary.totalSeconds.listeningText, systemImage: "headphones", tint: .accentColor)
+                    StatTile(title: String(localized: "Day streak"), value: summary.streak == 1 ? String(localized: "1 day") : String(localized: "\(summary.streak) days"), systemImage: "flame.fill", tint: .orange)
                 }
                 .padding(.horizontal, 20)
 
                 if range != .year {
-                    WeekChart(days: summary.days, title: range == .week ? "Last 7 days" : "Last 30 days")
+                    WeekChart(days: summary.days, title: range == .week ? String(localized: "Last 7 days") : String(localized: "Last 30 days"))
                         .padding(.horizontal, 20)
                 }
 
                 if !summary.topSongs.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        SectionHeader(title: "Top songs · all time")
+                        SectionHeader(title: String(localized: "Top songs · all time"))
                         TopSongsList(stats: Array(summary.topSongs.prefix(25)))
                     }
                     .padding(.horizontal, 20)
                 }
                 if !summary.topArtists.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        SectionHeader(title: "Top artists · all time")
+                        SectionHeader(title: String(localized: "Top artists · all time"))
                         ForEach(Array(summary.topArtists.prefix(10).enumerated()), id: \.element.id) { index, artist in
                             HStack(spacing: 12) {
                                 Text("\(index + 1)")
@@ -504,7 +504,7 @@ struct StatsView: View {
                                 ArtworkView(artwork: artist.artwork, size: 44, circle: true)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(artist.name).font(.body).lineLimit(1)
-                                    Text("\(artist.seconds.listeningText) · \(artist.plays == 1 ? "1 play" : "\(artist.plays) plays")")
+                                    Text("\(artist.seconds.listeningText) · \(artist.plays == 1 ? String(localized: "1 play") : String(localized: "\(artist.plays) plays"))")
                                         .font(.subheadline).foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -525,7 +525,7 @@ struct StatsView: View {
         .navigationTitle("Listening Stats")
         .toolbar {
             if !library.songStats.isEmpty {
-                Menu("More", systemImage: "ellipsis") {
+                Menu(String(localized: "More"), systemImage: "ellipsis") {
                     Button("Reset Stats", systemImage: "arrow.counterclockwise", role: .destructive) { confirmReset = true }
                 }
             }

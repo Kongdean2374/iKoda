@@ -53,7 +53,7 @@ struct ArtistView: View {
                     .overlay(shape.strokeBorder(.white.opacity(0.18), lineWidth: 1))
                     .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Artist")
+                    Text(String(localized: "Artist"))
                         .font(.caption.weight(.semibold))
                         .textCase(.uppercase)
                         .foregroundStyle(.secondary)
@@ -79,15 +79,15 @@ struct ArtistView: View {
                                        shuffle: { if let first = topSongs.first { player.startRadio(from: first) } })
                             .disabled(topSongs.isEmpty)
                         let saved = library.isSaved(artist: summary.id)
-                        Button(saved ? "Remove from Library" : "Add to Library", systemImage: saved ? "checkmark" : "plus") {
+                        Button(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"), systemImage: saved ? "checkmark" : "plus") {
                             library.toggleSave(state.value?.artist ?? summary)
                         }
                         .buttonStyle(MacIconButtonStyle())
-                        .help(saved ? "Remove from Library" : "Add to Library")
+                        .help(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"))
                         MacMoreMenu {
                             PinMenuItem(pin: .artist(summary))
                             ShareLink(item: URL(string: "https://music.youtube.com/channel/\(summary.id)")!) {
-                                Label("Share", systemImage: "square.and.arrow.up")
+                                Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                             }
                         }
                     }
@@ -105,8 +105,8 @@ struct ArtistView: View {
     private func macContent(_ page: ArtistPage) -> some View {
         if !page.topSongs.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                MacSectionTitle(title: "Top songs",
-                                seeAll: page.allSongsPlaylistId.map { .playlist(PlaylistSummary(id: $0, title: "\(page.artist.name): Songs", artwork: page.banner)) })
+                MacSectionTitle(title: String(localized: "Top songs"),
+                                seeAll: page.allSongsPlaylistId.map { .playlist(PlaylistSummary(id: $0, title: String(localized: "\(page.artist.name): Songs"), artwork: page.banner)) })
                     .padding(.leading, 6)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 8, alignment: .top)], spacing: 2) {
                     ForEach(Array(page.topSongs.enumerated()), id: \.element.id) { index, song in
@@ -117,27 +117,27 @@ struct ArtistView: View {
             .padding(.horizontal, MacMetrics.gutter)
         }
         if !page.albums.isEmpty {
-            MacShelf(title: "Albums") { ForEach(page.albums) { MacItemCard(item: .album($0)) } }
+            MacShelf(title: String(localized: "Albums")) { ForEach(page.albums) { MacItemCard(item: .album($0)) } }
         }
         if !page.singles.isEmpty {
-            MacShelf(title: "Singles & EPs") { ForEach(page.singles) { MacItemCard(item: .album($0)) } }
+            MacShelf(title: String(localized: "Singles & EPs")) { ForEach(page.singles) { MacItemCard(item: .album($0)) } }
         }
         if !page.featuredOn.isEmpty {
-            MacShelf(title: "Featured on") { ForEach(page.featuredOn) { MacItemCard(item: .playlist($0)) } }
+            MacShelf(title: String(localized: "Featured on")) { ForEach(page.featuredOn) { MacItemCard(item: .playlist($0)) } }
         }
         if !page.similar.isEmpty {
-            MacShelf(title: "Fans also like") { ForEach(page.similar) { MacArtistCard(artist: $0) } }
+            MacShelf(title: String(localized: "Fans also like")) { ForEach(page.similar) { MacArtistCard(artist: $0) } }
         }
         if let about = page.description {
             VStack(alignment: .leading, spacing: 10) {
-                MacSectionTitle(title: "About")
+                MacSectionTitle(title: String(localized: "About"))
                 Text(about)
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(aboutExpanded ? nil : 5)
                     .textSelection(.enabled)
                     .frame(maxWidth: 720, alignment: .leading)
-                Button(aboutExpanded ? "Less" : "More") { withAnimation(.snappy) { aboutExpanded.toggle() } }
+                Button(aboutExpanded ? String(localized: "Less") : String(localized: "More")) { withAnimation(.snappy) { aboutExpanded.toggle() } }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
             }
@@ -166,16 +166,16 @@ struct ArtistView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 let saved = library.isSaved(artist: summary.id)
-                Button(saved ? "Remove from Library" : "Add to Library", systemImage: saved ? "checkmark" : "plus") {
+                Button(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"), systemImage: saved ? "checkmark" : "plus") {
                     library.toggleSave(state.value?.artist ?? summary)
                 }
                 .sensoryFeedback(.success, trigger: saved)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("More", systemImage: "ellipsis") {
+                Menu(String(localized: "More"), systemImage: "ellipsis") {
                     PinMenuItem(pin: .artist(summary))
                     ShareLink(item: URL(string: "https://music.youtube.com/channel/\(summary.id)")!) {
-                        Label("Share", systemImage: "square.and.arrow.up")
+                        Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                     }
                 }
             }
@@ -238,8 +238,8 @@ struct ArtistView: View {
 
         if !page.topSongs.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                SectionHeader(title: "Top songs",
-                              seeAll: page.allSongsPlaylistId.map { .playlist(PlaylistSummary(id: $0, title: "\(page.artist.name): Songs", artwork: page.banner)) })
+                SectionHeader(title: String(localized: "Top songs"),
+                              seeAll: page.allSongsPlaylistId.map { .playlist(PlaylistSummary(id: $0, title: String(localized: "\(page.artist.name): Songs"), artwork: page.banner)) })
                 ForEach(Array(page.topSongs.enumerated()), id: \.element.id) { index, song in
                     SongRow(song: song) { player.play(page.topSongs, startAt: index) }
                 }
@@ -247,7 +247,7 @@ struct ArtistView: View {
             .padding(.horizontal, 20)
         }
         if !page.albums.isEmpty {
-            ShelfView(title: "Albums") {
+            ShelfView(title: String(localized: "Albums")) {
                 ForEach(page.albums) { album in
                     NavigationLink(value: Route.album(album)) {
                         CoverCard(artwork: album.artwork, title: album.title, subtitle: album.year.map(String.init))
@@ -257,18 +257,18 @@ struct ArtistView: View {
             }
         }
         if !page.singles.isEmpty {
-            ShelfView(title: "Singles & EPs") {
+            ShelfView(title: String(localized: "Singles & EPs")) {
                 ForEach(page.singles) { single in
                     NavigationLink(value: Route.album(single)) {
                         CoverCard(artwork: single.artwork, title: single.title,
-                                  subtitle: [single.kind?.rawValue, single.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                                  subtitle: [single.kind?.title, single.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
         if !page.featuredOn.isEmpty {
-            ShelfView(title: "Featured on") {
+            ShelfView(title: String(localized: "Featured on")) {
                 ForEach(page.featuredOn) { playlist in
                     NavigationLink(value: Route.playlist(playlist)) {
                         CoverCard(artwork: playlist.artwork, title: playlist.title, subtitle: playlist.subtitle)
@@ -278,7 +278,7 @@ struct ArtistView: View {
             }
         }
         if !page.similar.isEmpty {
-            ShelfView(title: "Fans also like") {
+            ShelfView(title: String(localized: "Fans also like")) {
                 ForEach(page.similar) { artist in
                     NavigationLink(value: Route.artist(artist)) { ArtistCard(artist: artist) }
                         .buttonStyle(.plain)
@@ -287,7 +287,7 @@ struct ArtistView: View {
         }
         if let about = page.description {
             VStack(alignment: .leading, spacing: 8) {
-                Text("About").font(.title3.bold())
+                Text(String(localized: "About")).font(.title3.bold())
                 Text(about)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
