@@ -14,6 +14,19 @@ private enum AudioStoreRaceFailure: Error {
     case oldWriterDidNotStart, flushDidNotStart, flushDidNotFinish
 }
 
+private final class AudioStoreFirstWriteGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.withLock {
+            guard !claimed else { return false }
+            claimed = true
+            return true
+        }
+    }
+}
+
 struct ByteRangesTests {
     @Test func mergesOverlappingAndTouchingRanges() {
         var ranges = ByteRanges()
@@ -86,13 +99,13 @@ struct AudioStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let oldWriteEntered = DispatchSemaphore(value: 0)
         let releaseOldWrite = DispatchSemaphore(value: 0)
-        let holdFirstWriteOnly = DispatchSemaphore(value: 1)
+        let firstWrite = AudioStoreFirstWriteGate()
         let oldWriteTimedOut = DispatchSemaphore(value: 0)
         let flushStarted = DispatchSemaphore(value: 0)
         let flushFinished = DispatchSemaphore(value: 0)
         defer { releaseOldWrite.signal() }
         store.beforeScheduledIndexWrite = {
-            guard holdFirstWriteOnly.wait(timeout: .now()) == .success else { return }
+            guard firstWrite.claim() else { return }
             oldWriteEntered.signal()
             if releaseOldWrite.wait(timeout: .now() + 15) == .timedOut {
                 oldWriteTimedOut.signal()
