@@ -15,6 +15,7 @@ struct LyricsPanel: View {
     private var request: LyricsRequest {
         LyricsRequest(song: player.current, sources: app.settings.lyricsSources,
                       customSources: app.settings.customLyricsSources,
+                      cacheRevision: app.lyricsTranslation.lyricsRevision,
                       refresh: refreshSongID == player.current?.id ? refreshRevision : 0)
     }
 
@@ -91,5 +92,6 @@ private struct LyricsRequest: Equatable {
     var song: Song?
     var sources: [LyricsSource]
     var customSources: [CustomLyricsSource]
+    var cacheRevision: Int
     var refresh: Int
 }

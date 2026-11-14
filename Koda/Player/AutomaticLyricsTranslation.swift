@@ -58,6 +58,8 @@ nonisolated enum NativeLyricsTranslationEngine {
             let responsesByID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, byText[$0.text]!) })
             let requests = unique.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
             let session = TranslationSession(installedSource: choice.source, target: choice.target)
+            // Apple's iterator cancellation is cooperative and may not yield immediately.
+            // The pipeline waits for this worker to exit before starting another session.
             defer { session.cancel() }
             var lastPublished = ContinuousClock.now
             for try await response in session.translate(batch: requests) {

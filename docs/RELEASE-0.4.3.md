@@ -63,6 +63,11 @@ call; first-time on-device translation still depends on model readiness, song
 length and hardware. No measured device speed improvement is claimed without a
 physical-device measurement.
 
+Apple's batch-response API does not document immediate cancellation. A new song
+has scheduling priority, but the old native request must yield or finish before
+another engine starts. Late replies are rejected; physical-device cancellation
+latency remains to be measured.
+
 Reference: the public Dynamic-Lyrics App Store description was reviewed for the
 lyrics/translation workflow. That app was not installed or benchmarked here, and
 its proprietary implementation was not inspected.

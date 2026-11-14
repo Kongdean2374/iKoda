@@ -44,9 +44,9 @@ final class LyricsTranslationCoordinator {
     private var foreground = true
     private var expirationSuspended = false
     private var currentLookupActive = false
+    private(set) var lyricsRevision = 0
     private var downloadAttempt: UInt64 = 0
-    private var finishedDownloads: Set<String> = []
-    @ObservationIgnored private var claimedDownloads: Set<String> = []
+    private var downloadPolicy = AutomaticLyricDownloadPolicy()
     @ObservationIgnored private var languageCheckTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [LyricsSource] = []
     @ObservationIgnored private var customSources: [CustomLyricsSource] = []
@@ -59,6 +59,7 @@ final class LyricsTranslationCoordinator {
     @ObservationIgnored private var lookupOrder: [LookupKey] = []
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
     @ObservationIgnored private var prefetchGeneration = UUID()
+    @ObservationIgnored private var prefetchRemaining: [LookupKey] = []
     @ObservationIgnored private var lookupContext: [LookupKey] = []
     private static let maximumCachedSongs = 200
     private static let maximumOriginalLyricsBytes = 20_000_000
@@ -80,6 +81,7 @@ final class LyricsTranslationCoordinator {
     func update(current: Song?, upcoming: [Song], sources: [LyricsSource], customSources: [CustomLyricsSource],
                 automaticEnabled: Bool, showsTranslation: Bool, isForeground: Bool) {
         let becameActive = !foreground && isForeground
+        let changedSong = currentSong?.id != current?.id
         let wasPreparing = self.automaticEnabled && self.showsTranslation
         if becameActive { expirationSuspended = false }
         currentSong = current
@@ -111,7 +113,8 @@ final class LyricsTranslationCoordinator {
         }
         if !automaticEnabled { pipeline.suspend() }
         refreshTranslationRequests()
-        if becameActive, let currentInput = current.flatMap({ inputs[$0.id]?.input }) {
+        if becameActive || changedSong || (!wasPreparing && prepares),
+           let currentInput = current.flatMap({ inputs[$0.id]?.input }) {
             switch pipeline.snapshot(for: currentInput).phase {
             case .failed, .paused, .needsLanguage: pipeline.retry(songID: currentInput.songID)
             default: break
@@ -200,7 +203,9 @@ final class LyricsTranslationCoordinator {
         if foreground { expirationSuspended = false }
         languageCheckTask?.cancel()
         downloadAttempt &+= 1
-        finishedDownloads.removeAll()
+        let pair = songID.flatMap { inputs[$0]?.input }.flatMap { pipeline.snapshot(for: $0).languagePair }
+            .map { AutomaticLyricDownloadPolicy.Pair(source: $0.source, target: $0.target) }
+        downloadPolicy.retry(pair)
         pipeline.retry(songID: songID)
     }
 
@@ -222,6 +227,7 @@ final class LyricsTranslationCoordinator {
         lookupVersions.removeAll()
         let generation = prefetchGeneration
         await client.clearCache()
+        lyricsRevision &+= 1
         guard prefetchGeneration == generation, foreground, automaticEnabled, showsTranslation,
               !expirationSuspended else { return }
         startPrefetch(lookupContext)
@@ -233,41 +239,51 @@ final class LyricsTranslationCoordinator {
         let snapshot = pipeline.snapshot(for: prepared.input)
         guard snapshot.phase == .needsLanguage, let pair = snapshot.languagePair else { return nil }
         let id = "\(songID)|\(pair.source)|\(pair.target)|\(downloadAttempt)"
-        guard !finishedDownloads.contains(id) else { return nil }
+        guard downloadPolicy.allows(.init(source: pair.source, target: pair.target), requestID: id) else { return nil }
         return DownloadRequest(id: id, songID: songID, source: pair.source, target: pair.target)
     }
 
     func beginLanguageDownload(_ request: DownloadRequest) -> Bool {
-        guard downloadRequest == request, claimedDownloads.insert(request.id).inserted else { return false }
-        return true
+        guard downloadRequest == request else { return false }
+        return downloadPolicy.begin(.init(source: request.source, target: request.target), requestID: request.id)
     }
 
     func finishLanguageDownload(_ request: DownloadRequest, installed: Bool) {
-        guard claimedDownloads.remove(request.id) != nil else { return }
+        let pair = AutomaticLyricDownloadPolicy.Pair(source: request.source, target: request.target)
+        guard downloadPolicy.finish(pair, requestID: request.id, installed: installed) else { return }
         // A failed/cancelled foreground prompt is not remounted indefinitely. Retry is
-        // explicit; an installed result may be reused when this song becomes current again.
-        finishedDownloads.insert(request.id)
-        if finishedDownloads.count > Self.maximumCachedSongs { finishedDownloads = [request.id] }
-        guard currentSong?.id == request.songID else { return }
+        // explicit and belongs to the language pair, including after skipping a song.
         if installed {
             pipeline.retry(songID: request.songID)
+            retryCurrentLanguage(pair)
         } else {
             // Apple's preparation may finish while another download is still running.
             // Check local installation state briefly without retaining the UI session or
             // repeatedly presenting a download dialog. A later foreground entry can retry.
             languageCheckTask?.cancel()
+            let attempt = downloadAttempt
             languageCheckTask = Task { [weak self] in
                 for _ in 0..<10 {
                     do { try await Task.sleep(for: .seconds(3)) } catch { return }
                     guard let self, !Task.isCancelled, self.foreground, self.automaticEnabled,
-                          self.showsTranslation, self.currentSong?.id == request.songID,
-                          self.finishedDownloads.contains(request.id) else { return }
+                          self.showsTranslation, self.downloadAttempt == attempt else { return }
                     let ready = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
-                    guard !Task.isCancelled, self.foreground, self.currentSong?.id == request.songID else { return }
-                    if ready { self.pipeline.retry(songID: request.songID); return }
+                    guard !Task.isCancelled, self.foreground, self.downloadAttempt == attempt else { return }
+                    if ready {
+                        self.pipeline.retry(songID: request.songID)
+                        self.retryCurrentLanguage(pair)
+                        return
+                    }
                 }
             }
         }
+    }
+
+    private func retryCurrentLanguage(_ pair: AutomaticLyricDownloadPolicy.Pair) {
+        guard let songID = currentSong?.id, let prepared = inputs[songID],
+              let needed = pipeline.snapshot(for: prepared.input).languagePair,
+              needed.source == pair.source, needed.target == pair.target else { return }
+        pipeline.retry(songID: songID)
     }
 
     private func refreshTranslationRequests() {
@@ -300,28 +316,27 @@ final class LyricsTranslationCoordinator {
             guard !Task.isCancelled, self.prefetchGeneration == generation, self.foreground else { return }
             // At most two future-song lookups run together. Every provider has its own
             // deadline; only the current song and five future songs are ever prepared.
-            let future = Array(context.dropFirst())
-            await withTaskGroup(of: Void.self) { group in
-                var index = 0
-                func enqueue(_ key: LookupKey) {
-                    group.addTask { @MainActor [weak self] in
-                        guard !Task.isCancelled, let self, self.prefetchGeneration == generation else { return }
-                        _ = await self.lyrics(for: key.song, sources: sources, customSources: custom)
-                    }
-                }
-                while index < min(2, future.count) { enqueue(future[index]); index += 1 }
-                for await _ in group {
-                    guard !Task.isCancelled, self.prefetchGeneration == generation, self.foreground else {
-                        group.cancelAll(); break
-                    }
-                    if index < future.count { enqueue(future[index]); index += 1 }
-                }
-            }
+            self.prefetchRemaining = Array(context.dropFirst())
+            // Two structured workers claim the next item on this actor before awaiting
+            // its shared lookup. This avoids capturing an inout TaskGroup in a nested
+            // actor-isolated closure, while keeping dynamic distribution and the limit.
+            async let firstWorker: Void = self.prefetchWorker(generation: generation, sources: sources, customSources: custom)
+            async let secondWorker: Void = self.prefetchWorker(generation: generation, sources: sources, customSources: custom)
+            _ = await (firstWorker, secondWorker)
+        }
+    }
+
+    private func prefetchWorker(generation: UUID, sources: [LyricsSource], customSources: [CustomLyricsSource]) async {
+        while !Task.isCancelled, prefetchGeneration == generation, foreground,
+              automaticEnabled, showsTranslation, !expirationSuspended, !prefetchRemaining.isEmpty {
+            let next = prefetchRemaining.removeFirst()
+            _ = await lyrics(for: next.song, sources: sources, customSources: customSources)
         }
     }
 
     private func cancelPrefetch(keepingCurrent: Bool) {
         prefetchGeneration = UUID()
+        prefetchRemaining.removeAll()
         prefetchTask?.cancel()
         prefetchTask = nil
         let currentKey = currentSong.flatMap { desiredLookups[$0.id] }

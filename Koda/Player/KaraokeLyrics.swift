@@ -185,8 +185,10 @@ struct SyncedLyrics: View {
             }
             .onChange(of: current) { _, index in
                 // Natural playback progression wins over a simultaneous layout correction.
-                scroll.cancelCorrection()
                 guard let index, !userScrolled else { return }
+                // While manually reading another row, playback keeps advancing but does
+                // not scroll. Keep that reader's pending layout correction in this case.
+                scroll.cancelCorrection()
                 withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: index, anchor: UnitPoint(x: 0, y: 0.32)) }
             }
             .onChange(of: userScrolled) { _, scrolled in
