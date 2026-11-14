@@ -272,6 +272,12 @@ final class AppSettings {
         holdsToSpeedUp = d.object(forKey: Keys.videoHoldSpeed) as? Bool ?? true
         swipesForBrightness = d.object(forKey: Keys.videoBrightness) as? Bool ?? true
         if enabledLyricsSourceCount == 0, let fallback = lyricsSourceOrder.first { disabledLyricsSources.remove(fallback) }
+        // Complete the one-time migration explicitly: property observers do not run
+        // during initialization. Otherwise the old native-translation preference could
+        // turn translation back on after the listener switches it off and relaunches.
+        if savedAutomatic == nil { d.set(automaticLyricsTranslation, forKey: "koda.lyrics.automatic.enabled") }
+        d.set(restoredLyricsMode.rawValue, forKey: "koda.lyrics.imported.mode")
+        if previousExtra == .translation { d.set(LyricsExtra.off.rawValue, forKey: Keys.lyricsExtra) }
     }
 
     /// The services to ask, best first.
