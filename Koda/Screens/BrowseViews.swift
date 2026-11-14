@@ -88,8 +88,7 @@ struct SavedSongsView: View {
         switch source {
         case .recent: return library.recent
         case .downloaded: return downloads.songs
-        // Read when the page draws; downloads finishing redraw it.
-        case .offline: return downloads.store.completeSongs
+        case .offline: return downloads.readyOfflineSongs
         case .liked: break
         }
         let liked = library.liked
@@ -187,7 +186,7 @@ struct SavedSongsView: View {
     }
 
     /// What Ready Offline holds, said where the list is.
-    static let offlineNote = String(localized: "Songs you download, and songs you play all the way through while Keep Songs You Play is on, are kept on this device and play without a connection.")
+    static let offlineNote = String(localized: "Only songs you choose to download and that have finished downloading appear here. Songs kept automatically while listening stay in the playback cache.")
 
     private var phoneBody: some View {
         let songs = songs

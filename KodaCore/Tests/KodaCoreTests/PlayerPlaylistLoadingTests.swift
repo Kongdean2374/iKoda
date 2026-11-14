@@ -125,9 +125,10 @@ struct PlayerPlaylistLoadingTests {
         let started = await task.value
         #expect(started)
         #expect(h.player.current?.id == "song-512")
-        // Existing playback intentionally retains only 100 prior occurrences as history.
-        #expect(h.player.queue.items.map(\.song.id) == songs(412..<600).map(\.id))
-        #expect(h.player.queue.currentIndex == Player.historyLimit)
+        // A finite source keeps its full repeat/shuffle pool, even when playback starts
+        // well past the bounded history used for continuing radio recommendations.
+        #expect(h.player.queue.items.map(\.song.id) == songs(0..<600).map(\.id))
+        #expect(h.player.queue.currentIndex == 512)
         #expect(!h.player.isShuffled)
     }
 

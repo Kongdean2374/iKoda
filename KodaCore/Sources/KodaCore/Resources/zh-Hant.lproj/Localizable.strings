@@ -101,3 +101,12 @@
 "This playlist exceeds the safe limit of %lld songs. No partial queue was started." = "這份播放清單超過 %lld 首歌曲的安全上限，因此未開始播放不完整的佇列。";
 "This playlist has no playable songs." = "此播放清單沒有可播放的歌曲。";
 "YouTube returned a repeated playlist page. The complete playlist could not be prepared." = "YouTube 傳回重複的播放清單頁面，無法準備完整播放清單。";
+
+/* Koda 0.4.2 lyrics sources. */
+"Enter a source name with 1–80 characters." = "請輸入 1 至 80 個字的來源名稱。";
+"Use an HTTPS URL without a username, password, or fragment." = "請使用 HTTPS 網址，且不要包含使用者名稱、密碼或片段識別碼。";
+"Use only {title}, {artist}, {album}, and {duration} placeholders." = "僅支援 {title}、{artist}、{album} 與 {duration} 變數。";
+"Include {title} or {artist} in the URL path or query." = "請在網址路徑或查詢參數中加入 {title} 或 {artist}。";
+"The lyrics source URL is too long." = "歌詞來源網址過長。";
+"Synced lyrics from a public lyrics catalogue" = "來自公開歌詞資料庫的同步歌詞";
+"Plain lyrics as an additional fallback" = "找不到歌詞時提供純文字歌詞備援";
