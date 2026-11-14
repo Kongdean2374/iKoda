@@ -42,7 +42,7 @@ final class VoiceSearch {
         await withTaskCancellationHandler {
             await self.startListening(for: generation)
         } onCancel: { [weak self] in
-            Task { @MainActor in self?.stopAudio(for: generation) }
+            Task { @MainActor [weak self] in self?.stopAudio(for: generation) }
         }
     }
 
