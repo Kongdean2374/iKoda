@@ -415,6 +415,79 @@ struct DownloadsTests {
         #expect(h.downloads.bytes == 4)
     }
 
+    @Test(arguments: [false, true])
+    func offlineListRepairsMissingOrTruncatedDownloadsWithoutBypassingCellularPolicy(truncated: Bool) async throws {
+        let h = Harness(allowsCellular: false)
+        defer { h.cleanUp() }
+        let track = songs(["lost-download"])[0]
+        h.downloads.download([track])
+        try await waitUntil { h.io.metadataRequests.count == 1 }
+        h.io.resolve(0)
+        try await waitUntil { h.io.transfers.count == 1 }
+        h.io.finish(0)
+        try await waitUntil { h.downloads.state(of: track) == .downloaded }
+        h.downloads.networkSnapshotOverride = .init(status: .offline)
+        if truncated { try Data([1, 2]).write(to: h.store.fileURL(track.id)) }
+        else { try FileManager.default.removeItem(at: h.store.fileURL(track.id)) }
+
+        #expect(h.downloads.readyOfflineSongs.isEmpty)
+        try await waitUntil { h.downloads.state(of: track) == .waiting }
+        #expect(h.store.entry(track.id)?.isDownload == true)
+        #expect(h.downloads.bytes == 0)
+        #expect(h.io.metadataRequests.count == 1)
+        h.downloads.networkSnapshotOverride = .init(status: .online, interface: .cellular)
+        await drainReadyTasks()
+        #expect(h.io.metadataRequests.count == 1)
+        h.downloads.networkSnapshotOverride = .init(status: .online, interface: .wifi)
+        try await waitUntil { h.io.metadataRequests.count == 2 }
+        h.io.resolve(1)
+        try await waitUntil { h.io.transfers.count == 2 }
+        h.io.finish(1)
+        try await waitUntil { h.downloads.state(of: track) == .downloaded }
+        #expect(h.downloads.readyOfflineSongs == [track])
+        #expect(h.downloads.bytes == 4)
+    }
+
+    @Test func removingADownloadBeforeDeferredValidationDoesNotRestartIt() async throws {
+        let h = Harness()
+        defer { h.cleanUp() }
+        let track = songs(["removed-before-validation"])[0]
+        h.downloads.download([track])
+        try await waitUntil { h.io.metadataRequests.count == 1 }
+        h.io.resolve(0)
+        try await waitUntil { h.io.transfers.count == 1 }
+        h.io.finish(0)
+        try await waitUntil { h.downloads.state(of: track) == .downloaded }
+        try FileManager.default.removeItem(at: h.store.fileURL(track.id))
+        #expect(h.downloads.readyOfflineSongs.isEmpty)
+        h.downloads.remove([track])
+        await drainReadyTasks()
+        #expect(h.downloads.state(of: track) == .none)
+        #expect(h.downloads.songs.isEmpty)
+        #expect(h.store.entry(track.id) == nil)
+        #expect(h.io.metadataRequests.count == 1)
+    }
+
+    @Test func foregroundValidationKeepsValidDownloadsAndRepairsMissingFilesWithoutOpeningOfflineList() async throws {
+        let h = Harness()
+        defer { h.cleanUp() }
+        let tracks = songs(["valid-download", "missing-download"])
+        h.downloads.download(tracks)
+        try await waitUntil { h.io.metadataRequests.count == 2 }
+        h.io.resolve(0); h.io.resolve(1)
+        try await waitUntil { h.io.transfers.count == 2 }
+        h.io.finish(0); h.io.finish(1)
+        try await waitUntil { tracks.allSatisfy { h.downloads.state(of: $0) == .downloaded } }
+        h.downloads.networkSnapshotOverride = .init(status: .offline)
+        try FileManager.default.removeItem(at: h.store.fileURL(tracks[1].id))
+        h.downloads.refreshStoredDownloads()
+        #expect(h.downloads.state(of: tracks[0]) == .downloaded)
+        #expect(h.downloads.state(of: tracks[1]) == .waiting)
+        #expect(h.downloads.readyOfflineSongs == [tracks[0]])
+        #expect(h.io.metadataRequests.count == 2)
+        #expect(h.downloads.bytes == 4)
+    }
+
     @Test func authorizationFailureStopsWithoutAutomaticRetry() async throws {
         let h = Harness()
         defer { h.cleanUp() }

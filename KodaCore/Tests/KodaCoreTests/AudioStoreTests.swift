@@ -2,6 +2,31 @@ import Foundation
 import Testing
 @testable import KodaCore
 
+private func onAudioStoreWorker<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue(label: "koda.tests.audiostore-race", qos: .userInitiated).async {
+            continuation.resume(with: Result { try work() })
+        }
+    }
+}
+
+private enum AudioStoreRaceFailure: Error {
+    case oldWriterDidNotStart, flushDidNotStart, flushDidNotFinish
+}
+
+private final class AudioStoreFirstWriteGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.withLock {
+            guard !claimed else { return false }
+            claimed = true
+            return true
+        }
+    }
+}
+
 struct ByteRangesTests {
     @Test func mergesOverlappingAndTouchingRanges() {
         var ranges = ByteRanges()
@@ -67,6 +92,70 @@ struct AudioStoreTests {
         store.flush()
         let reopened = AudioStore(directory: directory)
         #expect(reopened.completeStream("a") != nil)
+    }
+
+    @Test func aLateScheduledIndexCannotRestoreADownloadRemovedBeforeBackgroundFlush() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldWriteEntered = DispatchSemaphore(value: 0)
+        let releaseOldWrite = DispatchSemaphore(value: 0)
+        let firstWrite = AudioStoreFirstWriteGate()
+        let oldWriteTimedOut = DispatchSemaphore(value: 0)
+        let flushStarted = DispatchSemaphore(value: 0)
+        let flushFinished = DispatchSemaphore(value: 0)
+        defer { releaseOldWrite.signal() }
+        store.beforeScheduledIndexWrite = {
+            guard firstWrite.claim() else { return }
+            oldWriteEntered.signal()
+            if releaseOldWrite.wait(timeout: .now() + 15) == .timedOut {
+                oldWriteTimedOut.signal()
+            }
+        }
+        let track = Song(id: "playing-download", title: "Playing", artistLine: "Artist")
+        let resolved = stream(track.id, length: 4)
+        // Keep the complete race on GCD workers. Hopping back to a cooperative executor
+        // while holding a writer makes this test depend on unrelated parallel test work.
+        let evidence = try await onAudioStoreWorker {
+            store.markDownloaded([track])
+            store.prepare(resolved, song: track)
+            try store.write(Data([1, 2, 3, 4]), at: 0, for: track.id)
+            guard oldWriteEntered.wait(timeout: .now() + 5) == .success else {
+                throw AudioStoreRaceFailure.oldWriterDidNotStart
+            }
+
+            // Removing a playing download preserves its bytes as cache. An old index
+            // must not turn that same valid file back into a user download.
+            store.beginUse(track.id)
+            defer { store.endUse(track.id) }
+            store.removeDownloads([track.id])
+            var completed = false
+            defer {
+                releaseOldWrite.signal()
+                if !completed { _ = flushFinished.wait(timeout: .now() + 5) }
+            }
+            DispatchQueue(label: "koda.tests.audiostore-flush", qos: .userInitiated).async {
+                flushStarted.signal()
+                store.flush()
+                flushFinished.signal()
+            }
+            guard flushStarted.wait(timeout: .now() + 5) == .success else {
+                throw AudioStoreRaceFailure.flushDidNotStart
+            }
+            let finishedBeforeOldWriter = flushFinished.wait(timeout: .now() + .milliseconds(200)) == .success
+            releaseOldWrite.signal()
+            completed = finishedBeforeOldWriter || flushFinished.wait(timeout: .now() + 5) == .success
+            guard completed else { throw AudioStoreRaceFailure.flushDidNotFinish }
+            return (finishedBeforeOldWriter: finishedBeforeOldWriter,
+                    oldWriterTimedOut: oldWriteTimedOut.wait(timeout: .now()) == .success)
+        }
+        #expect(!evidence.finishedBeforeOldWriter, "flush must serialize after a snapshot already writing")
+        #expect(!evidence.oldWriterTimedOut, "the stale writer must remain held until the test explicitly releases it")
+
+        let reopened = AudioStore(directory: directory)
+        #expect(reopened.entry(track.id)?.isDownload == false)
+        #expect(reopened.readyOfflineSongs.isEmpty)
+        #expect(reopened.completeStream(track.id) != nil)
+        #expect(try Data(contentsOf: store.fileURL(track.id)) == Data([1, 2, 3, 4]))
     }
 
     @Test func offlineLibraryContainsOnlyExplicitCompleteDownloadsWithoutDeletingPlaybackCache() throws {

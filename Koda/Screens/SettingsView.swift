@@ -265,6 +265,7 @@ struct SettingLabel: View {
 
 struct LyricsSettingsView: View {
     @Environment(AppModel.self) private var app
+    @State private var editMode: EditMode = .inactive
 
     var body: some View {
         @Bindable var settings = app.settings
@@ -313,14 +314,19 @@ struct LyricsSettingsView: View {
 
             Section {
                 Button("Look Up Lyrics Again") {
-                    Task { await app.lyrics.clearCache() }
+                    Task { await app.lyricsTranslation.clearLyricsCache() }
                 }
             } footer: {
                 Text("Lyrics found earlier are kept until Koda closes. This forgets them, so the next song you open asks the sources again.")
             }
         }
-        .environment(\.editMode, .constant(.active))
         .navigationTitle("Lyrics")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        }
+        // A permanently editing Form disables its NavigationLinks. Enter editing
+        // only to reorder sources, and leave normal settings navigation available.
+        .environment(\.editMode, $editMode)
     }
 }
 

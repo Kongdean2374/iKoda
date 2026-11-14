@@ -16,7 +16,8 @@ require(app.preferredLocalizations.first == "zh-Hant", "zh-Hant-TW did not resol
 require(app.localizedString(forKey: "Home", value: nil, table: nil) == "首頁", "Home did not load in Traditional Chinese")
 for (key, translated) in [("Sound Center", "音效中心"), ("Smart Shuffle", "智慧隨機播放"), ("Audio Information", "音訊資訊"),
                           ("Automatically Translate to Traditional Chinese", "自動翻譯為繁體中文"),
-                          ("Retry Translation", "重新翻譯"), ("Custom Lyrics Sources", "自訂歌詞來源")] {
+                          ("Retry Translation", "重新翻譯"), ("Custom Lyrics Sources", "自訂歌詞來源"),
+                          ("Translation Ready", "翻譯已完成"), ("Translation Paused", "翻譯已暫停")] {
     require(app.localizedString(forKey: key, value: nil, table: nil) == translated, "Packaged feature translation missing: \(key)")
 }
 let permissions = app.localizedString(forKey: "NSMicrophoneUsageDescription", value: nil, table: "InfoPlist")

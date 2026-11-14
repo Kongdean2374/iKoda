@@ -36,7 +36,35 @@ jobs:
 
       - name: Test KodaCore
         working-directory: KodaCore
-        run: swift test
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee ../core-tests.log
+
+      - name: Collect Core test crash diagnostics
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import time
+          destination = Path("test-diagnostics")
+          destination.mkdir(exist_ok=True)
+          reports = Path.home() / "Library/Logs/DiagnosticReports"
+          for attempt in range(10):
+              found = [p for p in reports.glob("*")
+                       if p.is_file() and p.suffix in (".ips", ".crash")
+                       and ("swiftpm-testing" in p.name or "KodaCoreTests" in p.name)
+                       and p.stat().st_mtime >= time.time() - 3600]
+              if found:
+                  for report in found:
+                      shutil.copy2(report, destination / report.name)
+                  print(f"Saved {len(found)} Core test crash report(s).")
+                  break
+              if attempt < 9:
+                  time.sleep(2)
+          else:
+              print("No Core test crash report was produced; core-tests.log is retained.")
+          PY
 
       - name: Build unsigned app
         run: |
@@ -71,7 +99,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.version.outputs.artifact_name }}-build-log
-          path: build.log
+          path: |
+            build.log
+            core-tests.log
+            test-diagnostics/
           if-no-files-found: ignore
           retention-days: 30
 

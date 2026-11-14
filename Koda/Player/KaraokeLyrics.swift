@@ -20,8 +20,8 @@ struct SyncedLyrics: View {
     @State private var shareFrom: ShareStart?
     /// Each line in Latin letters, by line id, for lyrics in another script.
     @State private var pronunciations: [Int: String] = [:]
-    @State private var automaticTranslation = AutomaticLyricsResult()
-    @State private var translationRetry = 0
+    @State private var displayedExtras = ExtrasPresentation()
+    @State private var scroll = LyricsScrollTracking()
     @State private var importedTranslations: [Int: String] = [:]
     @State private var importsLoaded = false
 
@@ -30,6 +30,23 @@ struct SyncedLyrics: View {
     }
     private var automaticallyTranslates: Bool {
         app.settings.automaticLyricsTranslation && app.settings.showsLyricsTranslation
+    }
+    private var sourceID: String { player.current?.id ?? "" }
+    private var automaticTranslation: AutomaticLyricsResult {
+        app.lyricsTranslation.result(songID: player.current?.id,
+            lines: lines.map { LyricsTranslationText(id: $0.id, text: $0.text) })
+    }
+    private struct ExtrasPresentation: Equatable {
+        var lines: [Int: String] = [:]
+        var isTranslation = false
+    }
+    private var desiredExtras: ExtrasPresentation {
+        if showsChineseTranslation {
+            return ExtrasPresentation(lines: TraditionalChineseLyrics.merged(
+                automatic: app.settings.automaticLyricsTranslation ? automaticTranslation.lines : [:],
+                imported: importedTranslations, importsEnabled: app.settings.importedLyricsEnabled), isTranslation: true)
+        }
+        return ExtrasPresentation(lines: app.settings.lyricsExtra == .pronunciation ? pronunciations : [:])
     }
     private struct ImportRequest: Equatable {
         var songID: String?
@@ -47,24 +64,26 @@ struct SyncedLyrics: View {
     private var offset: TimeInterval { player.current.map { library.lyricsOffset(for: $0.id) } ?? 0 }
     private var hasDuet: Bool { lines.contains { $0.voice != .lead } }
 
-    private func extra(for line: LyricLine, translations: [Int: String]) -> String? {
-        if showsChineseTranslation { return translations[line.id] }
-        return app.settings.lyricsExtra == .pronunciation ? pronunciations[line.id] : nil
-    }
-
     /// Lead the audio slightly so a line lights up as it is sung, not after.
     static let lead: TimeInterval = 0.15
     /// How far past the panel's sides the lyrics may draw: Now Playing's own side margin.
     static let bleed: CGFloat = 24
 
     var body: some View {
-        let translated = TraditionalChineseLyrics.merged(automatic: automaticTranslation.lines,
-                                                         imported: importedTranslations,
-                                                         importsEnabled: app.settings.importedLyricsEnabled)
         VStack(spacing: 0) {
-            lyricContent(translations: translated)
+            lyricContent()
             HStack {
                 LyricsTranslationToggle()
+                if automaticallyTranslates {
+                    LyricsTranslationFooterStatus(result: automaticTranslation) {
+                        app.lyricsTranslation.retry(songID: player.current?.id)
+                    }
+                } else if showsChineseTranslation, importsLoaded,
+                          displayedExtras.lines.count < lines.filter({ !$0.text.isEmpty }).count {
+                    LyricsTranslationInfoButton(message: displayedExtras.lines.isEmpty
+                        ? String(localized: "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.")
+                        : String(localized: "Some lines have no translation and show the original lyrics."))
+                }
                 Spacer(minLength: 8)
                 if userScrolled {
                     Button("Follow", systemImage: "arrow.down.to.line") { userScrolled = false }
@@ -75,10 +94,15 @@ struct SyncedLyrics: View {
                         .transition(.scale.combined(with: .opacity))
                 }
             }
+            .frame(height: 44)
             .padding(.top, 6)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: userScrolled)
-        .animation(.smooth, value: app.settings.lyricsExtra)
+        .onChange(of: desiredExtras, initial: true) { _, presentation in
+            if scroll.isIdle { applyExtras(presentation) }
+        }
+        .onChange(of: showsChineseTranslation) { _, _ in applyExtras(desiredExtras) }
+        .onChange(of: sourceID) { _, _ in scroll.reset() }
         .task(id: lines) { await readLanguage() }
         .task(id: ImportRequest(songID: player.current?.id, lines: lines, revision: app.settings.lyricsTranslationRevision)) {
             importedTranslations = [:]
@@ -89,11 +113,6 @@ struct SyncedLyrics: View {
             importedTranslations = found
             importsLoaded = true
         }
-        .background {
-            AutomaticLyricsTranslationTask(songID: player.current?.id,
-                lines: lines.map { LyricsTranslationText(id: $0.id, text: $0.text) },
-                enabled: automaticallyTranslates, retry: translationRetry, result: $automaticTranslation)
-        }
         .sheet(item: $shareFrom) { start in
             LyricsShareSheet(lines: lines, song: start.song, startingAt: start.line)
                 .appEnvironment(app)
@@ -101,82 +120,88 @@ struct SyncedLyrics: View {
         }
     }
 
-    private func lyricContent(translations: [Int: String]) -> some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+    private func lyricContent() -> some View {
+        @Bindable var scroll = scroll
+        return TimelineView(.periodic(from: .now, by: 0.1)) { context in
             let time = player.position(at: context.date) + Self.lead - offset
             let current = Lyrics.index(of: time, in: lines)
             let interlude = Interlude(lines: lines, current: current, time: time)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 26) {
-                        if automaticallyTranslates {
-                            AutomaticLyricsNotice(phase: automaticTranslation.phase) { translationRetry += 1 }
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                        if showsChineseTranslation, !automaticallyTranslates, importsLoaded,
-                           automaticTranslation.phase != .preparing, automaticTranslation.phase != .translating,
-                           translations.count < lines.filter({ !$0.text.isEmpty }).count {
-                            Text(translations.isEmpty
-                                 ? String(localized: "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.")
-                                 : String(localized: "Some lines have no translation and show the original lyrics."))
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                        if let interlude, interlude.after == nil {
-                            InterludeDots(interlude: interlude).id("interlude")
-                        }
-                        ForEach(lines) { line in
-                            let isCurrent = line.id == current && interlude == nil
-                            LyricRow(line: line, isCurrent: isCurrent, distance: current.map { abs(line.id - $0) } ?? line.id + 1,
-                                     hasDuet: hasDuet, offset: offset, style: LyricsStyle(app.settings), player: player,
-                                     extra: extra(for: line, translations: translations), isTranslation: showsChineseTranslation)
-                                .id(line.id)
-                                .contentShape(.rect)
-                                .onTapGesture {
-                                    player.seek(to: max(0, line.time + offset))
-                                    userScrolled = false
-                                }
-                                .contextMenu {
-                                    if let song = player.current, !line.text.isEmpty {
-                                        Button("Share Lyrics…", systemImage: "square.and.arrow.up") {
-                                            shareFrom = ShareStart(line: line.id, song: song)
-                                        }
-                                        Button("Play from Here", systemImage: "play") {
-                                            player.seek(to: max(0, line.time + offset))
-                                            userScrolled = false
-                                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    if let interlude, interlude.after == nil {
+                        InterludeDots(interlude: interlude).id("interlude")
+                    }
+                    ForEach(lines) { line in
+                        let isCurrent = line.id == current && interlude == nil
+                        LyricRow(line: line, isCurrent: isCurrent, distance: current.map { abs(line.id - $0) } ?? line.id + 1,
+                                 hasDuet: hasDuet, offset: offset, style: LyricsStyle(app.settings), player: player,
+                                 extra: displayedExtras.lines[line.id], isTranslation: displayedExtras.isTranslation)
+                            .id(line.id)
+                            .lyricsRowFrame(id: line.id, revision: scroll.revision)
+                            .contentShape(.rect)
+                            .onTapGesture {
+                                player.seek(to: max(0, line.time + offset))
+                                userScrolled = false
+                            }
+                            .contextMenu {
+                                if let song = player.current, !line.text.isEmpty {
+                                    Button("Share Lyrics…", systemImage: "square.and.arrow.up") {
+                                        shareFrom = ShareStart(line: line.id, song: song)
+                                    }
+                                    Button("Play from Here", systemImage: "play") {
+                                        player.seek(to: max(0, line.time + offset))
+                                        userScrolled = false
                                     }
                                 }
-                            if let interlude, interlude.after == line.id {
-                                InterludeDots(interlude: interlude).id("interlude")
                             }
+                        if let interlude, interlude.after == line.id {
+                            InterludeDots(interlude: interlude).id("interlude")
                         }
                     }
-                    // The first line starts right under the song; the room below lets the
-                    // last lines still reach the reading position a third of the way down.
-                    .padding(.top, 12)
-                    .padding(.bottom, 380)
-                    .padding(.horizontal, SyncedLyrics.bleed)
-                    .animation(.spring(response: 0.5, dampingFraction: 0.85), value: current)
-                    .animation(.spring(response: 0.45, dampingFraction: 0.8), value: interlude?.after)
                 }
-                .scrollIndicators(.hidden)
-                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, scrolled in
-                    topFade = min(max(scrolled, 0), Self.topFadeHeight)
-                }
-                .onScrollPhaseChange { _, phase in
-                    if phase == .interacting { userScrolled = true }
-                }
-                .onChange(of: current) { _, index in
-                    guard let index, !userScrolled else { return }
-                    withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { proxy.scrollTo(index, anchor: UnitPoint(x: 0, y: 0.32)) }
-                }
-                .onChange(of: userScrolled) { _, scrolled in
-                    guard !scrolled, let current else { return }
-                    withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { proxy.scrollTo(current, anchor: UnitPoint(x: 0, y: 0.32)) }
-                }
-                .onAppear {
-                    if let current { proxy.scrollTo(current, anchor: UnitPoint(x: 0, y: 0.32)) }
-                }
+                // The first line starts right under the song; the room below lets the
+                // last lines still reach the reading position a third of the way down.
+                .padding(.top, 12)
+                .padding(.bottom, 380)
+                .padding(.horizontal, SyncedLyrics.bleed)
+                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: current)
+                .animation(.spring(response: 0.45, dampingFraction: 0.8), value: interlude?.after)
+                .lyricsContentFrame(revision: scroll.revision)
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollPosition($scroll.position)
+            .onScrollGeometryChange(for: LyricsViewport.self, of: LyricsViewport.init) { _, viewport in
+                scroll.viewport = viewport
+                topFade = min(max(viewport.offset + viewport.topInset, 0), Self.topFadeHeight)
+            }
+            .onScrollPhaseChange { _, phase in
+                scroll.phaseChanged(phase)
+                if phase == .interacting { userScrolled = true }
+                if phase == .idle { applyExtras(desiredExtras) }
+            }
+            .onPreferenceChange(LyricsLayoutPreference.self) { measurement in
+                scroll.accept(measurement, source: sourceID)
+            }
+            .onChange(of: current) { _, index in
+                // Natural playback progression wins over a simultaneous layout correction.
+                guard let index, !userScrolled else { return }
+                // While manually reading another row, playback keeps advancing but does
+                // not scroll. Keep that reader's pending layout correction in this case.
+                // Fast consecutive lines can keep the native follow animation active;
+                // publish queued results as part of that intended movement, rather than
+                // waiting indefinitely for an idle phase between lines.
+                applyExtras(desiredExtras)
+                scroll.cancelCorrection()
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: index, anchor: UnitPoint(x: 0, y: 0.32)) }
+            }
+            .onChange(of: userScrolled) { _, scrolled in
+                guard !scrolled, let current else { return }
+                scroll.cancelCorrection()
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: current, anchor: UnitPoint(x: 0, y: 0.32)) }
+            }
+            .onAppear {
+                if let current { scroll.position.scrollTo(id: current, anchor: UnitPoint(x: 0, y: 0.32)) }
             }
         }
         // Lines fade as they pass under the song, but only once there are lines up there: at the
@@ -192,6 +217,13 @@ struct SyncedLyrics: View {
         // The lyrics run out to the screen edges, padded back in line with the rest of the
         // player, so a glowing or swelling word at either edge is not cut off by the scroll view.
         .padding(.horizontal, -Self.bleed)
+    }
+
+    private func applyExtras(_ presentation: ExtrasPresentation) {
+        guard presentation != displayedExtras else { return }
+        let current = Lyrics.index(of: player.position() + Self.lead - offset, in: lines)
+        scroll.prepareLayoutChange(source: sourceID, preferredRowID: userScrolled ? nil : current)
+        displayedExtras = presentation
     }
 }
 

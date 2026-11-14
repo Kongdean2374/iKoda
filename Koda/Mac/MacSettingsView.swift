@@ -592,7 +592,7 @@ private struct MacLyricsPane: View {
         }
         MacSettingsGroup(footer: String(localized: "Lyrics found earlier are kept until Koda quits. This forgets them, so the next song asks the sources again.")) {
             MacSettingsRow(title: String(localized: "Look up lyrics again")) {
-                Button(String(localized: "Forget Found Lyrics")) { Task { await app.lyrics.clearCache() } }
+                Button(String(localized: "Forget Found Lyrics")) { Task { await app.lyricsTranslation.clearLyricsCache() } }
             }
         }
     }

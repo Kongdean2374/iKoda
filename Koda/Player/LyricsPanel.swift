@@ -15,6 +15,7 @@ struct LyricsPanel: View {
     private var request: LyricsRequest {
         LyricsRequest(song: player.current, sources: app.settings.lyricsSources,
                       customSources: app.settings.customLyricsSources,
+                      cacheRevision: app.lyricsTranslation.lyricsRevision,
                       refresh: refreshSongID == player.current?.id ? refreshRevision : 0)
     }
 
@@ -32,8 +33,8 @@ struct LyricsPanel: View {
             activeRequest = pending
             guard let song = pending.song else { state = .loaded(nil); return }
             state = .loading
-            let found = await app.lyrics.lyrics(for: song, sources: pending.sources,
-                                              customSources: pending.customSources, refresh: pending.refresh > 0)
+            let found = await app.lyricsTranslation.lyrics(for: song, sources: pending.sources,
+                customSources: pending.customSources, refresh: pending.refresh > 0)
             guard !Task.isCancelled, request == pending else { return }
             state = .loaded(found)
         }
@@ -91,5 +92,6 @@ private struct LyricsRequest: Equatable {
     var song: Song?
     var sources: [LyricsSource]
     var customSources: [CustomLyricsSource]
+    var cacheRevision: Int
     var refresh: Int
 }

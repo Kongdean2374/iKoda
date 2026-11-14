@@ -10,6 +10,9 @@ final class AppModel {
     let player: Player
     let library: Library
     let lyrics = LyricsClient()
+    /// Translation and look-ahead preparation outlive the player and lyrics views.
+    let lyricsTranslation: LyricsTranslationCoordinator
+    let lyricsPreparation: LyricsPreparationLifecycle
     /// Animated album covers; the loops live in Caches, which the system may clear.
     let motionArtwork: MotionArtwork
     let sleepTimer: SleepTimer
@@ -103,6 +106,10 @@ final class AppModel {
             try await music.songDetails(id)?.album
         }
         player = Player(music: music, storageDirectory: directory)
+        lyricsTranslation = LyricsTranslationCoordinator(client: lyrics,
+            directory: URL.cachesDirectory.appending(path: "KodaAutomaticLyrics", directoryHint: .isDirectory))
+        lyricsPreparation = LyricsPreparationLifecycle(player: player, settings: settings,
+                                                       coordinator: lyricsTranslation)
         videos = VideoPlayback(music: music)
         // Before profiles the name lived in the defaults and the library at the top of the folder;
         // the roster moves both into the first profile.
@@ -202,6 +209,7 @@ final class AppModel {
                 settings.hasSeenOnboarding = true
             }
         }
+        lyricsPreparation.start()
     }
 
     /// Make another profile the active one: its library replaces this one's everywhere at once,

@@ -208,9 +208,16 @@ public struct PlayQueue: Codable, Sendable, Equatable {
 
     /// Undo Clear by putting those songs before whatever was queued afterward. Restored
     /// songs are new, manually protected occurrences; equal song IDs are never deduplicated.
-    /// Current/history and every occurrence added since Clear remain intact.
+    /// Current/history and every occurrence added since Clear remain intact. Keep the
+    /// restored finite snapshot through history trimming, just as before it was cleared.
     public mutating func restoreClearedUpcoming(_ songs: [Song]) {
+        let insertion = currentIndex.map { $0 + 1 } ?? 0
         playNext(songs)
+        let available = max(0, Self.maximumRetainedCollectionCount - retainedCollectionOccurrenceIDs.count)
+        let retainedCount = min(songs.count, available)
+        if retainedCount > 0 {
+            retainedCollectionOccurrenceIDs.formUnion(items[insertion..<(insertion + retainedCount)].map(\.id))
+        }
     }
 
     /// Reorder within the upcoming songs; offsets count from the first upcoming song, as a list of them does.

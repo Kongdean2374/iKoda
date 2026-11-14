@@ -84,6 +84,68 @@ struct QueueRestorationTests {
         #expect(queue.items.map(\.song.id) == songs(600).map(\.id))
     }
 
+    @Test func undoingClearRetainsAllSixHundredSongsAfterPlaybackAndColdRestoreWithoutRemovingNewSongs() async throws {
+        let suite = "koda.undo-queue-restoration." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let player = Player(music: YouTubeMusic(defaultsSuite: suite), storageDirectory: directory, defaults: defaults)
+        defer {
+            player.stop()
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        player.autoplay = false
+        player.audioSessionActivator = { false }
+        player.streamLoader = { _, _ in throw MusicError.signedOut }
+        let source = songs(600)
+        let started = await player.playPlaylist(source, continuation: nil).value
+        #expect(started)
+        let current = player.queue.current
+        let removed = player.queue.upcoming.map(\.song)
+        player.clearUpcoming()
+        let manual = songs(2, prefix: "new-manual")
+        player.addToQueue(manual)
+        let manualOccurrences = Array(player.queue.upcoming)
+        player.restoreClearedUpcoming(removed)
+        #expect(player.queue.current == current)
+        #expect(player.queue.items.map(\.song.id) == (source + manual).map(\.id))
+        #expect(Array(player.queue.items.suffix(2)) == manualOccurrences)
+
+        let later = player.queue.items[450].id
+        player.jump(to: later)
+        player.setRepeat(.all)
+        player.seek(to: 42)
+        player.persistQueueNow()
+        let saved = player.queue
+        #expect(saved.items.count == 602)
+        #expect(saved.currentIndex == 450)
+        let restored = Player(music: YouTubeMusic(defaultsSuite: suite), storageDirectory: directory, defaults: defaults)
+        defer { restored.stop() }
+        #expect(restored.queue == saved)
+        #expect(restored.position() == 42)
+        #expect(restored.loadedItemCount == 0)
+        #expect(restored.queue.items.map(\.song.id) == (source + manual).map(\.id))
+        #expect(Array(restored.queue.items.suffix(2)) == manualOccurrences)
+    }
+
+    @Test func oversizedUndoPreservesExistingRetentionAndStillBoundsLaterRadioHistory() {
+        var queue = PlayQueue()
+        queue.replace(with: songs(1))
+        queue.retainCurrentCollection()
+        let retainedCurrent = queue.current
+        queue.restoreClearedUpcoming(songs(PlayQueue.maximumRetainedCollectionCount + 1, prefix: "undo"))
+        queue.append(songs(500, prefix: "new-radio"), protectingOrder: false)
+        let latest = queue.items.last!.id
+        queue.jump(to: latest)
+        queue.trimHistory(keeping: 100)
+        #expect(queue.items.first == retainedCurrent)
+        #expect(queue.items.filter { $0.song.id.hasPrefix("undo-") }.count == PlayQueue.maximumRetainedCollectionCount - 1)
+        #expect(queue.history.filter { $0.song.id.hasPrefix("new-radio-") }.count == 100)
+        #expect(queue.items.count == PlayQueue.maximumRetainedCollectionCount + 101)
+        #expect(queue.current?.id == latest)
+    }
+
     @Test(arguments: [false, true])
     func aCompleteCollectionEnqueuedIntoAnEmptyPlayerRetainsItsPool(playNext: Bool) async throws {
         let suite = "koda.empty-queue-restoration." + UUID().uuidString
