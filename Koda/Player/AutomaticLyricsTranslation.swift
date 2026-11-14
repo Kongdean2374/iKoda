@@ -104,40 +104,48 @@ struct AutomaticLyricsTranslationTask: View {
             result.phase = prepared.hasUnrecognizedText ? .unavailable : .ready
             return
         }
+        var sourceLanguages: [String] = []
+        for fragment in prepared.fragments where !sourceLanguages.contains(fragment.language) { sourceLanguages.append(fragment.language) }
+        let supported = await Self.supportedLanguagePairs(for: sourceLanguages)
+        guard isCurrent(token) else { return }
+        hasUnsupportedLanguage = hasUnsupportedLanguage || supported.count < sourceLanguages.count
+        pending = supported.map { pair in
+            Plan(request: token, source: pair.source, target: pair.target,
+                 fragments: prepared.fragments.filter { $0.language == pair.sourceID })
+        }
+        startNext(token)
+    }
+
+    /// LanguageAvailability is not Sendable. Create it and perform every asynchronous
+    /// query on the generic executor, returning only Sendable locale value types to the UI.
+    @concurrent
+    nonisolated private static func supportedLanguagePairs(for sourceLanguages: [String]) async -> [SupportedLyricsLanguage] {
+        guard !Task.isCancelled else { return [] }
         let availability = LanguageAvailability()
         let languages = await availability.supportedLanguages
-        guard isCurrent(token) else { return }
+        guard !Task.isCancelled else { return [] }
         let chinese = languages.filter { $0.languageCode?.identifier == "zh" }
         // Choose from Apple's actual supported languages. A supported Simplified target
         // can be converted locally; an unsupported Traditional target is never assumed.
         let targets = chinese.filter { $0.script?.identifier == "Hant" }
             + chinese.filter { $0.script?.identifier != "Hant" }
-        var sourceLanguages: [String] = []
-        for fragment in prepared.fragments where !sourceLanguages.contains(fragment.language) { sourceLanguages.append(fragment.language) }
-        var preparedPlans: [Plan] = []
+        var result: [SupportedLyricsLanguage] = []
         for language in sourceLanguages {
+            guard !Task.isCancelled else { return [] }
             let source = Locale.Language(identifier: language)
-            var supportedTarget: Locale.Language?
             for target in targets {
                 let status = await availability.status(from: source, to: target)
-                guard isCurrent(token) else { return }
+                guard !Task.isCancelled else { return [] }
                 switch status {
-                case .installed, .supported: supportedTarget = target
-                case .unsupported: break
-                @unknown default: break
+                case .installed, .supported:
+                    result.append(SupportedLyricsLanguage(sourceID: language, source: source, target: target))
+                case .unsupported: continue
+                @unknown default: continue
                 }
-                if supportedTarget != nil { break }
-            }
-            if let target = supportedTarget {
-                preparedPlans.append(Plan(request: token, source: source, target: target,
-                                          fragments: prepared.fragments.filter { $0.language == language }))
-            } else {
-                hasUnsupportedLanguage = true
+                break
             }
         }
-        guard isCurrent(token) else { return }
-        pending = preparedPlans
-        startNext(token)
+        return result
     }
 
     /// Language groups run one at a time, avoiding simultaneous system language-download prompts.
@@ -155,6 +163,12 @@ struct AutomaticLyricsTranslationTask: View {
     private func isCurrent(_ token: UUID) -> Bool {
         !Task.isCancelled && activeRequest == token && enabled && player.current?.id == songID
     }
+}
+
+nonisolated private struct SupportedLyricsLanguage: Sendable {
+    let sourceID: String
+    let source: Locale.Language
+    let target: Locale.Language
 }
 
 nonisolated private struct NativeLyricsResult: Sendable {

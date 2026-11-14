@@ -156,7 +156,7 @@ struct QueueRestorationTests {
         #expect(restored.current?.id == radioCurrent)
     }
 
-    @Test func legacyQueuesDecodeWithoutInventingUnavailableCollectionMembers() throws {
+    @Test func aLegacySnapshotRetainsOnlyItsKnownPoolAndBoundsFutureRadioHistory() throws {
         var queue = PlayQueue()
         queue.replace(with: songs(600), startAt: 450)
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(queue)) as? [String: Any])
@@ -167,7 +167,66 @@ struct QueueRestorationTests {
         restored.trimHistory(keeping: 100)
         #expect(restored.current == current)
         #expect(Array(restored.upcoming) == upcoming)
+        #expect(restored.items == queue.items)
+        #expect(restored.history.count == 450)
+        restored.append(songs(1_000, prefix: "new-radio"), protectingOrder: false)
+        let radioCurrent = restored.items[1_450].id
+        restored.jump(to: radioCurrent)
+        restored.trimHistory(keeping: 100)
+        #expect(Array(restored.items.prefix(600)) == queue.items)
+        #expect(restored.history.filter { $0.song.id.hasPrefix("new-radio-") }.count == 100)
+        #expect(restored.items.count == 850)
+    }
+
+    @Test func anExplicitEmptyRetentionSetDoesNotMigrateAsALegacyCollection() throws {
+        var queue = PlayQueue()
+        queue.replace(with: songs(600, prefix: "radio"), startAt: 450)
+        let data = try JSONEncoder().encode(queue)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect((json["retainedCollectionOccurrenceIDs"] as? [String])?.isEmpty == true)
+        var restored = try JSONDecoder().decode(PlayQueue.self, from: data)
+        let current = restored.current
+        let upcoming = Array(restored.upcoming)
+        restored.trimHistory(keeping: 100)
+        #expect(restored.current == current)
+        #expect(Array(restored.upcoming) == upcoming)
         #expect(restored.history.count == 100)
+        #expect(restored.items.count == 250)
+    }
+
+    @Test func aLegacyPlayerFileRestoresAllSixHundredKnownSongsWithoutFetchingMetadata() throws {
+        let suite = "koda.legacy-queue-restoration." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        var queue = PlayQueue()
+        queue.replace(with: songs(600), startAt: 450)
+        var queueJSON = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(queue)) as? [String: Any])
+        queueJSON.removeValue(forKey: "retainedCollectionOccurrenceIDs")
+        let data = try JSONSerialization.data(withJSONObject: ["queue": queueJSON, "position": 42])
+        try data.write(to: directory.appending(path: "queue.json"))
+        let restored = Player(music: YouTubeMusic(defaultsSuite: suite), storageDirectory: directory, defaults: defaults)
+        defer { restored.stop() }
+        #expect(restored.queue.items == queue.items)
+        #expect(restored.queue.currentIndex == 450)
+        #expect(restored.position() == 42)
+        #expect(restored.loadedItemCount == 0)
+        #expect(!restored.wantsToPlay)
+    }
+
+    @Test func anOversizedLegacySnapshotDoesNotCreateUnboundedRetention() throws {
+        var queue = PlayQueue()
+        queue.replace(with: songs(PlayQueue.maximumRetainedCollectionCount + 1), startAt: 450)
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(queue)) as? [String: Any])
+        json.removeValue(forKey: "retainedCollectionOccurrenceIDs")
+        var restored = try JSONDecoder().decode(PlayQueue.self, from: JSONSerialization.data(withJSONObject: json))
+        restored.trimHistory(keeping: 100)
+        #expect(restored.history.count == 100)
+        #expect(restored.current?.song.id == "collection-450")
     }
 
     @Test func retentionIsBoundedAndResetWhenAnotherCollectionReplacesIt() {

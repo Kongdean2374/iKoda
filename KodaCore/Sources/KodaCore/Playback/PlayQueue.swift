@@ -67,7 +67,16 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         var restored: Set<UUID> = []
         unshuffledOrder = unshuffledOrder.filter { available.contains($0) && restored.insert($0).inserted }
         protectedUpcoming = (try c.decodeIfPresent(Set<UUID>.self, forKey: .protectedUpcoming) ?? []).intersection(available)
-        let retained = (try c.decodeIfPresent(Set<UUID>.self, forKey: .retainedCollectionOccurrenceIDs) ?? []).intersection(available)
+        let retained: Set<UUID>
+        if c.contains(.retainedCollectionOccurrenceIDs) {
+            // An explicitly empty set belongs to a newer queue that chose bounded history.
+            retained = (try c.decodeIfPresent(Set<UUID>.self, forKey: .retainedCollectionOccurrenceIDs) ?? []).intersection(available)
+        } else {
+            // An older snapshot cannot identify its source, but every occurrence still in
+            // that bounded snapshot is known. Preserve that pool once; later radio additions
+            // remain unretained. Songs already removed by an older build cannot be invented.
+            retained = items.count <= Self.maximumRetainedCollectionCount ? available : []
+        }
         retainedCollectionOccurrenceIDs = retained.count <= Self.maximumRetainedCollectionCount ? retained : []
     }
 

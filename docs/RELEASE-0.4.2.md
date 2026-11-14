@@ -56,8 +56,9 @@ or lack a song; no source guarantees complete coverage.
   history is trimmed. A 600-song ordinary or smart-shuffle queue retains its full
   pool after playback, saving and restoration, including progress and repeat mode.
 - Radio history remains bounded. The finite-source bound is 20,000 occurrences.
-  Existing saved queues decode with a default for the new optional field; songs
-  already discarded by an older version cannot be reconstructed from that save.
+  Legacy saves without retention metadata preserve their existing finite snapshot
+  within that bound; later radio additions remain subject to history trimming.
+  Songs already discarded by an older version cannot be reconstructed from that save.
 - Playlist pagination is completed before replacing the active queue. If the app
   is terminated before preparation completes, the previous saved queue remains;
   a partial page is not presented as a complete playlist.
