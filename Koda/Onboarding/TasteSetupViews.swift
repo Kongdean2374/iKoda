@@ -15,8 +15,8 @@ struct TasteArtistsPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                OnboardingHeader(title: "Pick Artists You Love",
-                                 detail: "Choose a few. Each one brings others like them.")
+                OnboardingHeader(title: String(localized: "Pick Artists You Love"),
+                                 detail: String(localized: "Choose a few. Each one brings others like them."))
                 content
             }
             .padding(.horizontal, 20)
@@ -29,12 +29,12 @@ struct TasteArtistsPage: View {
         .safeAreaBar(edge: .bottom) {
             VStack(spacing: 8) {
                 if !taste.picked.isEmpty {
-                    Text(taste.picked.count == 1 ? "1 artist picked" : "\(taste.picked.count) artists picked")
+                    Text(taste.picked.count == 1 ? String(localized: "1 artist picked") : String(localized: "\(taste.picked.count) artists picked"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .contentTransition(.numericText())
                 }
-                OnboardingButton(taste.picked.isEmpty ? "Skip Artists" : "Continue", action: next)
+                OnboardingButton(taste.picked.isEmpty ? String(localized: "Skip Artists") : String(localized: "Continue"), action: next)
             }
             .animation(.snappy, value: taste.picked.count)
         }
@@ -124,13 +124,13 @@ private struct TasteArtistCell: View {
         .sensoryFeedback(.selection, trigger: isPicked)
         .accessibilityLabel(artist.name)
         .accessibilityAddTraits(isPicked ? .isSelected : [])
-        .accessibilityHint(isPicked ? "Double-tap to remove." : "Double-tap to pick.")
+        .accessibilityHint(isPicked ? String(localized: "Double-tap to remove.") : String(localized: "Double-tap to pick."))
     }
 }
 
 extension ArtistSummary {
     /// The grid's shape while the first artists load.
-    static let tastePlaceholders = (0..<12).map { ArtistSummary(id: "placeholder-\($0)", name: "Artist Name") }
+    static let tastePlaceholders = (0..<12).map { ArtistSummary(id: "placeholder-\($0)", name: String(localized: "Artist Name")) }
 }
 
 // MARK: - Genres
@@ -143,11 +143,11 @@ struct TasteGenresPage: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 28) {
-                OnboardingHeader(title: "And a Few Genres",
-                                 detail: "Pick what you'd like more of.")
+                OnboardingHeader(title: String(localized: "And a Few Genres"),
+                                 detail: String(localized: "Pick what you'd like more of."))
                 ChipFlow(spacing: 10) {
                     ForEach(TasteProfile.genres, id: \.self) { genre in
-                        GenreChip(title: genre, isOn: taste.genres.contains(genre)) {
+                        GenreChip(title: NSLocalizedString(genre, comment: "Music genre"), isOn: taste.genres.contains(genre)) {
                             withAnimation(.snappy(duration: 0.2)) { taste.toggle(genre: genre) }
                         }
                     }
@@ -160,7 +160,7 @@ struct TasteGenresPage: View {
             .frame(maxWidth: .infinity)
         }
         .safeAreaBar(edge: .bottom) {
-            OnboardingButton(taste.genres.isEmpty ? "Skip Genres" : "Continue", action: next)
+            OnboardingButton(taste.genres.isEmpty ? String(localized: "Skip Genres") : String(localized: "Continue"), action: next)
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -278,8 +278,8 @@ struct TasteDeckPage: View {
 
     var body: some View {
         VStack(spacing: 22) {
-            OnboardingHeader(title: "Keep What You Like",
-                             detail: "Swipe right to keep a song, left to skip it.")
+            OnboardingHeader(title: String(localized: "Keep What You Like"),
+                             detail: String(localized: "Swipe right to keep a song, left to skip it."))
             if taste.isLoadingDeck || (taste.deck.isEmpty && taste.current == nil && answers == 0) {
                 ProgressView("Finding songs for you…")
                     .frame(maxHeight: .infinity)
@@ -304,7 +304,7 @@ struct TasteDeckPage: View {
                 Button("Skip Setup", action: skip)
             }
             ToolbarItem(placement: .primaryAction) {
-                Button(preview.isMuted ? "Unmute" : "Mute", systemImage: preview.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                Button(preview.isMuted ? String(localized: "Unmute") : String(localized: "Mute"), systemImage: preview.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
                     preview.isMuted.toggle()
                 }
             }
@@ -370,9 +370,9 @@ struct TasteDeckPage: View {
 
     private var controls: some View {
         HStack(spacing: 28) {
-            DeckButton(systemImage: "xmark", label: "Skip", tint: .secondary) { answer(.skip) }
-            DeckButton(systemImage: "heart.fill", label: "Love", tint: .pink, large: true) { answer(.love) }
-            DeckButton(systemImage: "checkmark", label: "Keep", tint: .green) { answer(.keep) }
+            DeckButton(systemImage: "xmark", label: String(localized: "Skip"), tint: .secondary) { answer(.skip) }
+            DeckButton(systemImage: "heart.fill", label: String(localized: "Love"), tint: .pink, large: true) { answer(.love) }
+            DeckButton(systemImage: "checkmark", label: String(localized: "Keep"), tint: .green) { answer(.keep) }
         }
     }
 

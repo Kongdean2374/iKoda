@@ -149,7 +149,7 @@ struct VideoWatchView: View {
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                ShareLink(item: video.watchURL, subject: Text(shown.title)) { Label("Share", systemImage: "square.and.arrow.up") }
+                ShareLink(item: video.watchURL, subject: Text(shown.title)) { Label(String(localized: "Share"), systemImage: "square.and.arrow.up") }
             }
         }
     }
@@ -202,22 +202,22 @@ struct VideoWatchView: View {
                 }
             case .failed(let message):
                 ContentUnavailableView {
-                    Label("Couldn't Load Details", systemImage: "wifi.exclamationmark")
+                    Label(String(localized: "Couldn't Load Details"), systemImage: "wifi.exclamationmark")
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try Again") { Task { await watch.load(music: app.music) } }.buttonStyle(.glass)
+                    Button(String(localized: "Try Again")) { Task { await watch.load(music: app.music) } }.buttonStyle(.glass)
                 }
             case .loading:
                 // The loaded layout, redacted, so nothing moves when it arrives.
                 VStack(alignment: .leading, spacing: 16) {
-                    ChannelLine(channel: shown.channel ?? ChannelRef(id: nil, name: "Channel name"), subscribers: "1M subscribers",
+                    ChannelLine(channel: shown.channel ?? ChannelRef(id: nil, name: String(localized: "Channel name")), subscribers: String(localized: "1M subscribers"),
                                 pageSubscribed: nil)
                     HStack(spacing: 10) {
                         ActionCapsule(title: "12K", systemImage: "hand.thumbsup") {}
-                        ActionCapsule(title: "Share", systemImage: "square.and.arrow.up") {}
+                        ActionCapsule(title: String(localized: "Share"), systemImage: "square.and.arrow.up") {}
                     }
-                    Text("1,234,567 views · Jan 1, 2026\nA description that runs to a couple of lines while it loads.")
+                    Text(String(localized: "1,234,567 views · Jan 1, 2026\nA description that runs to a couple of lines while it loads."))
                         .font(.subheadline)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(14)
@@ -235,7 +235,7 @@ struct VideoWatchView: View {
             HStack(spacing: 10) {
                 RatingCapsule(videoId: video.id, page: page)
                 ShareLink(item: video.watchURL, subject: Text(shown.title)) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 14)
                         .frame(height: 36)
@@ -243,7 +243,7 @@ struct VideoWatchView: View {
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .capsule)
                 if page.commentsToken != nil {
-                    ActionCapsule(title: page.commentCount.map { "Comments \($0)" } ?? "Comments", systemImage: "text.bubble") {
+                    ActionCapsule(title: page.commentCount.map { String(localized: "Comments \($0)") } ?? String(localized: "Comments"), systemImage: "text.bubble") {
                         showsComments = true
                     }
                 }
@@ -259,7 +259,7 @@ struct VideoWatchView: View {
         switch watch.state {
         case .loaded(let page) where !page.related.videos.isEmpty:
             VStack(alignment: .leading, spacing: 14) {
-                Text("Up Next").font(.title3.bold())
+                Text(String(localized: "Up Next")).font(.title3.bold())
                 LazyVStack(alignment: .leading, spacing: 14) {
                     ForEach(page.related.videos) { related in
                         NavigationLink(value: Route.video(related)) {
@@ -277,7 +277,7 @@ struct VideoWatchView: View {
             }
         case .loading:
             VStack(alignment: .leading, spacing: 14) {
-                Text("Up Next").font(.title3.bold())
+                Text(String(localized: "Up Next")).font(.title3.bold())
                 ForEach(Video.placeholders.prefix(5)) { VideoRow(video: $0, thumbnailWidth: Platform.isMac ? 168 : 156) }
             }
             .loadingPlaceholder()
@@ -343,7 +343,7 @@ struct SubscribeButton: View {
             Button {
                 if isSubscribed { confirmsUnsubscribe = true } else { send(true) }
             } label: {
-                Label(isSubscribed ? "Subscribed" : "Subscribe", systemImage: isSubscribed ? "checkmark" : "plus")
+                Label(isSubscribed ? String(localized: "Subscribed") : String(localized: "Subscribe"), systemImage: isSubscribed ? "checkmark" : "plus")
                     .font(.subheadline.weight(.semibold))
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -351,8 +351,8 @@ struct SubscribeButton: View {
             .disabled(sending != nil)
             .animation(.smooth(duration: 0.2), value: isSubscribed)
             .sensoryFeedback(.success, trigger: isSubscribed) { _, now in now }
-            .confirmationDialog("Unsubscribe?", isPresented: $confirmsUnsubscribe) {
-                Button("Unsubscribe", role: .destructive) { send(false) }
+            .confirmationDialog(String(localized: "Unsubscribe?"), isPresented: $confirmsUnsubscribe) {
+                Button(String(localized: "Unsubscribe"), role: .destructive) { send(false) }
             }
         }
     }
@@ -382,7 +382,7 @@ private struct RatingCapsule: View {
         HStack(spacing: 0) {
             Button { rate(.like) } label: {
                 Label {
-                    Text(page.likeCounts[status == .like ? .like : .indifferent] ?? "Like")
+                    Text(page.likeCounts[status == .like ? .like : .indifferent] ?? String(localized: "Like"))
                         .monospacedDigit()
                         .contentTransition(.numericText())
                 } icon: {
@@ -394,8 +394,8 @@ private struct RatingCapsule: View {
                 .frame(height: 36)
                 .contentShape(.rect)
             }
-            .accessibilityLabel(status == .like ? "Remove Like" : "Like")
-            .accessibilityValue(page.likeCounts[.indifferent].map { "\($0) likes" } ?? "")
+            .accessibilityLabel(status == .like ? String(localized: "Remove Like") : String(localized: "Like"))
+            .accessibilityValue(page.likeCounts[.indifferent].map { String(localized: "\($0) likes") } ?? "")
             Divider().frame(height: 18)
             Button { rate(.dislike) } label: {
                 Image(systemName: status == .dislike ? "hand.thumbsdown.fill" : "hand.thumbsdown")
@@ -405,17 +405,17 @@ private struct RatingCapsule: View {
                     .frame(height: 36)
                     .contentShape(.rect)
             }
-            .accessibilityLabel(status == .dislike ? "Remove Dislike" : "Dislike")
+            .accessibilityLabel(status == .dislike ? String(localized: "Remove Dislike") : String(localized: "Dislike"))
         }
         .font(.subheadline.weight(.semibold))
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .capsule)
         .sensoryFeedback(.impact(weight: .light), trigger: status)
-        .alert("Sign In to Rate Videos", isPresented: $asksToSignIn) {
-            Button("Not Now", role: .cancel) {}
-            Button("Sign In") { app.isProfilePresented = true }
+        .alert(String(localized: "Sign In to Rate Videos"), isPresented: $asksToSignIn) {
+            Button(String(localized: "Not Now"), role: .cancel) {}
+            Button(String(localized: "Sign In")) { app.isProfilePresented = true }
         } message: {
-            Text("Likes and dislikes go to your YouTube account, where they shape what it recommends.")
+            Text(String(localized: "Likes and dislikes go to your YouTube account, where they shape what it recommends."))
         }
     }
 
@@ -466,7 +466,7 @@ private struct VideoDescription: View {
                     .font(.subheadline)
                     .lineLimit(expanded ? nil : 3)
                     .textSelection(.enabled)
-                Text(expanded ? "Show Less" : "Show More")
+                Text(expanded ? String(localized: "Show Less") : String(localized: "Show More"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -477,7 +477,7 @@ private struct VideoDescription: View {
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
         .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint(expanded ? "Shows less of the description" : "Shows the whole description")
+        .accessibilityHint(expanded ? String(localized: "Shows less of the description") : String(localized: "Shows the whole description"))
     }
 
     /// The description with its web addresses made into links.
@@ -508,14 +508,14 @@ private struct CommentsCard: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
-                    Text("Comments").font(.subheadline.weight(.semibold))
+                    Text(String(localized: "Comments")).font(.subheadline.weight(.semibold))
                     if let count { Text(count).font(.subheadline).foregroundStyle(.secondary) }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                 }
                 HStack(alignment: .top, spacing: 10) {
                     CommentAvatar(url: top?.avatar, size: 24)
-                    Text(top?.text ?? "A comment that runs to two lines while it loads, about the video.")
+                    Text(top?.text ?? String(localized: "A comment that runs to two lines while it loads, about the video."))
                         .font(.subheadline)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -549,24 +549,24 @@ struct CommentsSheet: View {
                     list(VideoComment.placeholders).loadingPlaceholder()
                 case .failed(let message):
                     ContentUnavailableView {
-                        Label("Couldn't Load Comments", systemImage: "wifi.exclamationmark")
+                        Label(String(localized: "Couldn't Load Comments"), systemImage: "wifi.exclamationmark")
                     } description: {
                         Text(message)
                     } actions: {
-                        Button("Try Again") { Task { await model.load(music: app.music) } }.buttonStyle(.glass)
+                        Button(String(localized: "Try Again")) { Task { await model.load(music: app.music) } }.buttonStyle(.glass)
                     }
                 case .loaded(let comments) where comments.isEmpty:
-                    ContentUnavailableView("No Comments Yet", systemImage: "text.bubble")
+                    ContentUnavailableView(String(localized: "No Comments Yet"), systemImage: "text.bubble")
                 case .loaded(let comments):
                     list(comments)
                 }
             }
-            .navigationTitle("Comments")
-            .navigationSubtitle(count.map { "\($0) comments" } ?? "")
+            .navigationTitle(String(localized: "Comments"))
+            .navigationSubtitle(count.map { String(localized: "\($0) comments") } ?? "")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") { dismiss() }
+                    Button(String(localized: "Done"), systemImage: "checkmark") { dismiss() }
                 }
             }
         }
@@ -608,7 +608,7 @@ private struct CommentRow: View {
                         .background(comment.isCreator ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear), in: .capsule)
                     if comment.isVerified {
                         Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.secondary)
-                            .accessibilityLabel("Verified")
+                            .accessibilityLabel(String(localized: "Verified"))
                     }
                     Text("· \(comment.published)").font(.footnote).foregroundStyle(.secondary)
                 }
@@ -620,7 +620,7 @@ private struct CommentRow: View {
                 HStack(spacing: 16) {
                     Label(comment.likes.isEmpty ? "0" : comment.likes, systemImage: "hand.thumbsup")
                     if !comment.replies.isEmpty {
-                        Label(comment.replies == "1" ? "1 reply" : "\(comment.replies) replies", systemImage: "arrowshape.turn.up.left")
+                        Label(comment.replies == "1" ? String(localized: "1 reply") : String(localized: "\(comment.replies) replies"), systemImage: "arrowshape.turn.up.left")
                     }
                 }
                 .font(.caption)
@@ -649,8 +649,8 @@ extension VideoComment {
     /// The stand-ins the comments draw, redacted, while they load.
     static let placeholders = (0..<8).map {
         VideoComment(id: "placeholder-\($0)", author: "@commenter", authorChannelId: nil, avatar: nil,
-                     text: "A comment about the video that runs to a couple of lines while the real ones load.",
-                     published: "2 days ago", likes: "1.2K", replies: "", isCreator: false, isVerified: false)
+                     text: String(localized: "A comment about the video that runs to a couple of lines while the real ones load."),
+                     published: String(localized: "2 days ago"), likes: "1.2K", replies: "", isCreator: false, isVerified: false)
     }
 }
 

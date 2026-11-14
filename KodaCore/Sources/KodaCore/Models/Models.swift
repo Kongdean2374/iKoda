@@ -87,6 +87,15 @@ public struct Song: Identifiable, Hashable, Codable, Sendable {
 
 public enum ReleaseKind: String, Codable, Sendable, CaseIterable {
     case album = "Album", ep = "EP", single = "Single"
+
+    /// The on-screen name, independent of the stored and service-facing raw value.
+    public var title: String {
+        switch self {
+        case .album: NSLocalizedString("Album", bundle: KodaLocalization.bundle, comment: "")
+        case .ep: NSLocalizedString("EP", bundle: KodaLocalization.bundle, comment: "")
+        case .single: NSLocalizedString("Single", bundle: KodaLocalization.bundle, comment: "")
+        }
+    }
 }
 
 public struct AlbumSummary: Identifiable, Hashable, Codable, Sendable {

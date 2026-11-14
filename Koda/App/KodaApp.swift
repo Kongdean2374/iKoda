@@ -22,7 +22,10 @@ struct KodaApp: App {
             RootView()
                 .appEnvironment(model)
                 // Pausing listening history pauses scrobbling with it.
-                .onChange(of: model.settings.savesListeningHistory) { _, saves in model.lastFM.isPaused = !saves }
+                .onChange(of: model.settings.savesListeningHistory) { _, saves in
+                    model.lastFM.isPaused = !saves
+                    model.player.savesSmartShuffleHistory = saves
+                }
                 .preferredColorScheme(model.settings.theme.colorScheme)
                 .frame(minWidth: Platform.isMac ? 700 : nil, minHeight: Platform.isMac ? 520 : nil)
                 // Spotlight and Siri learn the liked songs and playlists, and again when they change.
@@ -33,10 +36,11 @@ struct KodaApp: App {
         // window could never grow past 1180×820; the first window is the system's own size.
         .windowResizability(.contentMinSize)
         .commands { KodaCommands(model: model) }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             // The queue and position survive the app being closed from the switcher.
             if phase != .active { model.saveState() }
             if phase == .active {
+                model.player.applicationBecameActive()
                 model.lastFM.syncSoon()
                 model.accountsBecameActive()
             }

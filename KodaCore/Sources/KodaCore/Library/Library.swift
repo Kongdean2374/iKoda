@@ -318,7 +318,7 @@ public final class Library {
     @discardableResult
     public func createPlaylist(named name: String, songs: [Song] = [], at date: Date = Date()) -> UserPlaylist {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let playlist = UserPlaylist(name: trimmed.isEmpty ? "New Playlist" : trimmed, songs: Self.unique(songs), created: date)
+        let playlist = UserPlaylist(name: trimmed.isEmpty ? NSLocalizedString("New Playlist", bundle: KodaLocalization.bundle, comment: "Default name for a newly created playlist only") : trimmed, songs: Self.unique(songs), created: date)
         userPlaylists.insert(playlist, at: 0)
         save()
         return playlist
@@ -651,7 +651,7 @@ public final class Library {
     public enum BackupError: LocalizedError {
         case notABackup
 
-        public var errorDescription: String? { "This file isn't a Koda library backup." }
+        public var errorDescription: String? { NSLocalizedString("This file isn't a Koda library backup.", bundle: KodaLocalization.bundle, comment: "") }
     }
 
     private static let backupFormat = "koda-ios-library"

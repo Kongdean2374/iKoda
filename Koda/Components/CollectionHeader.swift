@@ -67,7 +67,7 @@ struct CollectionHeader: View {
                     .padding(.horizontal, 20)
                     .contentShape(.rect)
                     .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
-                    .accessibilityHint(expanded ? "Collapses the description" : "Shows the whole description")
+                    .accessibilityHint(expanded ? String(localized: "Collapses the description") : String(localized: "Shows the whole description"))
             }
         }
         .padding(.top, 8)

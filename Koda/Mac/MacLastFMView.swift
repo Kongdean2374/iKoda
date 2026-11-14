@@ -10,7 +10,7 @@ struct MacLastFMView: View {
 
     var body: some View {
         MacPage(spacing: 28) {
-            MacPageTitle(title: "Last.fm", subtitle: "Scrobbling") {
+            MacPageTitle(title: "Last.fm", subtitle: String(localized: "Scrobbling")) {
                 if lastFM.isConnected {
                     if lastFM.isBusy { ProgressView().controlSize(.small) }
                     Button("Sync Now", systemImage: "arrow.triangle.2.circlepath") { Task { await lastFM.refresh() } }
@@ -58,8 +58,8 @@ private struct MacLastFMConnected: View {
             Button("Disconnect and Forget Keys", role: .destructive) { lastFM.disconnect() }
         } message: {
             Text(lastFM.queued.isEmpty
-                 ? "Koda forgets your account and API keys on this Mac. Your Last.fm history stays on Last.fm."
-                 : "\(lastFM.queued.count) plays haven't been sent yet and will be lost. Your Last.fm history stays on Last.fm.")
+                 ? String(localized: "Koda forgets your account and API keys on this Mac. Your Last.fm history stays on Last.fm.")
+                 : String(localized: "\(lastFM.queued.count) plays haven't been sent yet and will be lost. Your Last.fm history stays on Last.fm."))
         }
     }
 
@@ -79,7 +79,7 @@ private struct MacLastFMConnected: View {
                             .font(.system(size: 30, weight: .bold).monospacedDigit())
                             .foregroundStyle(.red)
                             .contentTransition(.numericText())
-                        Text(profile.playCount == 1 ? "scrobble" : "scrobbles")
+                        Text(profile.playCount == 1 ? String(localized: "scrobble") : String(localized: "scrobbles"))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -139,8 +139,8 @@ private struct MacLastFMConnected: View {
         let live = lastFM.refreshedAt.map { Date().timeIntervalSince($0) < 120 } ?? false
         let days = LastFMUI.days(lastFM.recent.filter { live || !$0.isNowPlaying })
         VStack(alignment: .leading, spacing: 20) {
-            MacSectionTitle(title: "Recent scrobbles",
-                            subtitle: lastFM.refreshedAt.map { "Updated \($0.formatted(.relative(presentation: .named)))" })
+            MacSectionTitle(title: String(localized: "Recent scrobbles"),
+                            subtitle: lastFM.refreshedAt.map { String(localized: "Updated \($0.formatted(.relative(presentation: .named)))") })
             if days.isEmpty {
                 ContentUnavailableView("Nothing Scrobbled Yet", systemImage: "music.note.list",
                                        description: Text("Songs you play in Koda appear here once they count."))
@@ -282,7 +282,7 @@ private struct MacLastFMConnect: View {
         }
     }
 
-    private func step<Content: View>(_ number: Int, _ title: String, _ detail: String, @ViewBuilder content: () -> Content) -> some View {
+    private func step<Content: View>(_ number: Int, _ title: LocalizedStringKey, _ detail: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Text("\(number)")
                 .font(.callout.weight(.bold).monospacedDigit())

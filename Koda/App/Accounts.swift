@@ -65,7 +65,7 @@ extension AppModel {
 
         var errorDescription: String? {
             switch self {
-            case .noSession: "Google didn't finish signing in to YouTube Music. Try again."
+            case .noSession: String(localized: "Google didn't finish signing in to YouTube Music. Try again.")
             }
         }
     }

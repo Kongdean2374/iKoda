@@ -63,7 +63,7 @@ final class SleepTimer {
     func label(at date: Date) -> String {
         switch mode {
         case .off: return ""
-        case .endOfSong: return "End of song"
+        case .endOfSong: return String(localized: "End of song")
         case .at(let end):
             let left = max(0, end.timeIntervalSince(date))
             return Duration.seconds(left.rounded(.up)).formatted(.time(pattern: left >= 3600 ? .hourMinuteSecond : .minuteSecond))
@@ -83,7 +83,7 @@ struct SleepTimerMenu: View {
             }
             Section("Stop Playing After") {
                 ForEach(SleepTimer.presets, id: \.self) { minutes in
-                    Button(minutes < 60 ? "\(minutes) minutes" : minutes == 60 ? "1 hour" : "1 hour \(minutes - 60) minutes") {
+                    Button(minutes < 60 ? String(localized: "\(minutes) minutes") : minutes == 60 ? String(localized: "1 hour") : String(localized: "1 hour \(minutes - 60) minutes")) {
                         timer.start(minutes: minutes)
                     }
                 }

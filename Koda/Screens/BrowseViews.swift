@@ -11,7 +11,7 @@ struct MoodView: View {
     var body: some View {
         if Platform.isMac {
             MacPage {
-                MacPageTitle(title: mood.title, subtitle: "Browse")
+                MacPageTitle(title: mood.title, subtitle: String(localized: "Browse"))
                 AsyncContent(state: state, retry: load) { shelves in
                     ForEach(shelves) { MacItemShelf(shelf: $0) }
                 }
@@ -124,7 +124,7 @@ struct SavedSongsView: View {
         let songs = songs
         return MacPage(spacing: 28) {
             MacCollectionHeader(
-                kind: "Library",
+                kind: String(localized: "Library"),
                 title: title,
                 detail: songs.isEmpty ? nil : songListDetail(songs),
                 canPlay: !songs.isEmpty,
@@ -137,13 +137,16 @@ struct SavedSongsView: View {
                     DownloadButton(songs: songs).buttonStyle(MacIconButtonStyle())
                 }
                 if source == .liked, songs.count > 1 {
-                    Picker("Sort By", selection: $sort) {
+                    Picker(String(localized: "Sort By"), selection: $sort) {
                         ForEach(SongSort.allCases) { Text($0.title).tag($0) }
                     }
                     .fixedSize()
                 }
                 if source == .recent, !songs.isEmpty {
-                    Button("Clear History", role: .destructive) { library.clearHistory() }
+                    Button(String(localized: "Clear History"), role: .destructive) {
+                        library.clearHistory()
+                        player.clearSmartShuffleHistory()
+                    }
                         .buttonStyle(.glass)
                         .controlSize(.large)
                 }
@@ -155,9 +158,9 @@ struct SavedSongsView: View {
                     let song = songs[index]
                     switch source {
                     case .liked:
-                        return AnyView(Button("Remove from Liked", systemImage: "heart.slash", role: .destructive) { library.toggleLike(song) })
+                        return AnyView(Button(String(localized: "Remove from Liked"), systemImage: "heart.slash", role: .destructive) { library.toggleLike(song) })
                     case .downloaded:
-                        return AnyView(Button("Remove Download", systemImage: "trash", role: .destructive) { downloads.remove([song]) })
+                        return AnyView(Button(String(localized: "Remove Download"), systemImage: "trash", role: .destructive) { downloads.remove([song]) })
                     case .recent, .offline:
                         return AnyView(EmptyView())
                     }
@@ -171,20 +174,20 @@ struct SavedSongsView: View {
     private var emptyState: some View {
         switch source {
         case .liked:
-            ContentUnavailableView("No Liked Songs", systemImage: "heart", description: Text("Songs you like appear here."))
+            ContentUnavailableView(String(localized: "No Liked Songs"), systemImage: "heart", description: Text(String(localized: "Songs you like appear here.")))
         case .recent:
-            ContentUnavailableView("Nothing Played Yet", systemImage: "clock", description: Text("Songs you play appear here."))
+            ContentUnavailableView(String(localized: "Nothing Played Yet"), systemImage: "clock", description: Text(String(localized: "Songs you play appear here.")))
         case .downloaded:
-            ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
-                                   description: Text("Download songs, albums and playlists to play them without a connection."))
+            ContentUnavailableView(String(localized: "No Downloads"), systemImage: "arrow.down.circle",
+                                   description: Text(String(localized: "Download songs, albums and playlists to play them without a connection.")))
         case .offline:
-            ContentUnavailableView("Nothing Ready Offline", systemImage: "airplane",
+            ContentUnavailableView(String(localized: "Nothing Ready Offline"), systemImage: "airplane",
                                    description: Text(SavedSongsView.offlineNote))
         }
     }
 
     /// What Ready Offline holds, said where the list is.
-    static let offlineNote = "Songs you download, and songs you play all the way through while Keep Songs You Play is on, are kept on this device and play without a connection."
+    static let offlineNote = String(localized: "Songs you download, and songs you play all the way through while Keep Songs You Play is on, are kept on this device and play without a connection.")
 
     private var phoneBody: some View {
         let songs = songs
@@ -202,24 +205,24 @@ struct SavedSongsView: View {
                 SongRow(song: song) { player.play(shown, startAt: index) }
                     .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                     .swipeActions(edge: .leading) {
-                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
                             .tint(.indigo)
                     }
                     .swipeActions(edge: .trailing) {
                         switch source {
                         case .liked:
-                            Button("Unlike", systemImage: "heart.slash", role: .destructive) { library.toggleLike(song) }
+                            Button(String(localized: "Unlike"), systemImage: "heart.slash", role: .destructive) { library.toggleLike(song) }
                         case .downloaded:
-                            Button("Remove Download", systemImage: "trash", role: .destructive) { downloads.remove([song]) }
+                            Button(String(localized: "Remove Download"), systemImage: "trash", role: .destructive) { downloads.remove([song]) }
                         case .recent, .offline:
-                            Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue([song]) }
+                            Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue([song]) }
                                 .tint(.orange)
                         }
                     }
             }
         }
         .listStyle(.plain)
-        .searchable(text: $query, placement: .navigationBarDrawer, prompt: "Find in \(title)")
+        .searchable(text: $query, placement: .navigationBarDrawer, prompt: String(localized: "Find in \(title)"))
         .overlay {
             if !songs.isEmpty, shown.isEmpty {
                 ContentUnavailableView.search(text: query)
@@ -227,28 +230,31 @@ struct SavedSongsView: View {
             if songs.isEmpty {
                 switch source {
                 case .liked:
-                    ContentUnavailableView("No Liked Songs", systemImage: "heart", description: Text("Songs you like appear here."))
+                    ContentUnavailableView(String(localized: "No Liked Songs"), systemImage: "heart", description: Text(String(localized: "Songs you like appear here.")))
                 case .recent:
-                    ContentUnavailableView("Nothing Played Yet", systemImage: "clock", description: Text("Songs you play appear here."))
+                    ContentUnavailableView(String(localized: "Nothing Played Yet"), systemImage: "clock", description: Text(String(localized: "Songs you play appear here.")))
                 case .downloaded:
-                    ContentUnavailableView("No Downloads", systemImage: "arrow.down.circle",
-                                           description: Text("Download songs, albums and playlists to play them without a connection."))
+                    ContentUnavailableView(String(localized: "No Downloads"), systemImage: "arrow.down.circle",
+                                           description: Text(String(localized: "Download songs, albums and playlists to play them without a connection.")))
                 case .offline:
-                    ContentUnavailableView("Nothing Ready Offline", systemImage: "airplane",
+                    ContentUnavailableView(String(localized: "Nothing Ready Offline"), systemImage: "airplane",
                                            description: Text(SavedSongsView.offlineNote))
                 }
             }
         }
         .toolbar {
             if source == .recent, !songs.isEmpty {
-                Button("Clear", role: .destructive) { library.clearHistory() }
+                Button(String(localized: "Clear"), role: .destructive) {
+                        library.clearHistory()
+                        player.clearSmartShuffleHistory()
+                    }
             }
             if source == .liked, !songs.isEmpty {
                 DownloadButton(songs: songs)
             }
             if source == .liked, songs.count > 1 {
-                Menu("Sort", systemImage: "arrow.up.arrow.down") {
-                    Picker("Sort By", selection: $sort) {
+                Menu(String(localized: "Sort"), systemImage: "arrow.up.arrow.down") {
+                    Picker(String(localized: "Sort By"), selection: $sort) {
                         ForEach(SongSort.allCases) { option in
                             Label(option.title, systemImage: option.systemImage).tag(option)
                         }
@@ -268,10 +274,10 @@ enum SongSort: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .recent: "Recently Liked"
-        case .title: "Title"
-        case .artist: "Artist"
-        case .mostPlayed: "Most Played"
+        case .recent: String(localized: "Recently Liked")
+        case .title: String(localized: "Title")
+        case .artist: String(localized: "Artist")
+        case .mostPlayed: String(localized: "Most Played")
         }
     }
 
@@ -297,7 +303,7 @@ struct SongListView: View {
         if Platform.isMac {
             MacPage(spacing: 28) {
                 MacCollectionHeader(
-                    kind: "Mix",
+                    kind: String(localized: "Mix"),
                     title: title,
                     detail: [subtitle, songs.isEmpty ? nil : songListDetail(songs)].compactMap { $0 }.joined(separator: " · "),
                     canPlay: !songs.isEmpty,
@@ -307,7 +313,7 @@ struct SongListView: View {
                     PlaylistMosaic(songs: songs, size: side, cornerRadius: 12)
                 } actions: {
                     MacMoreMenu {
-                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
                         AddToPlaylistMenu(songs: songs)
                     }
                 }
@@ -335,11 +341,11 @@ struct SongListView: View {
                 SongRow(song: song) { player.play(songs, startAt: index) }
                     .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                     .swipeActions(edge: .leading) {
-                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
                             .tint(.indigo)
                     }
                     .swipeActions(edge: .trailing) {
-                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue([song]) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue([song]) }
                             .tint(.orange)
                     }
             }
@@ -347,8 +353,8 @@ struct SongListView: View {
         .listStyle(.plain)
         .navigationTitle(title)
         .toolbar {
-            Menu("More", systemImage: "ellipsis") {
-                Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+            Menu(String(localized: "More"), systemImage: "ellipsis") {
+                Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
                 AddToPlaylistMenu(songs: songs)
             }
         }
@@ -357,8 +363,8 @@ struct SongListView: View {
 
 /// "42 songs · 2 hr 31 min", under a list's title on the Mac.
 func songListDetail(_ songs: [Song]) -> String {
-    var parts = [songs.count == 1 ? "1 song" : "\(songs.count) songs"]
+    var parts = [songs.count == 1 ? String(localized: "1 song") : String(localized: "\(songs.count) songs")]
     let minutes = Int(songs.compactMap(\.duration).reduce(0, +) / 60)
-    if minutes > 0 { parts.append(minutes >= 60 ? "\(minutes / 60) hr \(minutes % 60) min" : "\(minutes) min") }
+    if minutes > 0 { parts.append(minutes >= 60 ? String(localized: "\(minutes / 60) hr \(minutes % 60) min") : String(localized: "\(minutes) min")) }
     return parts.joined(separator: " · ")
 }

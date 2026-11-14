@@ -51,7 +51,7 @@ struct VideoMiniPlayer: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
+                    .accessibilityLabel(playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"))
                 }
                 if !isInline {
                     Button {
@@ -63,13 +63,13 @@ struct VideoMiniPlayer: View {
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Close Video")
+                    .accessibilityLabel(String(localized: "Close Video"))
                 }
             }
             .padding(.leading, 6)
             .padding(.trailing, 8)
             .accessibilityElement(children: .contain)
-            .accessibilityAction(named: "Open Video", open)
+            .accessibilityAction(named: String(localized: "Open Video"), open)
         }
     }
 
@@ -84,7 +84,7 @@ struct VideoMiniPlayer: View {
 
     private func subtitle(_ video: Video) -> String {
         if let seconds = playback.autoplayCountdown, let next = playback.upNext {
-            return "Up next in \(seconds): \(next.title)"
+            return String(localized: "Up next in \(seconds): \(next.title)")
         }
         return video.channel?.name ?? ""
     }
@@ -114,7 +114,7 @@ struct MacVideoBar: View {
                         .clipShape(.rect(cornerRadius: 8, style: .continuous))
                         VStack(alignment: .leading, spacing: 1) {
                             Text(video.title).font(.headline).lineLimit(1)
-                            Text(playback.autoplayCountdown.map { "Up next in \($0)" } ?? video.channel?.name ?? "")
+                            Text(playback.autoplayCountdown.map { String(localized: "Up next in \($0)") } ?? video.channel?.name ?? "")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -124,19 +124,19 @@ struct MacVideoBar: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(BarButtonStyle(padding: 4))
-                .help("Back to the Video")
+                .help(String(localized: "Back to the Video"))
 
                 Spacer(minLength: 8)
 
                 HStack(spacing: 10) {
                     if !playback.isLive {
-                        iconButton("gobackward.10", help: "Back 10 Seconds") { playback.skip(by: -10) }
+                        iconButton("gobackward.10", help: String(localized: "Back 10 Seconds")) { playback.skip(by: -10) }
                     }
-                    iconButton(playback.isPlaying ? "pause.fill" : "play.fill", help: playback.isPlaying ? "Pause" : "Play", size: 22) {
+                    iconButton(playback.isPlaying ? "pause.fill" : "play.fill", help: playback.isPlaying ? String(localized: "Pause") : String(localized: "Play"), size: 22) {
                         if playback.autoplayCountdown != nil { playback.playNext() } else { playback.togglePlay() }
                     }
                     if !playback.isLive {
-                        iconButton("goforward.10", help: "Forward 10 Seconds") { playback.skip(by: 10) }
+                        iconButton("goforward.10", help: String(localized: "Forward 10 Seconds")) { playback.skip(by: 10) }
                     }
                 }
 
@@ -146,10 +146,10 @@ struct MacVideoBar: View {
                         .progressViewStyle(.linear)
                         .frame(width: 140)
                         .tint(.primary)
-                        .accessibilityLabel("Playback position")
+                        .accessibilityLabel(String(localized: "Playback position"))
                 }
 
-                iconButton("xmark", help: "Close Video", size: 14, weight: .semibold, style: .secondary) {
+                iconButton("xmark", help: String(localized: "Close Video"), size: 14, weight: .semibold, style: .secondary) {
                     withAnimation(.smooth) { playback.stop() }
                 }
             }

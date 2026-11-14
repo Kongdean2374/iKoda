@@ -18,6 +18,10 @@ struct LyricsPanel: View {
                     .foregroundStyle(Color.primary)
             case .loaded(.plain(let text)?):
                 ScrollView {
+                    if app.settings.importedLyricsEnabled, app.settings.lyricsDisplayMode != .original {
+                        Text("This song has no synced lyrics. The original text is shown; imported translations need timestamps.")
+                            .font(.footnote).foregroundStyle(.secondary).padding(.bottom, 8)
+                    }
                     Text(text)
                         .font(.title3.weight(.semibold))
                         .lineSpacing(6)

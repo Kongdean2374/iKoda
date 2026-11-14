@@ -57,7 +57,7 @@ public struct KodaProfile: Identifiable, Hashable, Codable, Sendable {
     /// Never blank on screen.
     public var displayName: String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Listener" : trimmed
+        return trimmed.isEmpty ? NSLocalizedString("Listener", bundle: KodaLocalization.bundle, comment: "") : trimmed
     }
 
     public init(from decoder: Decoder) throws {

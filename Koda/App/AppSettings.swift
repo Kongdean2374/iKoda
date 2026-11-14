@@ -11,9 +11,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .system: "Automatic"
-            case .light: "Light"
-            case .dark: "Dark"
+            case .system: String(localized: "Automatic")
+            case .light: String(localized: "Light")
+            case .dark: String(localized: "Dark")
             }
         }
         var colorScheme: ColorScheme? {
@@ -31,9 +31,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .small: "Small"
-            case .standard: "Default"
-            case .large: "Large"
+            case .small: String(localized: "Small")
+            case .standard: String(localized: "Default")
+            case .large: String(localized: "Large")
             }
         }
         /// Point size of a sung line; backing vocals are drawn at 70% of it.
@@ -63,7 +63,7 @@ final class AppSettings {
 
         var id: Self { self }
         var seconds: TimeInterval { TimeInterval(rawValue) }
-        var title: String { "\(rawValue) Seconds" }
+        var title: String { String(localized: "\(rawValue) Seconds") }
         var backSymbol: String { "gobackward.\(rawValue)" }
         var forwardSymbol: String { "goforward.\(rawValue)" }
     }
@@ -72,7 +72,7 @@ final class AppSettings {
     enum Mode: String, CaseIterable, Identifiable {
         case music, video
         var id: Self { self }
-        var title: String { self == .music ? "Music" : "Video" }
+        var title: String { self == .music ? String(localized: "Music") : String(localized: "Video") }
         var systemImage: String { self == .music ? "music.note" : "play.rectangle.fill" }
     }
 
@@ -83,9 +83,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .on: "On"
-            case .wifiOnly: "Wi\u{2011}Fi Only"
-            case .off: "Off"
+            case .on: String(localized: "On")
+            case .wifiOnly: String(localized: "Wi\u{2011}Fi Only")
+            case .off: String(localized: "Off")
             }
         }
         /// Loops already kept play whatever the network; this is only about fetching new ones.
@@ -100,9 +100,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .off: "Off"
-            case .translation: "Translation"
-            case .pronunciation: "Pronunciation"
+            case .off: String(localized: "Off")
+            case .translation: String(localized: "Translation")
+            case .pronunciation: String(localized: "Pronunciation")
             }
         }
         var systemImage: String {
@@ -115,6 +115,15 @@ final class AppSettings {
     }
 
     private let defaults = UserDefaults.standard
+
+    /// Imported translations are opt-in; the original lyric presentation stays the default.
+    var importedLyricsEnabled: Bool { didSet { defaults.set(importedLyricsEnabled, forKey: "koda.lyrics.imported.enabled") } }
+    var lyricsDisplayMode: LyricsDisplayMode { didSet { defaults.set(lyricsDisplayMode.rawValue, forKey: "koda.lyrics.imported.mode") } }
+    var translationFontSize: Double { didSet { defaults.set(translationFontSize, forKey: "koda.lyrics.imported.fontSize") } }
+    var translationOpacity: Double { didSet { defaults.set(translationOpacity, forKey: "koda.lyrics.imported.opacity") } }
+    var translationSpacing: Double { didSet { defaults.set(translationSpacing, forKey: "koda.lyrics.imported.spacing") } }
+    /// Invalidates only imported lyric display after a user import/removal; never playback.
+    var lyricsTranslationRevision = 0
 
     var theme: Theme { didSet { defaults.set(theme.rawValue, forKey: Keys.theme) } }
     /// The cover's colours drift behind Now Playing; off, they hold still.
@@ -197,6 +206,11 @@ final class AppSettings {
 
     init() {
         let d = UserDefaults.standard
+        importedLyricsEnabled = d.bool(forKey: "koda.lyrics.imported.enabled")
+        lyricsDisplayMode = d.string(forKey: "koda.lyrics.imported.mode").flatMap(LyricsDisplayMode.init(rawValue:)) ?? .original
+        translationFontSize = min(32, max(12, d.object(forKey: "koda.lyrics.imported.fontSize") as? Double ?? 18))
+        translationOpacity = min(1, max(0.3, d.object(forKey: "koda.lyrics.imported.opacity") as? Double ?? 0.75))
+        translationSpacing = min(20, max(2, d.object(forKey: "koda.lyrics.imported.spacing") as? Double ?? 6))
         theme = d.string(forKey: Keys.theme).flatMap(Theme.init(rawValue:)) ?? .system
         animatesPlayerBackground = d.object(forKey: Keys.animatedBackground) as? Bool ?? true
         // Wi-Fi only to begin with: a new album's loop is a few megabytes, about a song's worth.

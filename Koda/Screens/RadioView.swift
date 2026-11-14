@@ -33,10 +33,10 @@ struct RadioView: View {
     var body: some View {
         if Platform.isMac {
             MacPage {
-                MacPageTitle(title: "Radio", subtitle: "Stations made from what you play")
+                MacPageTitle(title: String(localized: "Radio"), subtitle: String(localized: "Stations made from what you play"))
                 content.padding(.horizontal, MacMetrics.gutter)
             }
-            .navigationTitle("Radio")
+            .navigationTitle(String(localized: "Radio"))
         } else {
             ScrollView {
                 content
@@ -44,7 +44,7 @@ struct RadioView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 28)
             }
-            .navigationTitle("Radio")
+            .navigationTitle(String(localized: "Radio"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     ProfileToolbarButton { app.isProfilePresented = true }
@@ -66,11 +66,11 @@ struct RadioView: View {
     private var sections: some View {
         if isEmpty {
             ContentUnavailableView {
-                Label("No Stations Yet", systemImage: "dot.radiowaves.left.and.right")
+                Label(String(localized: "No Stations Yet"), systemImage: "dot.radiowaves.left.and.right")
             } description: {
-                Text("Play, like or pick some music, and stations made from it show up here.")
+                Text(String(localized: "Play, like or pick some music, and stations made from it show up here."))
             } actions: {
-                Button("Choose Your Taste") { app.onboarding = .taste }
+                Button(String(localized: "Choose Your Taste")) { app.onboarding = .taste }
                     .buttonStyle(.glass)
             }
             .frame(minHeight: 400)
@@ -88,14 +88,14 @@ struct RadioView: View {
     private var topStations: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 240), spacing: 16, alignment: .top)], alignment: .leading, spacing: 20) {
             if hasYourStation {
-                StationCard(id: "you", title: "Your Station", subtitle: "Everything you play", stations: stations) {
+                StationCard(id: "you", title: String(localized: "Your Station"), subtitle: String(localized: "Everything you play"), stations: stations) {
                     PlaylistMosaic(songs: yourSeeds, size: $0)
                 } seeds: { [yourSeeds] in
                     Array(yourSeeds.shuffled().prefix(4))
                 }
             }
             if library.liked.count >= 5 {
-                StationCard(id: "liked", title: "Liked Songs Station", subtitle: "From the songs you love", stations: stations) {
+                StationCard(id: "liked", title: String(localized: "Liked Songs Station"), subtitle: String(localized: "From the songs you love"), stations: stations) {
                     PlaylistMosaic(songs: library.liked, size: $0)
                 } seeds: { [library] in
                     Array(library.liked.shuffled().prefix(4))
@@ -103,7 +103,7 @@ struct RadioView: View {
             }
             if discovery.count >= 3 {
                 let names = Array(discovery.prefix(2).map(\.name))
-                StationCard(id: "discovery", title: "Discovery Station", subtitle: "Like \(names.joined(separator: " and "))", stations: stations) {
+                StationCard(id: "discovery", title: String(localized: "Discovery Station"), subtitle: String(localized: "Like \(ListFormatter.localizedString(byJoining: names))"), stations: stations) {
                     ArtistCollage(artists: Array(discovery.prefix(4)), size: $0)
                 } seeds: { [app, discovery] in
                     await Stations.topSongs(of: Array(discovery.shuffled().prefix(4)), music: app.music)
@@ -117,7 +117,7 @@ struct RadioView: View {
     @ViewBuilder
     private var artistStations: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "Your Artists' Stations", strapline: "Each artist and others like them")
+            SectionHeader(title: String(localized: "Your Artists' Stations"), strapline: String(localized: "Each artist and others like them"))
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 16) {
                     ForEach(artists) { artist in
@@ -137,19 +137,20 @@ struct RadioView: View {
     private var genreStations: some View {
         let genres = library.taste.genres
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "Your Genres")
+            SectionHeader(title: String(localized: "Your Genres"))
             if genres.isEmpty {
-                Button("Choose Genres You Like", systemImage: "plus") { app.onboarding = .taste }
+                Button(String(localized: "Choose Genres You Like"), systemImage: "plus") { app.onboarding = .taste }
                     .buttonStyle(.glass)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
                     ForEach(genres, id: \.self) { genre in
+                        let title = TasteProfile.genres.contains(genre) ? NSLocalizedString(genre, comment: "Music genre") : genre
                         Button { stations.play("genre-\(genre)", app: app) { [app] in await Stations.genreSongs(genre, music: app.music) } } label: {
-                            MoodTile(title: genre)
+                            MoodTile(title: title)
                                 .overlay(alignment: .topTrailing) { StationBadge(isStarting: stations.starting == "genre-\(genre)").padding(10) }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(genre) Station")
+                        .accessibilityLabel(String(localized: "\(title) Station"))
                     }
                 }
             }
@@ -230,7 +231,7 @@ private struct StationCard<Cover: View>: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Plays the station")
+        .accessibilityHint(String(localized: "Plays the station"))
     }
 }
 
@@ -277,7 +278,7 @@ private struct ArtistStationButton: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(artist.name) Station")
+        .accessibilityLabel(String(localized: "\(artist.name) Station"))
     }
 }
 

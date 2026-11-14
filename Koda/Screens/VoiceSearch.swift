@@ -36,16 +36,16 @@ final class VoiceSearch {
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
         guard speech == .authorized else {
-            phase = .blocked("Koda needs Speech Recognition to search by voice. You can allow it in Settings.")
+            phase = .blocked(String(localized: "Koda needs Speech Recognition to search by voice. You can allow it in Settings."))
             return
         }
         guard await AVAudioApplication.requestRecordPermission() else {
-            phase = .blocked("Koda needs the microphone to search by voice. You can allow it in Settings.")
+            phase = .blocked(String(localized: "Koda needs the microphone to search by voice. You can allow it in Settings."))
             return
         }
         guard let recognizer = SFSpeechRecognizer(locale: .current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
               recognizer.isAvailable else {
-            phase = .failed("Voice search isn't available right now.")
+            phase = .failed(String(localized: "Voice search isn't available right now."))
             return
         }
         do {
@@ -73,7 +73,7 @@ final class VoiceSearch {
             })
             phase = .listening
         } catch {
-            phase = .failed("Koda couldn't start listening.")
+            phase = .failed(String(localized: "Koda couldn't start listening."))
             stopAudio()
         }
     }
@@ -103,7 +103,7 @@ final class VoiceSearch {
             return
         }
         if failed {
-            phase = .failed("Koda didn't catch that. Try again.")
+            phase = .failed(String(localized: "Koda didn't catch that. Try again."))
             cancel()
             return
         }
@@ -181,16 +181,16 @@ struct VoiceSearchSheet: View {
                     .glassEffect(.regular.interactive(), in: .circle)
                     .contentTransition(.symbolEffect(.replace))
                     .onTapGesture { if isListening { voice.finish() } }
-                    .accessibilityLabel(isListening ? "Finish speaking" : "Microphone")
+                    .accessibilityLabel(isListening ? String(localized: "Finish speaking") : String(localized: "Microphone"))
             }
             .frame(height: 170)
 
             Group {
                 switch voice.phase {
                 case .starting:
-                    Text("Starting…").foregroundStyle(.secondary)
+                    Text(String(localized: "Starting…")).foregroundStyle(.secondary)
                 case .listening:
-                    Text(voice.transcript.isEmpty ? "Say a song, artist or album" : voice.transcript)
+                    Text(voice.transcript.isEmpty ? String(localized: "Say a song, artist or album") : voice.transcript)
                         .foregroundStyle(voice.transcript.isEmpty ? .secondary : .primary)
                         .contentTransition(.interpolate)
                         .animation(.smooth(duration: 0.2), value: voice.transcript)
@@ -204,7 +204,7 @@ struct VoiceSearchSheet: View {
             .frame(minHeight: 60)
 
             if case .blocked = voice.phase {
-                Button("Open Settings") {
+                Button(String(localized: "Open Settings")) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
                 .buttonStyle(.glass)
@@ -212,7 +212,7 @@ struct VoiceSearchSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
-            Button("Cancel", systemImage: "xmark") {
+            Button(String(localized: "Cancel"), systemImage: "xmark") {
                 voice.cancel()
                 dismiss()
             }

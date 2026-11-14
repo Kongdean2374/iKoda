@@ -9,6 +9,7 @@ struct QueuePanel: View {
     /// What the last Clear or Remove took out, offered back for a few seconds.
     @State private var undo: Undo?
     @State private var removals = 0
+    @State private var showsSmartShuffleSettings = false
 
     private enum Undo: Equatable {
         case cleared([Song])
@@ -17,8 +18,8 @@ struct QueuePanel: View {
 
         var label: String {
             switch self {
-            case .cleared: "Undo"
-            case .removed: "Undo Remove"
+            case .cleared: String(localized: "Undo")
+            case .removed: String(localized: "Undo Remove")
             }
         }
     }
@@ -29,10 +30,18 @@ struct QueuePanel: View {
             // Above the list rather than a sticky section header: iOS draws those on a band
             // of their own, which showed as an outline over the songs scrolling under it.
             HStack {
-                Text(player.upcoming.isEmpty ? "Nothing Up Next" : "Up Next")
+                Text(player.upcoming.isEmpty ? String(localized: "Nothing Up Next") : String(localized: "Up Next"))
                     .font(.headline)
                     .foregroundStyle(Color.primary)
                 Spacer()
+                Button {
+                    showsSmartShuffleSettings = true
+                } label: {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(player.isSmartShuffled ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Smart Shuffle Settings")
                 if let undo {
                     Button(undo.label) { perform(undo) }
                         .font(.subheadline.weight(.semibold))
@@ -84,6 +93,16 @@ struct QueuePanel: View {
                                          .init(color: .black, location: 0.94), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
         }
+        .sheet(isPresented: $showsSmartShuffleSettings) {
+            NavigationStack {
+                SmartShuffleSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsSmartShuffleSettings = false }
+                        }
+                    }
+            }
+        }
         .task(id: undo) {
             guard undo != nil else { return }
             try? await Task.sleep(for: .seconds(6))
@@ -100,7 +119,7 @@ struct QueuePanel: View {
         }
         Section {
             let liked = library.isLiked(item.song)
-            Button(liked ? "Remove from Liked" : "Like", systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(item.song) }
+            Button(liked ? String(localized: "Remove from Liked") : String(localized: "Like"), systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(item.song) }
             AddToPlaylistMenu(songs: [item.song])
             if let album = item.song.album {
                 Button("Go to Album", systemImage: "square.stack") {
@@ -150,6 +169,14 @@ struct QueuePanel: View {
             toggle("Shuffle", systemImage: "shuffle", isOn: player.isShuffled) {
                 player.setShuffle(!player.isShuffled)
             }
+            .contextMenu {
+                Button("Ordinary Shuffle", systemImage: "shuffle") { player.setShuffle(true) }
+                Button(player.isSmartShuffled ? String(localized: "Turn Off Smart Shuffle") : String(localized: "Smart Shuffle"),
+                       systemImage: "sparkles") { player.setSmartShuffle(!player.isSmartShuffled) }
+                Button("Smart Shuffle Settings", systemImage: "slider.horizontal.3") { showsSmartShuffleSettings = true }
+            }
+            .accessibilityAction(named: "Smart Shuffle") { player.setSmartShuffle(!player.isSmartShuffled) }
+            .accessibilityAction(named: "Smart Shuffle Settings") { showsSmartShuffleSettings = true }
             toggle(player.repeatMode == .one ? "Repeat One" : "Repeat",
                    systemImage: player.repeatMode == .one ? "repeat.1" : "repeat",
                    isOn: player.repeatMode != .off) {
@@ -164,7 +191,7 @@ struct QueuePanel: View {
         }
     }
 
-    private func toggle(_ title: String, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func toggle(_ title: LocalizedStringKey, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .labelStyle(.iconOnly)
@@ -175,7 +202,7 @@ struct QueuePanel: View {
         .buttonStyle(PlayerToggleStyle(isOn: isOn, offFill: 0.12))
         .sensoryFeedback(.selection, trigger: isOn)
         .accessibilityLabel(title)
-        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityValue(isOn ? String(localized: "On") : String(localized: "Off"))
     }
 }
 

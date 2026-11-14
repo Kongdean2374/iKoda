@@ -26,8 +26,8 @@ struct ChannelView: View {
     }
 
     private var placeholder: ChannelPage {
-        ChannelPage(channel: ChannelSummary(id: channelId, name: name, handle: "@channel", subscribers: "1M subscribers"),
-                    banner: nil, description: "A line or two about the channel, while it loads.", videoCount: "100 videos",
+        ChannelPage(channel: ChannelSummary(id: channelId, name: name, handle: "@channel", subscribers: String(localized: "1M subscribers")),
+                    banner: nil, description: String(localized: "A line or two about the channel, while it loads."), videoCount: String(localized: "100 videos"),
                     isSubscribed: nil, videos: VideoPage(videos: Video.placeholders))
     }
 
@@ -38,11 +38,11 @@ struct ChannelView: View {
                 content(placeholder, isPlaceholder: true)
             case .failed(let message):
                 ContentUnavailableView {
-                    Label("Couldn't Load Channel", systemImage: "wifi.exclamationmark")
+                    Label(String(localized: "Couldn't Load Channel"), systemImage: "wifi.exclamationmark")
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try Again") { Task { await model.load(music: app.music) } }.buttonStyle(.glass)
+                    Button(String(localized: "Try Again")) { Task { await model.load(music: app.music) } }.buttonStyle(.glass)
                 }
             case .loaded(let page):
                 content(page, isPlaceholder: false)
@@ -52,7 +52,7 @@ struct ChannelView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 ShareLink(item: URL(string: "https://www.youtube.com/channel/\(channelId)")!) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                 }
             }
         }
@@ -87,7 +87,7 @@ struct ChannelView: View {
                             ForEach(page.videos.videos) { video in
                                 NavigationLink(value: Route.video(video)) { VideoCard(video: video, width: 420, showsChannel: false) }
                                     .buttonStyle(.plain)
-                                    .contextMenu { ShareLink(item: video.watchURL, subject: Text(video.title)) { Label("Share", systemImage: "square.and.arrow.up") } }
+                                    .contextMenu { ShareLink(item: video.watchURL, subject: Text(video.title)) { Label(String(localized: "Share"), systemImage: "square.and.arrow.up") } }
                             }
                             more(page)
                         }
@@ -139,13 +139,13 @@ struct ChannelView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(page.aboutToken == nil)
-                    .accessibilityHint("Shows what the channel says about itself")
+                    .accessibilityHint(String(localized: "Shows what the channel says about itself"))
                 }
                 HStack(spacing: 10) {
                     SubscribeButton(channelId: page.channel.id, pageSubscribed: page.isSubscribed)
                         .controlSize(.large)
                     if page.aboutToken != nil {
-                        Button("About", systemImage: "info.circle") { showsAbout = true }
+                        Button(String(localized: "About"), systemImage: "info.circle") { showsAbout = true }
                             .buttonStyle(.glass)
                             .controlSize(.large)
                     }
@@ -181,7 +181,7 @@ struct ChannelView: View {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.title3)
                         .foregroundStyle(.secondary)
-                        .accessibilityLabel("Verified")
+                        .accessibilityLabel(String(localized: "Verified"))
                 }
             }
             Text([page.channel.handle, page.channel.subscribers, page.videoCount].compactMap { $0 }.joined(separator: " · "))
@@ -215,7 +215,7 @@ struct ChannelView: View {
                     HStack(spacing: 10) {
                         SubscribeButton(channelId: page.channel.id, pageSubscribed: page.isSubscribed)
                         if page.aboutToken != nil {
-                            Button("About", systemImage: "info.circle") { showsAbout = true }
+                            Button(String(localized: "About"), systemImage: "info.circle") { showsAbout = true }
                                 .buttonStyle(.glass)
                         }
                     }
@@ -235,7 +235,7 @@ struct ChannelView: View {
         if page.tabs.count > 1 || !page.sorts.isEmpty {
             HStack(spacing: 12) {
                 if page.tabs.count > 1 {
-                    Picker("Show", selection: Binding(get: { page.tab }, set: { kind in
+                    Picker(String(localized: "Show"), selection: Binding(get: { page.tab }, set: { kind in
                         guard let tab = page.tabs.first(where: { $0.kind == kind }) else { return }
                         Task { await model.open(tab, music: app.music) }
                     })) {
@@ -250,7 +250,7 @@ struct ChannelView: View {
                 if !page.sorts.isEmpty {
                     let selected = page.sorts.first { $0.isSelected } ?? page.sorts[0]
                     Menu {
-                        Picker("Sort By", selection: Binding(get: { selected.id }, set: { id in
+                        Picker(String(localized: "Sort By"), selection: Binding(get: { selected.id }, set: { id in
                             guard let sort = page.sorts.first(where: { $0.id == id }) else { return }
                             Task { await model.sort(by: sort, music: app.music) }
                         })) {
@@ -277,8 +277,8 @@ struct ChannelView: View {
                 .frame(maxWidth: .infinity)
                 .task { await model.loadMore(music: app.music) }
         } else if page.videos.videos.isEmpty {
-            ContentUnavailableView(page.tab == .live ? "No Live Streams" : "No Videos", systemImage: "play.rectangle",
-                                   description: Text("Nothing here yet."))
+            ContentUnavailableView(page.tab == .live ? String(localized: "No Live Streams") : String(localized: "No Videos"), systemImage: "play.rectangle",
+                                   description: Text(String(localized: "Nothing here yet.")))
                 .frame(maxWidth: .infinity, minHeight: 240)
         }
     }
@@ -300,16 +300,16 @@ private struct ChannelAboutSheet: View {
                     content(about)
                 case .failed(let message):
                     ContentUnavailableView {
-                        Label("Couldn't Load About", systemImage: "wifi.exclamationmark")
+                        Label(String(localized: "Couldn't Load About"), systemImage: "wifi.exclamationmark")
                     } description: {
                         Text(message)
                     } actions: {
-                        Button("Try Again") { Task { await model.loadAbout(music: app.music) } }.buttonStyle(.glass)
+                        Button(String(localized: "Try Again")) { Task { await model.loadAbout(music: app.music) } }.buttonStyle(.glass)
                     }
                 case .loading, nil:
-                    content(ChannelAbout(description: page.description ?? "A few lines about the channel.", country: "Country",
-                                         subscribers: "1M subscribers", views: "100,000,000 views", joined: "Joined Jan 1, 2010",
-                                         videoCount: "100 videos", links: []))
+                    content(ChannelAbout(description: page.description ?? String(localized: "A few lines about the channel."), country: String(localized: "channel.country", defaultValue: "Country"),
+                                         subscribers: String(localized: "1M subscribers"), views: String(localized: "100,000,000 views"), joined: String(localized: "Joined Jan 1, 2010"),
+                                         videoCount: String(localized: "100 videos"), links: []))
                         .loadingPlaceholder()
                 }
             }
@@ -317,7 +317,7 @@ private struct ChannelAboutSheet: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") { dismiss() }
+                    Button(String(localized: "Done"), systemImage: "checkmark") { dismiss() }
                 }
             }
         }
@@ -329,14 +329,14 @@ private struct ChannelAboutSheet: View {
     private func content(_ about: ChannelAbout) -> some View {
         List {
             if let description = about.description {
-                Section("Description") {
+                Section(String(localized: "Description")) {
                     Text(description)
                         .font(.subheadline)
                         .textSelection(.enabled)
                 }
             }
             if !about.links.isEmpty {
-                Section("Links") {
+                Section(String(localized: "Links")) {
                     ForEach(about.links) { link in
                         Link(destination: link.url) {
                             LabeledContent {
@@ -350,13 +350,13 @@ private struct ChannelAboutSheet: View {
                     }
                 }
             }
-            Section("Details") {
-                if let handle = page.channel.handle { LabeledContent("Handle", value: handle) }
-                if let subscribers = about.subscribers { LabeledContent("Subscribers", value: Self.count(subscribers)) }
-                if let videos = about.videoCount { LabeledContent("Videos", value: Self.count(videos)) }
-                if let views = about.views { LabeledContent("Views", value: Self.count(views)) }
-                if let joined = about.joined { LabeledContent("Joined", value: joined.replacingOccurrences(of: "Joined ", with: "")) }
-                if let country = about.country { LabeledContent("Country", value: country) }
+            Section(String(localized: "Details")) {
+                if let handle = page.channel.handle { LabeledContent(String(localized: "Handle"), value: handle) }
+                if let subscribers = about.subscribers { LabeledContent(String(localized: "Subscribers"), value: Self.count(subscribers)) }
+                if let videos = about.videoCount { LabeledContent(String(localized: "Videos"), value: Self.count(videos)) }
+                if let views = about.views { LabeledContent(String(localized: "Views"), value: Self.count(views)) }
+                if let joined = about.joined { LabeledContent(String(localized: "Joined"), value: joined.replacingOccurrences(of: "Joined ", with: "")) }
+                if let country = about.country { LabeledContent(String(localized: "channel.country", defaultValue: "Country"), value: country) }
             }
         }
     }

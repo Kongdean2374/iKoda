@@ -16,7 +16,7 @@ struct SongMenuItems: View {
         }
         Section {
             let liked = library.isLiked(song)
-            Button(liked ? "Remove from Liked" : "Like", systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(song) }
+            Button(liked ? String(localized: "Remove from Liked") : String(localized: "Like"), systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(song) }
             AddToPlaylistMenu(songs: [song])
             DownloadMenuItem(song: song)
             PinMenuItem(pin: .song(song))
@@ -43,7 +43,7 @@ struct PinMenuItem: View {
 
     var body: some View {
         let pinned = library.isPinned(pin)
-        Button(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") {
+        Button(pinned ? String(localized: "Unpin") : String(localized: "Pin"), systemImage: pinned ? "pin.slash" : "pin") {
             withAnimation(.smooth) { library.togglePin(pin) }
         }
     }

@@ -11,16 +11,16 @@ enum MacSettingsPane: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .profile: "Profiles"
-        case .playback: "Playback"
-        case .lyrics: "Lyrics"
-        case .appearance: "Appearance"
+        case .profile: String(localized: "Profiles")
+        case .playback: String(localized: "Playback")
+        case .lyrics: String(localized: "Lyrics")
+        case .appearance: String(localized: "Appearance")
         case .lastFM: "Last.fm"
         case .discord: "Discord"
-        case .privacy: "History & Privacy"
-        case .storage: "Storage"
-        case .backup: "Back Up & Restore"
-        case .about: "About Koda"
+        case .privacy: String(localized: "History & Privacy")
+        case .storage: String(localized: "Storage")
+        case .backup: String(localized: "Back Up & Restore")
+        case .about: String(localized: "About Koda")
         }
     }
 
@@ -247,11 +247,11 @@ private func byteText(_ bytes: Int64?) -> String {
 private struct MacProfilePane: View {
     private var tasteSummary: String {
         let taste = library.taste
-        guard !taste.isEmpty else { return "Not set up" }
+        guard !taste.isEmpty else { return String(localized: "Not set up") }
         var parts: [String] = []
-        if !taste.artists.isEmpty { parts.append(taste.artists.count == 1 ? "1 artist" : "\(taste.artists.count) artists") }
-        if !taste.genres.isEmpty { parts.append(taste.genres.count == 1 ? "1 genre" : "\(taste.genres.count) genres") }
-        if !taste.songs.isEmpty { parts.append(taste.songs.count == 1 ? "1 song" : "\(taste.songs.count) songs") }
+        if !taste.artists.isEmpty { parts.append(taste.artists.count == 1 ? String(localized: "1 artist") : String(localized: "\(taste.artists.count) artists")) }
+        if !taste.genres.isEmpty { parts.append(taste.genres.count == 1 ? String(localized: "1 genre") : String(localized: "\(taste.genres.count) genres")) }
+        if !taste.songs.isEmpty { parts.append(taste.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(taste.songs.count) songs")) }
         return ListFormatter.localizedString(byJoining: parts)
     }
 
@@ -268,12 +268,12 @@ private struct MacProfilePane: View {
     private var profile: KodaProfile { selected.flatMap(app.roster.profile) ?? app.roster.active }
 
     var body: some View {
-        MacSettingsGroup(title: "Profiles", footer: "Each profile has its own likes, playlists, history, stats and Home.") {
+        MacSettingsGroup(title: String(localized: "Profiles"), footer: String(localized: "Each profile has its own likes, playlists, history, stats and Home.")) {
             ForEach(app.roster.profiles) { item in
                 MacProfileRow(profile: item, isSelected: item.id == profile.id) { selected = item.id }
             }
             MacSettingsRow(title: "") {
-                Button("Add Profile…", systemImage: "plus") { adding = true }
+                Button(String(localized: "Add Profile…"), systemImage: "plus") { adding = true }
             }
         }
         editor(profile)
@@ -302,7 +302,7 @@ private struct MacProfilePane: View {
             HStack(spacing: 14) {
                 ProfileAvatar(profile: profile, size: 64)
                 VStack(alignment: .leading, spacing: 6) {
-                    TextField("Name", text: Binding(get: { profile.name }, set: { name in app.roster.update(id) { $0.name = name } }))
+                    TextField(String(localized: "Name"), text: Binding(get: { profile.name }, set: { name in app.roster.update(id) { $0.name = name } }))
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 260)
                     Text(profile.subtitle).font(.system(size: 11)).foregroundStyle(profile.isExpired ? .red : .secondary)
@@ -310,10 +310,10 @@ private struct MacProfilePane: View {
                 Spacer()
             }
             .padding(12)
-            MacSettingsRow(title: "Picture") {
-                Picker("Picture", selection: Binding(get: { profile.picture }, set: { picture in app.roster.update(id) { $0.picture = picture } })) {
-                    Text("Koda Face").tag(KodaProfile.Picture.drawn)
-                    Text("Photo").tag(KodaProfile.Picture.photo)
+            MacSettingsRow(title: String(localized: "Picture")) {
+                Picker(String(localized: "Picture"), selection: Binding(get: { profile.picture }, set: { picture in app.roster.update(id) { $0.picture = picture } })) {
+                    Text(String(localized: "Koda Face")).tag(KodaProfile.Picture.drawn)
+                    Text(String(localized: "Photo")).tag(KodaProfile.Picture.photo)
                     if profile.accountPhoto != nil { Text("Google").tag(KodaProfile.Picture.account) }
                 }
                 .pickerStyle(.segmented)
@@ -325,17 +325,17 @@ private struct MacProfilePane: View {
                 AvatarEditor(avatar: Binding(get: { profile.avatar }, set: { avatar in app.roster.update(id) { $0.avatar = avatar } }), swatch: 40)
                     .padding(12)
             case .photo:
-                MacSettingsRow(title: "Photo") {
-                    PhotosPicker(app.profilePhotos.photo(for: profile) == nil ? "Choose Photo…" : "Choose Another…", selection: $photo, matching: .images)
+                MacSettingsRow(title: String(localized: "Photo")) {
+                    PhotosPicker(app.profilePhotos.photo(for: profile) == nil ? String(localized: "Choose Photo…") : String(localized: "Choose Another…"), selection: $photo, matching: .images)
                 }
             case .account:
                 EmptyView()
             }
         }
         if id == app.roster.activeID {
-            MacSettingsGroup(title: "Taste", footer: "The artists, genres and songs Home starts from, before and beside what you play.") {
-                MacSettingsRow(title: "Your taste", detail: tasteSummary) {
-                    Button(library.taste.isEmpty ? "Set Up…" : "Edit…") { tuningTaste = true }
+            MacSettingsGroup(title: String(localized: "Taste"), footer: String(localized: "The artists, genres and songs Home starts from, before and beside what you play.")) {
+                MacSettingsRow(title: String(localized: "Your taste"), detail: tasteSummary) {
+                    Button(library.taste.isEmpty ? String(localized: "Set Up…") : String(localized: "Edit…")) { tuningTaste = true }
                 }
             }
             .sheet(isPresented: $tuningTaste) {
@@ -343,44 +343,46 @@ private struct MacProfilePane: View {
             }
         }
         MacSettingsGroup(title: "YouTube Music", footer: profile.isSignedIn
-                         ? "Home and the library follow this account. Signing out keeps the profile and everything in it on this Mac."
-                         : "Sign in to bring your YouTube Music likes, playlists and Home to this profile. Everything already here stays.") {
+                         ? String(localized: "Home and the library follow this account. Signing out keeps the profile and everything in it on this Mac.")
+                         : String(localized: "Sign in to bring your YouTube Music likes, playlists and Home to this profile. Everything already here stays.")) {
             if profile.isSignedIn {
                 let syncing = app.isSyncingAccount && id == app.roster.activeID
                 MacSettingsRow(title: profile.handle ?? profile.displayName,
-                               detail: profile.isExpired ? "Signed out by YouTube. Sign in again to keep in step." : syncing ? "Bringing in your library…" : "Signed in") {
+                               detail: profile.isExpired ? String(localized: "Signed out by YouTube. Sign in again to keep in step.") : syncing ? String(localized: "Bringing in your library…") : String(localized: "Signed in")) {
                     HStack {
                         if profile.isExpired {
-                            Button("Sign In Again…") { signingIn = id }
+                            Button(String(localized: "Sign In Again…")) { signingIn = id }
                         } else if id == app.roster.activeID {
-                            Button("Sync Now") { app.syncAccount(force: true) }.disabled(syncing)
+                            Button(String(localized: "Sync Now")) { app.syncAccount(force: true) }.disabled(syncing)
                         }
-                        Button("Sign Out…") { confirmSignOut = true }
+                        Button(String(localized: "Sign Out…")) { confirmSignOut = true }
                     }
                 }
-                MacSettingsToggle(title: "Add plays to YouTube history",
-                                  detail: "Songs played for 15 seconds appear in your YouTube Music history and shape its recommendations. Nothing is sent while listening history is off.",
+                MacSettingsToggle(title: String(localized: "Add plays to YouTube history"),
+                                  detail: String(localized: "Songs played for 15 seconds appear in your YouTube Music history and shape its recommendations. Nothing is sent while listening history is off."),
                                   isOn: Binding(get: { profile.sendsPlaysToYouTube },
                                                 set: { on in app.roster.update(id) { $0.sendsPlaysToYouTube = on } }))
             } else {
-                MacSettingsRow(title: "Not signed in") {
-                    Button("Sign In…") { signingIn = id }
+                MacSettingsRow(title: String(localized: "Not signed in")) {
+                    Button(String(localized: "Sign In…")) { signingIn = id }
                 }
             }
         }
-        .confirmationDialog("Sign out of YouTube Music?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-            Button("Sign Out", role: .destructive) { app.signOut(id) }
+        .confirmationDialog(String(localized: "Sign out of YouTube Music?"), isPresented: $confirmSignOut, titleVisibility: .visible) {
+            Button(String(localized: "Sign Out"), role: .destructive) { app.signOut(id) }
         } message: {
             Text("“\(profile.displayName)” stays on this Mac with its likes, playlists and history.")
         }
         if app.roster.profiles.count > 1 {
-            MacSettingsGroup(footer: "Deletes this profile's liked songs, playlists, history and stats from this Mac.\(profile.isSignedIn ? " Your YouTube Music account isn't affected." : "")") {
-                MacSettingsRow(title: "Delete Profile") {
-                    Button("Delete…", role: .destructive) { confirmDelete = true }
+            MacSettingsGroup(footer: profile.isSignedIn
+                             ? String(localized: "Deletes this profile's liked songs, playlists, history and stats from this Mac. Your YouTube Music account isn't affected.")
+                             : String(localized: "Deletes this profile's liked songs, playlists, history and stats from this Mac.")) {
+                MacSettingsRow(title: String(localized: "Delete Profile")) {
+                    Button(String(localized: "Delete…"), role: .destructive) { confirmDelete = true }
                 }
             }
             .confirmationDialog("Delete “\(profile.displayName)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete Profile", role: .destructive) {
+                Button(String(localized: "Delete Profile"), role: .destructive) {
                     selected = nil
                     app.deleteProfile(id)
                 }
@@ -407,9 +409,9 @@ private struct MacProfileRow: View {
             }
             Spacer()
             if profile.id == app.roster.activeID {
-                Text("Current").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                Text(String(localized: "Current")).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
             } else {
-                Button("Switch") { app.switchProfile(to: profile.id) }
+                Button(String(localized: "Switch")) { app.switchProfile(to: profile.id) }
                     .controlSize(.small)
             }
         }
@@ -430,22 +432,22 @@ private struct MacPlaybackPane: View {
         @Bindable var player = player
         @Bindable var settings = app.settings
         MacSettingsGroup {
-            MacSettingsToggle(title: "Autoplay", detail: "When the queue ends, keep going with songs like the last one.",
+            MacSettingsToggle(title: String(localized: "Autoplay"), detail: String(localized: "When the queue ends, keep going with songs like the last one."),
                               isOn: $player.autoplay)
-            MacSettingsToggle(title: "Normalize volume", detail: "Play loud masters at a similar level to everything else.",
+            MacSettingsToggle(title: String(localized: "Normalize volume"), detail: String(localized: "Play loud masters at a similar level to everything else."),
                               isOn: $player.normalizesVolume)
         }
-        MacSettingsGroup(title: "Song Transitions", footer: "With AutoMix or crossfade on, skipping a song fades it out quickly instead of cutting it off.") {
-            MacSettingsRow(title: "Transitions", detail: "AutoMix blends songs like a DJ, lining up beats and skipping silence. Crossfade overlaps the end of one song with the start of the next.") {
-                Picker("Transitions", selection: $player.transitions) {
-                    Text("AutoMix").tag(Player.Transitions.autoMix)
-                    Text("Crossfade").tag(Player.Transitions.crossfade)
-                    Text("Off").tag(Player.Transitions.off)
+        MacSettingsGroup(title: String(localized: "Song Transitions"), footer: String(localized: "With AutoMix or crossfade on, skipping a song fades it out quickly instead of cutting it off.")) {
+            MacSettingsRow(title: String(localized: "Transitions"), detail: String(localized: "AutoMix blends songs like a DJ, lining up beats and skipping silence. Crossfade overlaps the end of one song with the start of the next.")) {
+                Picker(String(localized: "Transitions"), selection: $player.transitions) {
+                    Text(String(localized: "AutoMix")).tag(Player.Transitions.autoMix)
+                    Text(String(localized: "Crossfade")).tag(Player.Transitions.crossfade)
+                    Text(String(localized: "Off")).tag(Player.Transitions.off)
                 }
                 .labelsHidden()
                 .fixedSize()
             }
-            MacSettingsRow(title: "Crossfade overlap") {
+            MacSettingsRow(title: String(localized: "Crossfade overlap")) {
                 HStack(spacing: 8) {
                     Slider(value: $player.crossfadeDuration, in: 1...12, step: 1)
                         .frame(width: 180)
@@ -458,9 +460,9 @@ private struct MacPlaybackPane: View {
             }
             .disabled(player.transitions != .crossfade)
         }
-        MacSettingsGroup(title: "Sound", footer: "Data Saver streams use about a third of the data, and Low Data Mode always uses it. Downloads and songs kept as you play them are always high quality.") {
-            MacSettingsRow(title: "Equalizer", detail: "Shapes every song you play. Boosted songs play a little quieter, so loud ones never distort.") {
-                Picker("Equalizer", selection: $player.equalizer) {
+        MacSettingsGroup(title: String(localized: "Sound"), footer: String(localized: "Data Saver streams use about a third of the data, and Low Data Mode always uses it. Downloads and songs kept as you play them are always high quality.")) {
+            MacSettingsRow(title: String(localized: "Equalizer"), detail: String(localized: "Shapes every song you play. Boosted songs play a little quieter, so loud ones never distort.")) {
+                Picker(String(localized: "Equalizer"), selection: $player.equalizer) {
                     ForEach(EqualizerPreset.allCases) { preset in
                         Text(preset.title).tag(preset)
                         if preset == .off { Divider() }
@@ -469,35 +471,35 @@ private struct MacPlaybackPane: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            MacSettingsRow(title: "Streaming", detail: "On Wi‑Fi and Ethernet.") {
-                qualityPicker("Streaming", selection: $player.unmeteredQuality)
+            MacSettingsRow(title: String(localized: "Streaming"), detail: String(localized: "On Wi‑Fi and Ethernet.")) {
+                qualityPicker(String(localized: "Streaming"), selection: $player.unmeteredQuality)
             }
-            MacSettingsRow(title: "Streaming on a personal hotspot", detail: "Or any network macOS marks as metered.") {
-                qualityPicker("Streaming on a personal hotspot", selection: $player.meteredQuality)
+            MacSettingsRow(title: String(localized: "Streaming on a personal hotspot"), detail: String(localized: "Or any network macOS marks as metered.")) {
+                qualityPicker(String(localized: "Streaming on a personal hotspot"), selection: $player.meteredQuality)
             }
         }
-        MacSettingsGroup(title: "Videos", footer: settings.videoModeEnabled
-                         ? "Space or K plays and pauses, J and L skip 10 seconds, ← and → skip 5, F goes full screen and Esc leaves it, M mutes. Double-click a video for full screen."
+        MacSettingsGroup(title: String(localized: "Videos"), footer: settings.videoModeEnabled
+                         ? String(localized: "Space or K plays and pauses, J and L skip 10 seconds, ← and → skip 5, F goes full screen and Esc leaves it, M mutes. Double-click a video for full screen.")
                          : nil) {
-            MacSettingsToggle(title: "Video mode", detail: "YouTube itself beside your music: Videos, your channels and Explore join the sidebar, with the video player.",
+            MacSettingsToggle(title: String(localized: "Video mode"), detail: String(localized: "YouTube itself beside your music: Videos, your channels and Explore join the sidebar, with the video player."),
                               isOn: $settings.videoModeEnabled)
             if settings.videoModeEnabled {
-                MacSettingsRow(title: "Default quality", detail: "Videos start at this, or the best they have below it. Auto follows the connection.") {
-                    Picker("Default quality", selection: $settings.videoQuality) {
+                MacSettingsRow(title: String(localized: "Default quality"), detail: String(localized: "Videos start at this, or the best they have below it. Auto follows the connection.")) {
+                    Picker(String(localized: "Default quality"), selection: $settings.videoQuality) {
                         ForEach(AppSettings.videoQualities, id: \.self) { Text(VideoQualityName.long($0)).tag($0) }
                     }
                     .labelsHidden()
                     .fixedSize()
                 }
-                MacSettingsToggle(title: "Autoplay next video", detail: "When a video ends, the next in Up Next starts after a short countdown.",
+                MacSettingsToggle(title: String(localized: "Autoplay next video"), detail: String(localized: "When a video ends, the next in Up Next starts after a short countdown."),
                                   isOn: $settings.autoplaysVideos)
             }
         }
-        MacSettingsGroup(title: "Skipping", footer: "⌥⌘← and ⌥⌘→ skip back and ahead too, with the buttons shown or not.") {
-            MacSettingsToggle(title: "Skip buttons", detail: "Beside play in the player bar and Now Playing, to jump within the song.",
+        MacSettingsGroup(title: String(localized: "Skipping"), footer: String(localized: "⌥⌘← and ⌥⌘→ skip back and ahead too, with the buttons shown or not.")) {
+            MacSettingsToggle(title: String(localized: "Skip buttons"), detail: String(localized: "Beside play in the player bar and Now Playing, to jump within the song."),
                               isOn: $settings.showsSkipButtons)
-            MacSettingsRow(title: "Skip by") {
-                Picker("Skip by", selection: $settings.skipInterval) {
+            MacSettingsRow(title: String(localized: "Skip by")) {
+                Picker(String(localized: "Skip by"), selection: $settings.skipInterval) {
                     ForEach(AppSettings.SkipInterval.allCases) { Text("\($0.rawValue) s").tag($0) }
                 }
                 .labelsHidden()
@@ -505,8 +507,8 @@ private struct MacPlaybackPane: View {
                 .fixedSize()
             }
         }
-        MacSettingsGroup(title: "Volume", footer: "A Mac app can't set the system volume, so this is Koda's own level, under the system's. ⌘↑ and ⌘↓ change it too.") {
-            MacSettingsRow(title: "Koda's volume") {
+        MacSettingsGroup(title: String(localized: "Volume"), footer: String(localized: "A Mac app can't set the system volume, so this is Koda's own level, under the system's. ⌘↑ and ⌘↓ change it too.")) {
+            MacSettingsRow(title: String(localized: "Koda's volume")) {
                 HStack(spacing: 8) {
                     Image(systemName: "speaker.fill").foregroundStyle(.secondary)
                     Slider(value: Binding(get: { Double(player.volume) }, set: { player.volume = Float($0) }), in: 0...1)
@@ -533,8 +535,8 @@ private struct MacLyricsPane: View {
     var body: some View {
         @Bindable var settings = app.settings
         let order = settings.lyricsSourceOrder
-        MacSettingsGroup(title: "Sources",
-                         footer: "Koda asks every source at once. Word-by-word lyrics win; among equals, the higher source wins. At least one stays on.") {
+        MacSettingsGroup(title: String(localized: "Sources"),
+                         footer: String(localized: "Koda asks every source at once. Word-by-word lyrics win; among equals, the higher source wins. At least one stays on.")) {
             ForEach(Array(order.enumerated()), id: \.element) { index, source in
                 MacSettingsRow(title: source.title, detail: source.detail) {
                     HStack(spacing: 4) {
@@ -542,12 +544,12 @@ private struct MacLyricsPane: View {
                             Image(systemName: "chevron.up")
                         }
                         .disabled(index == 0)
-                        .help("Move Up")
+                        .help(String(localized: "Move Up"))
                         Button { settings.lyricsSourceOrder.move(fromOffsets: [index], toOffset: index + 2) } label: {
                             Image(systemName: "chevron.down")
                         }
                         .disabled(index == order.count - 1)
-                        .help("Move Down")
+                        .help(String(localized: "Move Down"))
                         Toggle(source.title, isOn: Binding(get: { settings.isEnabled(source) }, set: { settings.setEnabled(source, $0) }))
                             .labelsHidden()
                             .toggleStyle(.switch)
@@ -559,22 +561,22 @@ private struct MacLyricsPane: View {
                 }
             }
         }
-        MacSettingsGroup(title: "Display") {
-            MacSettingsRow(title: "Text size") {
-                Picker("Text size", selection: $settings.lyricsSize) {
+        MacSettingsGroup(title: String(localized: "Display")) {
+            MacSettingsRow(title: String(localized: "Text size")) {
+                Picker(String(localized: "Text size"), selection: $settings.lyricsSize) {
                     ForEach(AppSettings.LyricsSize.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .fixedSize()
             }
-            MacSettingsToggle(title: "Word motion", detail: "Each word lifts as it's sung, and long notes swell.", isOn: $settings.lyricsMotion)
-            MacSettingsToggle(title: "Backing vocals", detail: "Shown smaller, under their line.", isOn: $settings.showsBackingVocals)
-            MacSettingsToggle(title: "Duet sides", detail: "The second singer's lines sit on the right.", isOn: $settings.duetSides)
+            MacSettingsToggle(title: String(localized: "Word motion"), detail: String(localized: "Each word lifts as it's sung, and long notes swell."), isOn: $settings.lyricsMotion)
+            MacSettingsToggle(title: String(localized: "Backing vocals"), detail: String(localized: "Shown smaller, under their line."), isOn: $settings.showsBackingVocals)
+            MacSettingsToggle(title: String(localized: "Duet sides"), detail: String(localized: "The second singer's lines sit on the right."), isOn: $settings.duetSides)
         }
-        MacSettingsGroup(footer: "Lyrics found earlier are kept until Koda quits. This forgets them, so the next song asks the sources again.") {
-            MacSettingsRow(title: "Look up lyrics again") {
-                Button("Forget Found Lyrics") { Task { await app.lyrics.clearCache() } }
+        MacSettingsGroup(footer: String(localized: "Lyrics found earlier are kept until Koda quits. This forgets them, so the next song asks the sources again.")) {
+            MacSettingsRow(title: String(localized: "Look up lyrics again")) {
+                Button(String(localized: "Forget Found Lyrics")) { Task { await app.lyrics.clearCache() } }
             }
         }
     }
@@ -586,29 +588,29 @@ private struct MacAppearancePane: View {
     var body: some View {
         @Bindable var settings = app.settings
         MacSettingsGroup {
-            MacSettingsRow(title: "Appearance") {
-                Picker("Appearance", selection: $settings.theme) {
+            MacSettingsRow(title: String(localized: "Appearance")) {
+                Picker(String(localized: "Appearance"), selection: $settings.theme) {
                     ForEach(AppSettings.Theme.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .fixedSize()
             }
-            MacSettingsToggle(title: "Moving player colours",
-                              detail: "The playing song's colours drift behind Now Playing. They always hold still with Reduce Motion on.",
+            MacSettingsToggle(title: String(localized: "Moving player colours"),
+                              detail: String(localized: "The playing song's colours drift behind Now Playing. They always hold still with Reduce Motion on."),
                               isOn: $settings.animatesPlayerBackground)
-            MacSettingsRow(title: "Animated art",
-                           detail: "Album covers that move in Now Playing, found by looking up the playing song's title and artist in Apple Music's catalogue.") {
-                Picker("Animated art", selection: $settings.animatedArt) {
+            MacSettingsRow(title: String(localized: "Animated art"),
+                           detail: String(localized: "Album covers that move in Now Playing, found by looking up the playing song's title and artist in Apple Music's catalogue.")) {
+                Picker(String(localized: "Animated art"), selection: $settings.animatedArt) {
                     ForEach(AppSettings.AnimatedArt.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()
             }
         }
-        MacSettingsGroup(title: "Home") {
-            MacSettingsToggle(title: "Charts on Home",
-                              detail: "YouTube Music's global and local charts as a row on Home.",
+        MacSettingsGroup(title: String(localized: "Home")) {
+            MacSettingsToggle(title: String(localized: "Charts on Home"),
+                              detail: String(localized: "YouTube Music's global and local charts as a row on Home."),
                               isOn: $settings.showsChartsOnHome)
         }
     }
@@ -619,13 +621,13 @@ private struct MacLastFMPane: View {
     @Environment(LastFM.self) private var lastFM
 
     var body: some View {
-        MacSettingsGroup(footer: "Keep a record of what you play on your Last.fm profile. Your account, history and connection live on the Last.fm page in the sidebar.") {
-            MacSettingsRow(title: lastFM.isConnected ? "Connected as \(lastFM.user)" : "Not connected",
-                           detail: lastFM.isConnected ? LastFMUI.status(lastFM) : "Connect with your own free Last.fm API account.") {
-                Button(lastFM.isConnected ? "Open Last.fm" : "Connect…") { app.requestedMacSection = .lastFM }
+        MacSettingsGroup(footer: String(localized: "Keep a record of what you play on your Last.fm profile. Your account, history and connection live on the Last.fm page in the sidebar.")) {
+            MacSettingsRow(title: lastFM.isConnected ? String(localized: "Connected as \(lastFM.user)") : String(localized: "Not connected"),
+                           detail: lastFM.isConnected ? LastFMUI.status(lastFM) : String(localized: "Connect with your own free Last.fm API account.")) {
+                Button(lastFM.isConnected ? String(localized: "Open Last.fm") : String(localized: "Connect…")) { app.requestedMacSection = .lastFM }
             }
             if lastFM.isConnected {
-                MacSettingsToggle(title: "Scrobble", isOn: Binding(get: { lastFM.isEnabled }, set: { lastFM.setEnabled($0) }))
+                MacSettingsToggle(title: String(localized: "Scrobble"), isOn: Binding(get: { lastFM.isEnabled }, set: { lastFM.setEnabled($0) }))
             }
         }
     }
@@ -636,10 +638,10 @@ private struct MacDiscordPane: View {
 
     var body: some View {
         @Bindable var settings = app.settings
-        MacSettingsGroup(footer: "Your Discord profile shows “Listening to” the song, with its cover and a link to it on YouTube Music. It needs the Discord app open on this Mac, and the song leaves your profile a minute after you pause.") {
-            MacSettingsToggle(title: "Show what you're playing", isOn: $settings.sharesOnDiscord)
+        MacSettingsGroup(footer: String(localized: "Your Discord profile shows “Listening to” the song, with its cover and a link to it on YouTube Music. It needs the Discord app open on this Mac, and the song leaves your profile a minute after you pause.")) {
+            MacSettingsToggle(title: String(localized: "Show what you're playing"), isOn: $settings.sharesOnDiscord)
             if settings.sharesOnDiscord {
-                MacSettingsRow(title: "Status", detail: detail) {
+                MacSettingsRow(title: String(localized: "Status"), detail: detail) {
                     Text(status).foregroundStyle(.secondary)
                 }
             }
@@ -647,20 +649,20 @@ private struct MacDiscordPane: View {
     }
 
     private var status: String {
-        guard app.settings.savesListeningHistory else { return "Paused" }
+        guard app.settings.savesListeningHistory else { return String(localized: "Paused") }
         return switch app.discord?.status ?? .off {
-        case .off, .waiting: "Waiting for a song"
-        case .unavailable: "Discord isn't open"
-        case .showing: "On your profile"
-        case .refused: "Not accepted"
+        case .off, .waiting: String(localized: "Waiting for a song")
+        case .unavailable: String(localized: "Discord isn't open")
+        case .showing: String(localized: "On your profile")
+        case .refused: String(localized: "Not accepted")
         }
     }
 
     private var detail: String? {
-        guard app.settings.savesListeningHistory else { return "Nothing is shared while listening history is off." }
+        guard app.settings.savesListeningHistory else { return String(localized: "Nothing is shared while listening history is off.") }
         return switch app.discord?.status ?? .off {
-        case .unavailable: "Koda keeps looking, and shows the song once Discord opens."
-        case .refused: "Discord didn't accept this song's details."
+        case .unavailable: String(localized: "Koda keeps looking, and shows the song once Discord opens.")
+        case .refused: String(localized: "Discord didn't accept this song's details.")
         default: nil
         }
     }
@@ -678,27 +680,29 @@ private struct MacPrivacyPane: View {
 
     var body: some View {
         @Bindable var settings = app.settings
-        MacSettingsGroup(footer: "With listening history off, songs you play don't reach Recently Played, Quick picks, Your Mix, your stats, Last.fm or Discord. What's saved stays until you clear it.") {
-            MacSettingsToggle(title: "Save listening history", isOn: $settings.savesListeningHistory)
-            MacSettingsToggle(title: "Save search history", isOn: $settings.savesSearchHistory)
+        MacSettingsGroup(footer: String(localized: "With listening history off, songs you play don't reach Recently Played, Quick picks, Your Mix, your stats, Last.fm or Discord. What's saved stays until you clear it.")) {
+            MacSettingsToggle(title: String(localized: "Save listening history"), isOn: $settings.savesListeningHistory)
+            MacSettingsToggle(title: String(localized: "Save search history"), isOn: $settings.savesSearchHistory)
         }
         MacSuggestLessGroup()
-        MacSettingsGroup(title: "Clear") {
-            MacSettingsRow(title: "Listening history", detail: "Recently Played and Quick picks start over.") {
-                Button("Clear…") { confirm = .history }.disabled(library.recent.isEmpty)
+        MacSettingsGroup(title: String(localized: "Clear")) {
+            MacSettingsRow(title: String(localized: "Listening history"), detail: String(localized: "Recently Played and Quick picks start over.")) {
+                Button(String(localized: "Clear…")) { confirm = .history }.disabled(library.recent.isEmpty)
             }
-            MacSettingsRow(title: "Search history") {
-                Button("Clear…") { confirm = .searches }.disabled(library.searches.isEmpty)
+            MacSettingsRow(title: String(localized: "Search history")) {
+                Button(String(localized: "Clear…")) { confirm = .searches }.disabled(library.searches.isEmpty)
             }
-            MacSettingsRow(title: "Listening stats", detail: "Play counts, listening time and streaks.") {
-                Button("Reset…") { confirm = .stats }.disabled(library.songStats.isEmpty)
+            MacSettingsRow(title: String(localized: "Listening stats"), detail: String(localized: "Play counts, listening time and streaks.")) {
+                Button(String(localized: "Reset…")) { confirm = .stats }.disabled(library.songStats.isEmpty)
             }
         }
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
                             titleVisibility: .visible, presenting: confirm) { item in
-            Button(item == .stats ? "Reset Stats" : "Clear", role: .destructive) {
+            Button(item == .stats ? String(localized: "Reset Stats") : String(localized: "Clear"), role: .destructive) {
                 switch item {
-                case .history: library.clearHistory()
+                case .history:
+                    library.clearHistory()
+                    app.player.clearSmartShuffleHistory()
                 case .searches: library.clearSearches()
                 case .stats: library.clearStats()
                 }
@@ -708,9 +712,9 @@ private struct MacPrivacyPane: View {
 
     private var confirmTitle: String {
         switch confirm {
-        case .history: "Clear your listening history?"
-        case .searches: "Clear your search history?"
-        case .stats: "Reset your listening stats?"
+        case .history: String(localized: "Clear your listening history?")
+        case .searches: String(localized: "Clear your search history?")
+        case .stats: String(localized: "Reset your listening stats?")
         case nil: ""
         }
     }
@@ -727,16 +731,16 @@ private struct MacStoragePane: View {
     var body: some View {
         @Bindable var player = player
         @Bindable var settings = app.settings
-        MacSettingsGroup(title: "Downloads", footer: "Downloaded songs play without a connection and stay until you remove them.") {
-            MacSettingsRow(title: "Downloaded songs", detail: "\(downloads.songs.count) songs · \(downloads.bytes.formatted(.byteCount(style: .file)))") {
-                Button("Remove All…") { confirmsRemoveAll = true }.disabled(downloads.songs.isEmpty)
+        MacSettingsGroup(title: String(localized: "Downloads"), footer: String(localized: "Downloaded songs play without a connection and stay until you remove them.")) {
+            MacSettingsRow(title: String(localized: "Downloaded songs"), detail: String(localized: "\(downloads.songs.count) songs · \(downloads.bytes.formatted(.byteCount(style: .file)))")) {
+                Button(String(localized: "Remove All…")) { confirmsRemoveAll = true }.disabled(downloads.songs.isEmpty)
             }
         }
-        MacSettingsGroup(title: "Listening cache",
-                         footer: "Songs are kept as you play them, so they start at once next time and play offline. Past the limit, the ones played longest ago go first.") {
-            MacSettingsToggle(title: "Keep songs you play", isOn: $player.cachesWhileStreaming)
-            MacSettingsRow(title: "Up to") {
-                Picker("Up to", selection: $settings.cacheLimit) {
+        MacSettingsGroup(title: String(localized: "Listening cache"),
+                         footer: String(localized: "Songs are kept as you play them, so they start at once next time and play offline. Past the limit, the ones played longest ago go first.")) {
+            MacSettingsToggle(title: String(localized: "Keep songs you play"), isOn: $player.cachesWhileStreaming)
+            MacSettingsRow(title: String(localized: "Up to")) {
+                Picker(String(localized: "Up to"), selection: $settings.cacheLimit) {
                     ForEach(AppSettings.CacheLimit.allCases) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
@@ -746,17 +750,17 @@ private struct MacStoragePane: View {
                     Task { await measure() }
                 }
             }
-            MacSettingsRow(title: "Used", detail: byteText(cacheBytes)) {
-                Button("Clear") {
+            MacSettingsRow(title: String(localized: "Used"), detail: byteText(cacheBytes)) {
+                Button(String(localized: "Clear")) {
                     downloads.store.clearCache()
                     Task { await measure() }
                 }
                 .disabled((cacheBytes ?? 0) == 0)
             }
         }
-        MacSettingsGroup(title: "Artwork", footer: "Covers are kept so pages open quickly. Cleared, they download again as you browse. Never more than 300 MB.") {
-            MacSettingsRow(title: "Used", detail: byteText(artworkBytes)) {
-                Button("Clear") {
+        MacSettingsGroup(title: String(localized: "Artwork"), footer: String(localized: "Covers are kept so pages open quickly. Cleared, they download again as you browse. Never more than 300 MB.")) {
+            MacSettingsRow(title: String(localized: "Used"), detail: byteText(artworkBytes)) {
+                Button(String(localized: "Clear")) {
                     Task {
                         await ImagePipeline.shared.clear()
                         await measure()
@@ -765,10 +769,10 @@ private struct MacStoragePane: View {
                 .disabled((artworkBytes ?? 0) == 0)
             }
         }
-        .confirmationDialog("Remove all downloads?", isPresented: $confirmsRemoveAll, titleVisibility: .visible) {
-            Button("Remove All Downloads", role: .destructive) { downloads.removeAll() }
+        .confirmationDialog(String(localized: "Remove all downloads?"), isPresented: $confirmsRemoveAll, titleVisibility: .visible) {
+            Button(String(localized: "Remove All Downloads"), role: .destructive) { downloads.removeAll() }
         } message: {
-            Text("They'll play from YouTube again, which needs a connection.")
+            Text(String(localized: "They'll play from YouTube again, which needs a connection."))
         }
         .task { await measure() }
     }
@@ -791,67 +795,67 @@ private struct MacBackupPane: View {
     @State private var outcome: String?
 
     var body: some View {
-        MacSettingsGroup(footer: "A backup holds liked songs, your playlists, saved albums, playlists and artists, history, stats and lyric timings. Last.fm sign-in isn't included.") {
-            MacSettingsRow(title: "Back up library", detail: "Save everything to one file.") {
-                Button("Back Up…") {
+        MacSettingsGroup(footer: String(localized: "A backup holds liked songs, your playlists, saved albums, playlists and artists, history, stats and lyric timings. Last.fm sign-in isn't included.")) {
+            MacSettingsRow(title: String(localized: "Back up library"), detail: String(localized: "Save everything to one file.")) {
+                Button(String(localized: "Back Up…")) {
                     if let data = library.backupData() { exportDocument = LibraryBackupDocument(data: data) }
                 }
             }
-            MacSettingsRow(title: "Restore from backup", detail: "Replaces everything in your library with what the backup holds.") {
-                Button("Restore…") { importing = true }
+            MacSettingsRow(title: String(localized: "Restore from backup"), detail: String(localized: "Replaces everything in your library with what the backup holds.")) {
+                Button(String(localized: "Restore…")) { importing = true }
             }
         }
         MacSettingsGroup(title: "Koda for Android", footer: AndroidImportSummary.explanation) {
-            MacSettingsRow(title: "Import from Koda for Android", detail: "Choose the backup file you made in Koda on your phone.") {
-                Button("Import…") { importingAndroid = true }
+            MacSettingsRow(title: String(localized: "Import from Koda for Android"), detail: String(localized: "Choose the backup file you made in Koda on your phone.")) {
+                Button(String(localized: "Import…")) { importingAndroid = true }
                     // Its own importer, on its own button: two on one view and only one opens.
                     .androidBackupImporter(isPresented: $importingAndroid, outcome: $outcome)
             }
         }
         .fileExporter(isPresented: Binding(get: { exportDocument != nil }, set: { if !$0 { exportDocument = nil } }),
                       document: exportDocument, contentType: .json,
-                      defaultFilename: "Koda Library \(Date().formatted(.iso8601.year().month().day()))") { result in
-            if case .success = result { outcome = "Your library is backed up." }
+                      defaultFilename: String(localized: "Koda Library \(Date().formatted(.iso8601.year().month().day()))")) { result in
+            if case .success = result { outcome = String(localized: "Your library is backed up.") }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            if let data = try? Data(contentsOf: url) { pendingRestore = data } else { outcome = "Koda couldn't read that file." }
+            if let data = try? Data(contentsOf: url) { pendingRestore = data } else { outcome = String(localized: "Koda couldn't read that file.") }
         }
-        .confirmationDialog("Replace your library with this backup?",
+        .confirmationDialog(String(localized: "Replace your library with this backup?"),
                             isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
                             titleVisibility: .visible) {
-            Button("Replace Library", role: .destructive) {
+            Button(String(localized: "Replace Library"), role: .destructive) {
                 guard let data = pendingRestore else { return }
                 do {
                     try library.restore(from: data)
-                    outcome = "Your library is restored."
+                    outcome = String(localized: "Your library is restored.")
                 } catch {
                     outcome = error.localizedDescription
                 }
             }
         } message: {
-            Text("What's in your library now is replaced.")
+            Text(String(localized: "What's in your library now is replaced."))
         }
         .alert(outcome ?? "", isPresented: Binding(get: { outcome != nil }, set: { if !$0 { outcome = nil } })) {
-            Button("OK", role: .cancel) {}
+            Button(String(localized: "OK"), role: .cancel) {}
         }
     }
 }
 
 private struct MacAboutPane: View {
     var body: some View {
-        MacSettingsGroup(footer: "Koda is an unofficial client and isn't affiliated with YouTube or Google. Lyrics come from YouLyPlus, BetterLyrics and LRCLIB. App icon by sameerasw (github.com/sameerasw).") {
-            MacSettingsRow(title: "Version") {
+        MacSettingsGroup(footer: String(localized: "Koda is an unofficial client and isn't affiliated with YouTube or Google. Lyrics come from YouLyPlus, BetterLyrics and LRCLIB. App icon by sameerasw (github.com/sameerasw).")) {
+            MacSettingsRow(title: String(localized: "Version")) {
                 Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")
                     .foregroundStyle(.secondary)
             }
-            MacSettingsRow(title: "Koda on GitHub") {
-                Link("Open", destination: URL(string: "https://github.com/Ivorisnoob/Koda-iOS")!)
+            MacSettingsRow(title: String(localized: "Koda on GitHub")) {
+                Link(String(localized: "Open"), destination: URL(string: "https://github.com/Ivorisnoob/Koda-iOS")!)
             }
             MacSettingsRow(title: "Koda for Android") {
-                Link("Open", destination: URL(string: "https://github.com/Ivorisnoob/Koda")!)
+                Link(String(localized: "Open"), destination: URL(string: "https://github.com/Ivorisnoob/Koda")!)
             }
         }
     }

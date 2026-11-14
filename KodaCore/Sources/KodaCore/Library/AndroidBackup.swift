@@ -27,8 +27,8 @@ public struct AndroidBackup: Sendable {
 
         public var errorDescription: String? {
             switch self {
-            case .notABackup: "This file isn't a Koda for Android backup."
-            case .newerVersion: "This backup was made by a newer Koda for Android than Koda here can read."
+            case .notABackup: NSLocalizedString("This file isn't a Koda for Android backup.", bundle: KodaLocalization.bundle, comment: "")
+            case .newerVersion: NSLocalizedString("This backup was made by a newer Koda for Android than Koda here can read.", bundle: KodaLocalization.bundle, comment: "")
             }
         }
     }

@@ -66,7 +66,7 @@ struct MacPlayerBar: View {
                     .modifier(ZoomSource(namespace: zoom))
                     .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(player.current?.title ?? "Not Playing")
+                    Text(player.current?.title ?? String(localized: "Not Playing"))
                         .font(.callout.weight(.semibold))
                     Text(player.current?.artistLine ?? "")
                         .font(.subheadline)
@@ -91,23 +91,23 @@ struct MacPlayerBar: View {
     private var transport: some View {
         HStack(spacing: isNarrow ? 8 : 18) {
             if !isCompact {
-                iconButton("shuffle", help: "Shuffle", isOn: player.isShuffled) { player.setShuffle(!player.isShuffled) }
+                iconButton("shuffle", help: String(localized: "Shuffle"), isOn: player.isShuffled) { player.setShuffle(!player.isShuffled) }
             }
-            iconButton("backward.fill", help: "Previous") { player.previous() }
+            iconButton("backward.fill", help: String(localized: "Previous")) { player.previous() }
             if app.settings.showsSkipButtons {
                 let interval = app.settings.skipInterval
-                iconButton(interval.backSymbol, help: "Back \(interval.rawValue) Seconds (⌥⌘←)") { player.skip(by: -interval.seconds) }
+                iconButton(interval.backSymbol, help: String(localized: "Back \(interval.rawValue) Seconds (⌥⌘←)")) { player.skip(by: -interval.seconds) }
                     .disabled(player.phase != .ready)
             }
             PlayPauseButton(size: 18)
             if app.settings.showsSkipButtons {
                 let interval = app.settings.skipInterval
-                iconButton(interval.forwardSymbol, help: "Ahead \(interval.rawValue) Seconds (⌥⌘→)") { player.skip(by: interval.seconds) }
+                iconButton(interval.forwardSymbol, help: String(localized: "Ahead \(interval.rawValue) Seconds (⌥⌘→)")) { player.skip(by: interval.seconds) }
                     .disabled(player.phase != .ready)
             }
-            iconButton("forward.fill", help: "Next") { player.next() }
+            iconButton("forward.fill", help: String(localized: "Next")) { player.next() }
             if !isCompact {
-                iconButton(player.repeatMode == .one ? "repeat.1" : "repeat", help: "Repeat", isOn: player.repeatMode != .off) {
+                iconButton(player.repeatMode == .one ? "repeat.1" : "repeat", help: String(localized: "Repeat"), isOn: player.repeatMode != .off) {
                     player.cycleRepeat()
                 }
             }
@@ -117,9 +117,9 @@ struct MacPlayerBar: View {
 
     private var trailing: some View {
         HStack(spacing: 6) {
-            iconButton("quote.bubble", help: "Lyrics", isOn: app.sidePanel == .lyrics) { app.toggleLyricsOrQueue(.lyrics) }
+            iconButton("quote.bubble", help: String(localized: "Lyrics"), isOn: app.sidePanel == .lyrics) { app.toggleLyricsOrQueue(.lyrics) }
                 .disabled(player.current == nil)
-            iconButton("list.bullet", help: "Up Next", isOn: app.sidePanel == .queue) { app.toggleLyricsOrQueue(.queue) }
+            iconButton("list.bullet", help: String(localized: "Up Next"), isOn: app.sidePanel == .queue) { app.toggleLyricsOrQueue(.queue) }
                 .disabled(player.current == nil)
             BarVolume(showsSlider: !isNarrow)
                 .frame(width: isNarrow ? 28 : 120)
@@ -234,7 +234,7 @@ private struct BarVolume: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(BarButtonStyle())
-            .help(showsSlider ? (player.volume > 0 ? "Mute" : "Unmute") : "Volume")
+            .help(showsSlider ? (player.volume > 0 ? String(localized: "Mute") : String(localized: "Unmute")) : String(localized: "Volume"))
             .popover(isPresented: $showsPopover, arrowEdge: .bottom) {
                 slider
                     .frame(width: 160)
@@ -293,7 +293,7 @@ struct KodaCommands: Commands {
         CommandMenu("Controls") {
             let player = model.player
             let hasSong = player.current != nil
-            Button(player.wantsToPlay ? "Pause" : "Play") { player.togglePlayPause(from: "the menu bar") }
+            Button(player.wantsToPlay ? String(localized: "Pause") : String(localized: "Play")) { player.togglePlayPause(from: "the menu bar") }
                 .keyboardShortcut(.space, modifiers: [])
                 .disabled(!hasSong)
             Button("Next") { player.next() }
@@ -330,7 +330,7 @@ struct KodaCommands: Commands {
             }
             .disabled(!hasSong)
             Divider()
-            Button(model.isNowPlayingPresented ? "Hide Now Playing" : "Show Now Playing") {
+            Button(model.isNowPlayingPresented ? String(localized: "Hide Now Playing") : String(localized: "Show Now Playing")) {
                 model.isNowPlayingPresented.toggle()
             }
             .keyboardShortcut("p", modifiers: [.command, .shift])

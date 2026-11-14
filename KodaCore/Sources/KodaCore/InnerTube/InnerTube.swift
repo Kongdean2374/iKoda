@@ -357,6 +357,12 @@ public final class YouTubeMusic: Sendable {
         try await streams.resolve(videoId, quality: quality)
     }
 
+    /// Discard an expired/transiently failed stream without replacing identity or
+    /// retrying a service authorization verdict.
+    public func invalidateStream(_ videoId: String) async {
+        await streams.invalidate(videoId, refusedIdentity: false)
+    }
+
     /// Forget a stream googlevideo refused mid-play, so the next resolve starts fresh.
     public func streamFailed(_ videoId: String) async {
         await streams.invalidate(videoId, refusedIdentity: true)

@@ -181,10 +181,10 @@ struct ProfileToolbarButton: View {
 extension KodaProfile {
     /// What the profile is, in a line under its name.
     var subtitle: String {
-        if isExpired { return "Sign in again" }
+        if isExpired { return String(localized: "Sign in again") }
         switch kind {
         case .youtube: return handle ?? "YouTube Music"
-        case .device: return Platform.isMac ? "On this Mac" : "On this iPhone"
+        case .device: return Platform.isMac ? String(localized: "On this Mac") : String(localized: "On this iPhone")
         }
     }
 

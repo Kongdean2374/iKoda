@@ -2,7 +2,7 @@ import Foundation
 
 /// The equalizer's presets, as Music's Settings → EQ lists them: each a curve over ten bands
 /// an octave apart, from 32 Hz to 16 kHz.
-public enum EqualizerPreset: String, CaseIterable, Identifiable, Sendable {
+public enum EqualizerPreset: String, CaseIterable, Identifiable, Codable, Sendable {
     case off, acoustic, bassBooster, bassReducer, classical, dance, deep, electronic, hipHop, jazz, latin,
          loudness, lounge, piano, pop, rnb, rock, smallSpeakers, spokenWord, trebleBooster, trebleReducer, vocalBooster
 
@@ -10,28 +10,28 @@ public enum EqualizerPreset: String, CaseIterable, Identifiable, Sendable {
 
     public var title: String {
         switch self {
-        case .off: "Off"
-        case .acoustic: "Acoustic"
-        case .bassBooster: "Bass Booster"
-        case .bassReducer: "Bass Reducer"
-        case .classical: "Classical"
-        case .dance: "Dance"
-        case .deep: "Deep"
-        case .electronic: "Electronic"
-        case .hipHop: "Hip-Hop"
-        case .jazz: "Jazz"
-        case .latin: "Latin"
-        case .loudness: "Loudness"
-        case .lounge: "Lounge"
-        case .piano: "Piano"
-        case .pop: "Pop"
-        case .rnb: "R&B"
-        case .rock: "Rock"
-        case .smallSpeakers: "Small Speakers"
-        case .spokenWord: "Spoken Word"
-        case .trebleBooster: "Treble Booster"
-        case .trebleReducer: "Treble Reducer"
-        case .vocalBooster: "Vocal Booster"
+        case .off: NSLocalizedString("Off", bundle: KodaLocalization.bundle, comment: "")
+        case .acoustic: NSLocalizedString("Acoustic", bundle: KodaLocalization.bundle, comment: "")
+        case .bassBooster: NSLocalizedString("Bass Booster", bundle: KodaLocalization.bundle, comment: "")
+        case .bassReducer: NSLocalizedString("Bass Reducer", bundle: KodaLocalization.bundle, comment: "")
+        case .classical: NSLocalizedString("Classical", bundle: KodaLocalization.bundle, comment: "")
+        case .dance: NSLocalizedString("Dance", bundle: KodaLocalization.bundle, comment: "")
+        case .deep: NSLocalizedString("Deep", bundle: KodaLocalization.bundle, comment: "")
+        case .electronic: NSLocalizedString("Electronic", bundle: KodaLocalization.bundle, comment: "")
+        case .hipHop: NSLocalizedString("Hip-Hop", bundle: KodaLocalization.bundle, comment: "")
+        case .jazz: NSLocalizedString("Jazz", bundle: KodaLocalization.bundle, comment: "")
+        case .latin: NSLocalizedString("Latin", bundle: KodaLocalization.bundle, comment: "")
+        case .loudness: NSLocalizedString("Loudness", bundle: KodaLocalization.bundle, comment: "")
+        case .lounge: NSLocalizedString("Lounge", bundle: KodaLocalization.bundle, comment: "")
+        case .piano: NSLocalizedString("Piano", bundle: KodaLocalization.bundle, comment: "")
+        case .pop: NSLocalizedString("Pop", bundle: KodaLocalization.bundle, comment: "")
+        case .rnb: NSLocalizedString("R&B", bundle: KodaLocalization.bundle, comment: "")
+        case .rock: NSLocalizedString("Rock", bundle: KodaLocalization.bundle, comment: "")
+        case .smallSpeakers: NSLocalizedString("Small Speakers", bundle: KodaLocalization.bundle, comment: "")
+        case .spokenWord: NSLocalizedString("Spoken Word", bundle: KodaLocalization.bundle, comment: "")
+        case .trebleBooster: NSLocalizedString("Treble Booster", bundle: KodaLocalization.bundle, comment: "")
+        case .trebleReducer: NSLocalizedString("Treble Reducer", bundle: KodaLocalization.bundle, comment: "")
+        case .vocalBooster: NSLocalizedString("Vocal Booster", bundle: KodaLocalization.bundle, comment: "")
         }
     }
 
@@ -69,7 +69,7 @@ public enum EqualizerPreset: String, CaseIterable, Identifiable, Sendable {
 nonisolated enum Equalizer {
     static let frequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 
-    struct Design {
+    struct Design: Sendable {
         var sections: [Biquad.Coefficients]
         /// Linear gain applied after the sections.
         var preamp: Float
@@ -91,6 +91,27 @@ nonisolated enum Equalizer {
         guard !sections.isEmpty else { return nil }
         let peak = peakResponse(sections, sampleRate: sampleRate)
         return Design(sections: sections, preamp: pow(10, -max(0, peak) / 20))
+    }
+
+    /// A fixed bank gives interactive curves stable filter histories, including flat bands.
+    static func soundDesign(_ settings: SoundSettings, preset: EqualizerPreset, sampleRate: Double) -> Design {
+        let value = settings.normalized
+        let rate = sampleRate.isFinite && (8_000...384_000).contains(sampleRate) ? sampleRate : 48_000
+        let gains = value.effectiveGains(preset: preset)
+        let requested = value.enabled ? value.preampDB : 0
+        guard gains.contains(where: { abs($0) >= 0.01 }) else {
+            return Design(sections: [], preamp: pow(10, min(0, requested) / 20))
+        }
+        let sections: [Biquad.Coefficients] = gains.enumerated().map { index, gain in
+            guard abs(gain) >= 0.01 else { return Biquad.Coefficients() }
+            if index == 0 { return .lowShelf(frequencies[index], gain: gain, sampleRate: rate) }
+            if index == frequencies.count - 1 { return .highShelf(frequencies[index], gain: gain, sampleRate: rate) }
+            return .peak(frequencies[index], gain: gain, sampleRate: rate)
+        }
+        let peak = peakResponse(sections, sampleRate: rate)
+        // A positive user preamp consumes existing headroom, rather than silently clipping.
+        let safeDB = min(requested, -peak)
+        return Design(sections: sections, preamp: pow(10, safeDB / 20))
     }
 
     /// The curve's highest point in decibels, over the audible range.

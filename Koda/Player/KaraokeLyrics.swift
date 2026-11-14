@@ -28,6 +28,19 @@ struct SyncedLyrics: View {
     /// Set while translation is wanted and possible: the system translates on the device,
     /// asking first to download the languages if they aren't yet.
     @State private var translating: TranslationSession.Configuration?
+    @State private var importedTranslations: [Int: String] = [:]
+    @State private var importsLoaded = false
+    @State private var showingTranslationSettings = false
+    @State private var nativeTranslationUnavailable = false
+
+    private var usesImportedTranslation: Bool {
+        app.settings.importedLyricsEnabled && app.settings.lyricsDisplayMode != .original
+    }
+    private struct ImportRequest: Equatable {
+        var songID: String?
+        var lines: [LyricLine]
+        var revision: Int
+    }
 
     private struct ShareStart: Identifiable {
         let line: Int
@@ -47,7 +60,8 @@ struct SyncedLyrics: View {
 
     /// The line under a line, as chosen and available.
     private func extra(for line: LyricLine) -> String? {
-        switch app.settings.lyricsExtra {
+        if usesImportedTranslation { return importedTranslations[line.id] }
+        return switch app.settings.lyricsExtra {
         case .off: nil
         case .translation: canTranslate ? translations[line.id] : nil
         case .pronunciation: pronunciations[line.id]
@@ -78,6 +92,15 @@ struct SyncedLyrics: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 26) {
+                        if usesImportedTranslation, importsLoaded, importedTranslations.count < lines.filter({ !$0.text.isEmpty }).count {
+                            Text(importedTranslations.isEmpty
+                                 ? String(localized: "No matching Chinese translation. Original lyrics are shown. Import a translation in Chinese Lyrics settings.")
+                                 : String(localized: "Some lines have no translation and show the original lyrics."))
+                                .font(.footnote).foregroundStyle(.secondary)
+                        } else if nativeTranslationUnavailable, app.settings.lyricsExtra == .translation, !usesImportedTranslation {
+                            Text("On-device translation is unavailable for these languages. Original lyrics are shown.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                         if let interlude, interlude.after == nil {
                             InterludeDots(interlude: interlude).id("interlude")
                         }
@@ -85,7 +108,9 @@ struct SyncedLyrics: View {
                             let isCurrent = line.id == current && interlude == nil
                             LyricRow(line: line, isCurrent: isCurrent, distance: current.map { abs(line.id - $0) } ?? line.id + 1,
                                      hasDuet: hasDuet, offset: offset, style: LyricsStyle(app.settings), player: player,
-                                     extra: extra(for: line))
+                                     extra: extra(for: line), importedTranslation: usesImportedTranslation,
+                                     translationOnly: !LyricTranslationPresentation(mode: app.settings.lyricsDisplayMode,
+                                         enabled: app.settings.importedLyricsEnabled, translation: importedTranslations[line.id]).showsOriginal)
                                 .id(line.id)
                                 .contentShape(.rect)
                                 .onTapGesture {
@@ -160,12 +185,29 @@ struct SyncedLyrics: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if extraChoices.count > 1 { extraMenu }
+            extraMenu
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: userScrolled)
         .animation(.smooth, value: app.settings.lyricsExtra)
         .task(id: lines) { await readLanguage() }
         .onChange(of: app.settings.lyricsExtra) { updateTranslation() }
+        .onChange(of: usesImportedTranslation) { updateTranslation() }
+        .task(id: ImportRequest(songID: player.current?.id, lines: lines, revision: app.settings.lyricsTranslationRevision)) {
+            importedTranslations = [:]
+            importsLoaded = false
+            guard let songID = player.current?.id else { return }
+            let found = await LyricTranslationStore.shared.translations(for: songID, originals: lines)
+            guard !Task.isCancelled, player.current?.id == songID else { return }
+            importedTranslations = found
+            importsLoaded = true
+        }
+        .sheet(isPresented: $showingTranslationSettings) {
+            NavigationStack {
+                LyricsTranslationSettingsView()
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingTranslationSettings = false } } }
+            }
+            .appEnvironment(app)
+        }
         .translationTask(translating, action: Self.translator(lines, into: $translations))
         .sheet(item: $shareFrom) { start in
             LyricsShareSheet(lines: lines, song: start.song, startingAt: start.line)
@@ -180,11 +222,20 @@ extension SyncedLyrics {
     /// another language or script; shown only when one of them is possible.
     private var extraMenu: some View {
         Menu {
+            Picker("Chinese Lyrics", selection: Binding(get: { app.settings.lyricsDisplayMode }, set: {
+                app.settings.lyricsDisplayMode = $0
+                app.settings.importedLyricsEnabled = $0 != .original
+            })) {
+                ForEach(LyricsDisplayMode.allCases) { Text($0.title).tag($0) }
+            }
+            Button("Chinese Lyrics Settings…", systemImage: "slider.horizontal.3") { showingTranslationSettings = true }
+            Divider()
             Picker("Under Each Line", selection: Binding(get: { app.settings.lyricsExtra }, set: { app.settings.lyricsExtra = $0 })) {
                 ForEach(extraChoices) { choice in
                     Label(choice.title, systemImage: choice.systemImage).tag(choice)
                 }
             }
+            .disabled(usesImportedTranslation)
         } label: {
             Image(systemName: "translate")
                 .font(.footnote.weight(.semibold))
@@ -202,6 +253,7 @@ extension SyncedLyrics {
     private func readLanguage() async {
         translations = [:]
         translating = nil
+        nativeTranslationUnavailable = false
         let ids = lines.map(\.id)
         let texts = lines.map(\.text)
         let (found, said) = await Task.detached(priority: .userInitiated) { () -> (String?, [Int: String]) in
@@ -225,7 +277,7 @@ extension SyncedLyrics {
         { @concurrent session in
             let requests = lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
                 .map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: String($0.id)) }
-            guard let responses = try? await session.translations(from: requests) else { return }
+            guard let responses = try? await session.translations(from: requests), !Task.isCancelled else { return }
             var found: [Int: String] = [:]
             for response in responses {
                 if let id = response.clientIdentifier.flatMap(Int.init) { found[id] = response.targetText }
@@ -236,12 +288,29 @@ extension SyncedLyrics {
     }
 
     private func updateTranslation() {
-        guard app.settings.lyricsExtra == .translation, canTranslate, let language else {
+        guard !usesImportedTranslation, app.settings.lyricsExtra == .translation, canTranslate, let language else {
             translating = nil
             return
         }
         if translating == nil, translations.isEmpty {
-            translating = TranslationSession.Configuration(source: Locale.Language(identifier: language), target: nil)
+            let source = Locale.Language(identifier: language)
+            let target = Locale.current.language
+            Task {
+                let status = await LanguageAvailability().status(from: source, to: target)
+                guard !Task.isCancelled, !usesImportedTranslation, app.settings.lyricsExtra == .translation,
+                      self.language == language else { return }
+                switch status {
+                case .installed, .supported:
+                    nativeTranslationUnavailable = false
+                    translating = TranslationSession.Configuration(source: source, target: target)
+                case .unsupported:
+                    nativeTranslationUnavailable = true
+                    translating = nil
+                @unknown default:
+                    nativeTranslationUnavailable = true
+                    translating = nil
+                }
+            }
         }
     }
 }
@@ -312,6 +381,8 @@ struct LyricRow: View {
     let player: Player
     /// A translation or pronunciation shown under the line.
     var extra: String? = nil
+    var importedTranslation = false
+    var translationOnly = false
     @Environment(\.colorScheme) private var colorScheme
 
     nonisolated static let defaultFontSize: CGFloat = 30
@@ -335,8 +406,22 @@ struct LyricRow: View {
     }
 
     var body: some View {
-        VStack(alignment: alignment, spacing: 6) {
-            if line.isWordTimed {
+        VStack(alignment: alignment, spacing: importedTranslation ? style.translationSpacing : 6) {
+            if translationOnly, let extra {
+                translatedText(extra)
+                // Backing vocals keep their original independent timing, even when the lead is translated.
+                if style.showsBackingVocals, !line.background.isEmpty {
+                    if isCurrent {
+                        KaraokeLine(line: line, offset: offset, alignment: alignment, style: style, player: player, showsLead: false)
+                    } else {
+                        WordFlow(alignment: alignment, spacing: style.backgroundSpacing) {
+                            ForEach(Array(line.background.enumerated()), id: \.offset) { _, word in
+                                Text(word.text).font(style.backgroundFont).layoutValue(key: SpaceAfter.self, value: word.spaceAfter)
+                            }
+                        }.opacity(0.7)
+                    }
+                }
+            } else if line.isWordTimed {
                 // The resting words and the sung line swap at once, never crossfading: the resting
                 // copy is fully inked (the row's own fade dims it), so a crossfade under the row's
                 // spring lit the whole line for a moment before it filled from its first word.
@@ -368,13 +453,7 @@ struct LyricRow: View {
                     // Line-timed lyrics light as a whole line; no word fill is invented for them.
                     .shadow(color: .white.opacity(isCurrent && colorScheme == .dark ? 0.35 : 0), radius: isCurrent ? 14 : 0)
             }
-            if let extra {
-                Text(extra)
-                    .font(style.extraFont)
-                    .foregroundStyle(Color.primary.opacity(0.7))
-                    .multilineTextAlignment(voice == .duet ? .trailing : voice == .together ? .center : .leading)
-                    .transition(.opacity)
-            }
+            if let extra, !translationOnly { translatedText(extra) }
         }
         .foregroundStyle(Color.primary)
         .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -389,8 +468,16 @@ struct LyricRow: View {
         .scaleEffect(isCurrent ? 1 : 0.97, anchor: UnitPoint(x: voice == .duet ? 1 : voice == .together ? 0.5 : 0, y: 0.5))
         .animation(.spring(response: 0.5, dampingFraction: 0.85), value: isCurrent)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(extra.map { "\(line.text), \($0)" } ?? line.text)
+        .accessibilityLabel(translationOnly ? (extra ?? line.text) : (extra.map { "\(line.text), \($0)" } ?? line.text))
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
+    }
+
+    private func translatedText(_ text: String) -> some View {
+        Text(text)
+            .font(importedTranslation ? style.translationFont : style.extraFont)
+            .foregroundStyle(Color.primary.opacity(importedTranslation ? style.translationOpacity : 0.7))
+            .multilineTextAlignment(voice == .duet ? .trailing : voice == .together ? .center : .leading)
+            .transition(.opacity)
     }
 }
 
@@ -401,6 +488,7 @@ private struct KaraokeLine: View {
     let alignment: HorizontalAlignment
     let style: LyricsStyle
     let player: Player
+    var showsLead = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var motion: Bool { style.motion && !reduceMotion }
@@ -409,10 +497,12 @@ private struct KaraokeLine: View {
         TimelineView(.animation(paused: !player.wantsToPlay)) { context in
             let time = player.position(at: context.date) + SyncedLyrics.lead - offset
             VStack(alignment: alignment, spacing: 6) {
-                WordFlow(alignment: alignment, spacing: style.spacing) {
-                    ForEach(Array(line.words.enumerated()), id: \.offset) { _, word in
-                        KaraokeWord(word: word, time: time, font: style.font, lift: motion ? 2.5 : 0, swells: motion)
-                            .layoutValue(key: SpaceAfter.self, value: word.spaceAfter)
+                if showsLead {
+                    WordFlow(alignment: alignment, spacing: style.spacing) {
+                        ForEach(Array(line.words.enumerated()), id: \.offset) { _, word in
+                            KaraokeWord(word: word, time: time, font: style.font, lift: motion ? 2.5 : 0, swells: motion)
+                                .layoutValue(key: SpaceAfter.self, value: word.spaceAfter)
+                        }
                     }
                 }
                 if style.showsBackingVocals, !line.background.isEmpty {
@@ -590,6 +680,9 @@ struct LyricsStyle {
     var motion: Bool
     var showsBackingVocals: Bool
     var duetSides: Bool
+    var translationFontSize: CGFloat
+    var translationOpacity: Double
+    var translationSpacing: CGFloat
 
     @MainActor
     init(_ settings: AppSettings) {
@@ -597,8 +690,12 @@ struct LyricsStyle {
         motion = settings.lyricsMotion
         showsBackingVocals = settings.showsBackingVocals
         duetSides = settings.duetSides
+        translationFontSize = CGFloat(min(32, max(12, settings.translationFontSize)))
+        translationOpacity = min(1, max(0.3, settings.translationOpacity))
+        translationSpacing = CGFloat(min(20, max(2, settings.translationSpacing)))
     }
 
+    var translationFont: Font { .system(size: translationFontSize, weight: .semibold) }
     var font: Font { .system(size: fontSize, weight: .bold) }
     var backgroundFont: Font { .system(size: fontSize * 0.7, weight: .semibold) }
     /// A translation or pronunciation under a line.

@@ -20,7 +20,7 @@ final class HomeModel {
         static let placeholder: Content = {
             var content = Content()
             content.quickPicks = Song.placeholders(8)
-            content.charts = (0..<6).map { PlaylistSummary(id: "placeholder-\($0)", title: "Top 100 Chart") }
+            content.charts = (0..<6).map { PlaylistSummary(id: "placeholder-\($0)", title: String(localized: "Top 100 Chart")) }
             return content
         }()
     }
@@ -39,7 +39,7 @@ final class HomeModel {
         /// Built from listening; otherwise trending songs for someone new.
         var isPersonal: Bool
 
-        static let placeholder = Mix(artists: ["Artist name", "Artist"], songs: Song.placeholders(3), isPersonal: true)
+        static let placeholder = Mix(artists: [String(localized: "Artist name"), String(localized: "Artist")], songs: Song.placeholders(3), isPersonal: true)
     }
 
     private(set) var state: LoadState<Content> = .loading
@@ -224,11 +224,11 @@ final class HomeModel {
     }
 
     static func latestShelf(_ releases: [AlbumSummary]) -> Shelf {
-        Shelf(title: "New from your artists", strapline: "Out this year and last", items: releases.map(MusicItem.album))
+        Shelf(title: String(localized: "New from your artists"), strapline: String(localized: "Out this year and last"), items: releases.map(MusicItem.album))
     }
 
     static func similarShelf(_ likes: SimilarArtists) -> Shelf {
-        Shelf(title: "More like \(likes.artist)", strapline: "Fans also like", items: likes.artists.map(MusicItem.artist))
+        Shelf(title: String(localized: "More like \(likes.artist)"), strapline: String(localized: "Fans also like"), items: likes.artists.map(MusicItem.artist))
     }
 
     /// Artist pages asked for on every load, for New from your artists and the artists like them.
@@ -288,11 +288,11 @@ struct HomeView: View {
                     .loadingPlaceholder()
                 case .failed(let message):
                     ContentUnavailableView {
-                        Label("Couldn't Load", systemImage: "wifi.exclamationmark")
+                        Label(String(localized: "Couldn't Load"), systemImage: "wifi.exclamationmark")
                     } description: {
                         Text(message)
                     } actions: {
-                        Button("Try Again") { Task { await load() } }
+                        Button(String(localized: "Try Again")) { Task { await load() } }
                             .buttonStyle(.glass)
                     }
                     .frame(minHeight: 400)
@@ -340,12 +340,12 @@ struct HomeView: View {
         JumpBackIn()
 
         if !content.quickPicks.isEmpty {
-            SongColumnsShelf(title: content.quickPicksTitle, strapline: content.quickPicks == content.trending ? "Trending now" : "Start with these", songs: content.quickPicks) { index in
+            SongColumnsShelf(title: content.quickPicksTitle == "Quick picks" ? String(localized: "Quick picks") : content.quickPicksTitle, strapline: content.quickPicks == content.trending ? String(localized: "Trending now") : String(localized: "Start with these"), songs: content.quickPicks) { index in
                 player.play(content.quickPicks, startAt: index)
             }
         }
         if !library.recent.isEmpty {
-            ShelfView(title: "Recently played", seeAll: .songs(title: "Recently Played", source: .recent)) {
+            ShelfView(title: String(localized: "Recently played"), seeAll: .songs(title: String(localized: "Recently Played"), source: .recent)) {
                 ForEach(Array(library.recent.prefix(12).enumerated()), id: \.element.id) { index, song in
                     Button { player.play(Array(library.recent.prefix(50)), startAt: index) } label: {
                         CoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine, width: 140)
@@ -364,7 +364,7 @@ struct HomeView: View {
         }
         let yours = model.yourArtists
         if yours.count >= 3 {
-            ShelfView(title: "Your top artists", strapline: "Based on your listening") {
+            ShelfView(title: String(localized: "Your top artists"), strapline: String(localized: "Based on your listening")) {
                 ForEach(yours, id: \.name) { ref in
                     if let id = ref.id {
                         let artist = ArtistSummary(id: id, name: ref.name, artwork: model.artistPhotos[id])
@@ -378,7 +378,7 @@ struct HomeView: View {
             ItemShelf(shelf: HomeModel.similarShelf(likes)) { player.startRadio(from: $0) }
         }
         if model.forgotten.count >= 4 {
-            ShelfView(title: "Forgotten favourites", strapline: "Played often, not lately") {
+            ShelfView(title: String(localized: "Forgotten favourites"), strapline: String(localized: "Played often, not lately")) {
                 ForEach(Array(model.forgotten.enumerated()), id: \.element.id) { index, song in
                     Button { player.play(model.forgotten, startAt: index) } label: {
                         CoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine, width: 140)
@@ -389,7 +389,7 @@ struct HomeView: View {
             }
         }
         if app.settings.showsChartsOnHome, !content.charts.isEmpty {
-            ShelfView(title: "Charts", strapline: "Global and near you") {
+            ShelfView(title: String(localized: "Charts"), strapline: String(localized: "Global and near you")) {
                 ForEach(content.charts) { chart in
                     NavigationLink(value: Route.playlist(chart)) {
                         CoverCard(artwork: chart.artwork, title: chart.title, subtitle: chart.subtitle)
@@ -410,10 +410,10 @@ struct HomeView: View {
 
     private var greeting: String {
         switch Calendar.current.component(.hour, from: Date()) {
-        case 5..<12: "Good morning"
-        case 12..<17: "Good afternoon"
-        case 17..<22: "Good evening"
-        default: "Up late"
+        case 5..<12: String(localized: "Good morning")
+        case 12..<17: String(localized: "Good afternoon")
+        case 17..<22: String(localized: "Good evening")
+        default: String(localized: "Up late")
         }
     }
 }
@@ -441,7 +441,7 @@ struct MixHero: View {
         return mix.songs.compactMap(\.artwork).filter { seen.insert($0.url(pixels: 120)).inserted }.prefix(3).map { $0 }
     }
 
-    private var title: String { mix.isPersonal ? "Your Mix" : "Start Here" }
+    private var title: String { mix.isPersonal ? String(localized: "Your Mix") : String(localized: "Start Here") }
 
     /// A 3×3 mesh from the three covers: the first cover's colours to the top left, the
     /// second's along the top right and right edge, the third's along the bottom and in
@@ -456,11 +456,11 @@ struct MixHero: View {
         ]
     }
     private var caption: String {
-        guard mix.isPersonal else { return "Trending songs to get Koda to know you" }
+        guard mix.isPersonal else { return String(localized: "Trending songs to get Koda to know you") }
         switch mix.artists.count {
-        case 0: return "Made from what you play"
-        case 1: return "\(mix.artists[0]) and more"
-        default: return "\(mix.artists.prefix(2).joined(separator: ", ")) and more"
+        case 0: return String(localized: "Made from what you play")
+        case 1: return String(localized: "\(mix.artists[0]) and more")
+        default: return String(localized: "\(ListFormatter.localizedString(byJoining: Array(mix.artists.prefix(2)))) and more")
         }
     }
 
@@ -470,7 +470,7 @@ struct MixHero: View {
             VStack(alignment: .leading, spacing: 0) {
                 coverRow
                     .padding(.bottom, 24)
-                Text(mix.isPersonal ? "Made for you" : "New here")
+                Text(mix.isPersonal ? String(localized: "Made for you") : String(localized: "New here"))
                     .font(.caption.weight(.semibold))
                     .textCase(.uppercase)
                     .foregroundStyle(.white.opacity(0.7))
@@ -509,7 +509,7 @@ struct MixHero: View {
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)
             .padding(Self.padding)
-            .accessibilityLabel("Play \(title)")
+            .accessibilityLabel(String(localized: "Play \(title)"))
             .sensoryFeedback(.impact(weight: .medium), trigger: taps)
         }
         // The card and its play button press down together, as one object.
@@ -638,7 +638,7 @@ struct JumpBackIn: View {
     var body: some View {
         let items = items
         if items.count >= 2 {
-            ShelfView(title: "Jump back in") {
+            ShelfView(title: String(localized: "Jump back in")) {
                 ForEach(items) { item in
                     NavigationLink(value: Self.route(item)) { card(item) }
                         .buttonStyle(.plain)
@@ -649,7 +649,7 @@ struct JumpBackIn: View {
 
     static func route(_ item: Item) -> Route {
         switch item {
-        case .liked: .songs(title: "Liked Songs", source: .liked)
+        case .liked: .songs(title: String(localized: "Liked Songs"), source: .liked)
         case .userPlaylist(let p): .userPlaylist(p.id)
         case .album(let a): .album(a)
         case .playlist(let p): .playlist(p)
@@ -658,7 +658,7 @@ struct JumpBackIn: View {
 
     static func title(_ item: Item) -> String {
         switch item {
-        case .liked: "Liked Songs"
+        case .liked: String(localized: "Liked Songs")
         case .userPlaylist(let p): p.name
         case .album(let a): a.title
         case .playlist(let p): p.title
@@ -703,7 +703,7 @@ struct JumpBackIn: View {
         switch item {
         case .liked(let count, let songs):
             // The listener's own liked covers, marked with a heart, rather than a stock colour.
-            CoverCard(title: "Liked Songs", subtitle: Self.songCount(count), width: width) {
+            CoverCard(title: String(localized: "Liked Songs"), subtitle: Self.songCount(count), width: width) {
                 PlaylistMosaic(songs: songs, size: width)
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "heart.fill")
@@ -726,6 +726,6 @@ struct JumpBackIn: View {
     }
 
     private static func songCount(_ count: Int) -> String {
-        count == 1 ? "1 song" : "\(count) songs"
+        count == 1 ? String(localized: "1 song") : String(localized: "\(count) songs")
     }
 }

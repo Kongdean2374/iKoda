@@ -9,9 +9,9 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .recent: "Recently Added"
-        case .title: "Title"
-        case .artist: "Artist"
+        case .recent: String(localized: "Recently Added")
+        case .title: String(localized: "Title")
+        case .artist: String(localized: "Artist")
         }
     }
 
@@ -44,35 +44,35 @@ struct LibraryView: View {
                     PinnedGrid()
                 }
                 VStack(spacing: 0) {
-                    LibraryLink(title: "Liked Songs", systemImage: "heart.fill", tint: .pink, count: library.liked.count,
-                                route: .songs(title: "Liked Songs", source: .liked))
+                    LibraryLink(title: String(localized: "Liked Songs"), systemImage: "heart.fill", tint: .pink, count: library.liked.count,
+                                route: .songs(title: String(localized: "Liked Songs"), source: .liked))
                         .contextMenu { PinMenuItem(pin: .liked) }
                     Divider().padding(.leading, 56)
-                    LibraryLink(title: "Downloads", systemImage: "arrow.down.circle.fill", tint: .blue, count: downloads.songs.count,
-                                route: .songs(title: "Downloads", source: .downloaded))
+                    LibraryLink(title: String(localized: "Downloads"), systemImage: "arrow.down.circle.fill", tint: .blue, count: downloads.songs.count,
+                                route: .songs(title: String(localized: "Downloads"), source: .downloaded))
                     Divider().padding(.leading, 56)
-                    LibraryLink(title: "Ready Offline", systemImage: "airplane", tint: .green, count: 0,
-                                route: .songs(title: "Ready Offline", source: .offline))
+                    LibraryLink(title: String(localized: "Ready Offline"), systemImage: "airplane", tint: .green, count: 0,
+                                route: .songs(title: String(localized: "Ready Offline"), source: .offline))
                     Divider().padding(.leading, 56)
-                    LibraryLink(title: "Recently Played", systemImage: "clock.fill", tint: .orange, count: library.recent.count,
-                                route: .songs(title: "Recently Played", source: .recent))
+                    LibraryLink(title: String(localized: "Recently Played"), systemImage: "clock.fill", tint: .orange, count: library.recent.count,
+                                route: .songs(title: String(localized: "Recently Played"), source: .recent))
                     Divider().padding(.leading, 56)
-                    LibraryLink(title: "History", systemImage: "clock.arrow.circlepath", tint: .orange, count: 0, route: .history)
+                    LibraryLink(title: String(localized: "History"), systemImage: "clock.arrow.circlepath", tint: .orange, count: 0, route: .history)
                     Divider().padding(.leading, 56)
-                    LibraryLink(title: "Listening Stats", systemImage: "chart.bar.fill", tint: .teal, count: 0, route: .stats)
+                    LibraryLink(title: String(localized: "Listening Stats"), systemImage: "chart.bar.fill", tint: .teal, count: 0, route: .stats)
                 }
                 .padding(.horizontal, 20)
 
                 yourPlaylists
 
                 if !library.playlists.isEmpty {
-                    grid("Saved Playlists", items: sorted(library.playlists).map(MusicItem.playlist))
+                    grid(String(localized: "Saved Playlists"), items: sorted(library.playlists).map(MusicItem.playlist))
                 }
                 if !library.albums.isEmpty {
-                    grid("Albums", items: sorted(library.albums).map(MusicItem.album))
+                    grid(String(localized: "Albums"), items: sorted(library.albums).map(MusicItem.album))
                 }
                 if !library.artists.isEmpty {
-                    ShelfView(title: "Artists") {
+                    ShelfView(title: String(localized: "Artists")) {
                         ForEach(sortedArtists) { artist in
                             NavigationLink(value: Route.artist(artist)) { ArtistCard(artist: artist, width: 100) }
                                 .buttonStyle(.plain)
@@ -81,20 +81,20 @@ struct LibraryView: View {
                     }
                 }
                 if isEmpty {
-                    ContentUnavailableView("Your Library Is Empty", systemImage: "square.stack",
-                                           description: Text("Like songs, make playlists, and add albums, playlists and artists with the + button on their pages."))
+                    ContentUnavailableView(String(localized: "Your Library Is Empty"), systemImage: "square.stack",
+                                           description: Text(String(localized: "Like songs, make playlists, and add albums, playlists and artists with the + button on their pages.")))
                         .padding(.top, 20)
                 }
             }
             .padding(.vertical, 12)
         }
-        .navigationTitle("Library")
+        .navigationTitle(String(localized: "Library"))
         // A signed-in profile's pull brings in what changed on the account elsewhere.
         .refreshable { if app.roster.active.isSignedIn { await app.refreshAccount() } }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("Sort", systemImage: "arrow.up.arrow.down") {
-                    Picker("Sort By", selection: $sort) {
+                Menu(String(localized: "Sort"), systemImage: "arrow.up.arrow.down") {
+                    Picker(String(localized: "Sort By"), selection: $sort) {
                         ForEach(LibrarySort.allCases) { option in
                             Label(option.title, systemImage: option.systemImage).tag(option)
                         }
@@ -113,7 +113,7 @@ struct LibraryView: View {
 
     private var yourPlaylists: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Your Playlists")
+            SectionHeader(title: String(localized: "Your Playlists"))
                 .padding(.horizontal, 20)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 14) {
@@ -123,7 +123,7 @@ struct LibraryView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 PlaylistCover(playlist: playlist, size: 140, cornerRadius: 10)
                                 Text(playlist.name).font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text(playlist.songs.count == 1 ? "1 song" : "\(playlist.songs.count) songs")
+                                Text(playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"))
                                     .font(.footnote).foregroundStyle(.secondary)
                             }
                             .frame(width: 140, alignment: .leading)
@@ -206,15 +206,15 @@ private struct PinnedGrid: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Pinned")
+            SectionHeader(title: String(localized: "Pinned"))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 3), spacing: 16) {
                 ForEach(library.pins) { pin in
                     tile(pin)
                         .contextMenu {
                             PinMenuItem(pin: pin)
-                            Button("Move Earlier", systemImage: "arrow.left") { withAnimation(.smooth) { library.movePin(pin, by: -1) } }
+                            Button(String(localized: "Move Earlier"), systemImage: "arrow.left") { withAnimation(.smooth) { library.movePin(pin, by: -1) } }
                                 .disabled(library.pins.first == pin)
-                            Button("Move Later", systemImage: "arrow.right") { withAnimation(.smooth) { library.movePin(pin, by: 1) } }
+                            Button(String(localized: "Move Later"), systemImage: "arrow.right") { withAnimation(.smooth) { library.movePin(pin, by: 1) } }
                                 .disabled(library.pins.last == pin)
                         }
                 }
@@ -238,15 +238,15 @@ private struct PinnedGrid: View {
         case .playlist(let playlist):
             link(.playlist(playlist), title: playlist.title, subtitle: playlist.subtitle) { ArtworkView(artwork: playlist.artwork, size: $0, cornerRadius: 10) }
         case .artist(let artist):
-            link(.artist(artist), title: artist.name, subtitle: "Artist") { side in
+            link(.artist(artist), title: artist.name, subtitle: String(localized: "Artist")) { side in
                 ArtworkView(artwork: artist.artwork, size: side, cornerRadius: side / 2)
             }
         case .userPlaylist(let id):
             if let playlist = library.userPlaylist(id) {
-                link(.userPlaylist(id), title: playlist.name, subtitle: "Playlist") { PlaylistCover(playlist: playlist, size: $0, cornerRadius: 10) }
+                link(.userPlaylist(id), title: playlist.name, subtitle: String(localized: "Playlist")) { PlaylistCover(playlist: playlist, size: $0, cornerRadius: 10) }
             }
         case .liked:
-            link(.songs(title: "Liked Songs", source: .liked), title: "Liked Songs", subtitle: "Playlist") { side in
+            link(.songs(title: String(localized: "Liked Songs"), source: .liked), title: String(localized: "Liked Songs"), subtitle: String(localized: "Playlist")) { side in
                 JumpBackIn.cover(.liked(count: library.liked.count, songs: library.liked), size: side)
             }
         }
@@ -304,7 +304,7 @@ private struct NewPlaylistTile: View {
                             .font(.system(size: 34, weight: .medium))
                             .foregroundStyle(Color.accentColor)
                     }
-                Text("New Playlist").font(.subheadline.weight(.medium))
+                Text(String(localized: "New Playlist")).font(.subheadline.weight(.medium))
                 Text(" ").font(.footnote)
             }
             .frame(width: 140, alignment: .leading)
@@ -312,15 +312,15 @@ private struct NewPlaylistTile: View {
         }
         .buttonStyle(.plain)
         .sensoryFeedback(.success, trigger: created)
-        .alert("New Playlist", isPresented: $naming) {
-            TextField("Name", text: $draftName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
+        .alert(String(localized: "New Playlist"), isPresented: $naming) {
+            TextField(String(localized: "Name"), text: $draftName)
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Create")) {
                 created += 1
                 app.open(.userPlaylist(library.createPlaylist(named: draftName).id))
             }
         } message: {
-            Text("Add songs to it from any song's menu.")
+            Text(String(localized: "Add songs to it from any song's menu."))
         }
     }
 }

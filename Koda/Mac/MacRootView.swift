@@ -136,7 +136,7 @@ struct MacRootView: View {
         // sidebar (a navigation bar drawer, or the .sidebar placement) Catalyst draws it the iPad's
         // way, a band of its own at the top of the floating sidebar, which never looked right.
         .searchable(text: $search.query, placement: .toolbar,
-                    prompt: (section ?? .home).isVideo ? "Search YouTube" : "Search")
+                    prompt: (section ?? .home).isVideo ? String(localized: "Search YouTube") : String(localized: "Search"))
         .searchFocused($searchFocused)
         .onSubmit(of: .search) {
             if (section ?? .home).isVideo { submitVideoSearch(search.query) } else { submit(search.query) }
@@ -206,7 +206,7 @@ struct MacRootView: View {
             path.wrappedValue.append(route)
         }
         .onOpenURL { url in
-            if !model.open(url) { model.linkError = "Koda can open YouTube Music songs, albums, playlists and artists." }
+            if !model.open(url) { model.linkError = String(localized: "Koda can open YouTube Music songs, albums, playlists and artists.") }
         }
     }
 
@@ -230,32 +230,32 @@ struct MacRootView: View {
 
     private func dialogs<V: View>(_ content: V) -> some View {
         content
-        .alert("Couldn't Open Link", isPresented: Binding(get: { model.linkError != nil }, set: { if !$0 { model.linkError = nil } })) {
-            Button("OK", role: .cancel) {}
+        .alert(String(localized: "Couldn't Open Link"), isPresented: Binding(get: { model.linkError != nil }, set: { if !$0 { model.linkError = nil } })) {
+            Button(String(localized: "OK"), role: .cancel) {}
         } message: {
             Text(model.linkError ?? "")
         }
-        .alert("New Playlist", isPresented: $namingPlaylist) {
-            TextField("Name", text: $draftName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { section = .userPlaylist(library.createPlaylist(named: draftName).id) }
+        .alert(String(localized: "New Playlist"), isPresented: $namingPlaylist) {
+            TextField(String(localized: "Name"), text: $draftName)
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Create")) { section = .userPlaylist(library.createPlaylist(named: draftName).id) }
         } message: {
-            Text("Add songs to it from any song's menu.")
+            Text(String(localized: "Add songs to it from any song's menu."))
         }
-        .alert("Rename Playlist", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("Name", text: $draftName)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { if let renaming { library.renamePlaylist(renaming.id, to: draftName) } }
+        .alert(String(localized: "Rename Playlist"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField(String(localized: "Name"), text: $draftName)
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Save")) { if let renaming { library.renamePlaylist(renaming.id, to: draftName) } }
         }
-        .confirmationDialog("Delete “\(deleting?.name ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+        .confirmationDialog(String(localized: "Delete “\(deleting?.name ?? "")”?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
-            Button("Delete Playlist", role: .destructive) {
+            Button(String(localized: "Delete Playlist"), role: .destructive) {
                 guard let deleting else { return }
                 if section == .userPlaylist(deleting.id) { section = .home }
                 library.deletePlaylist(deleting.id)
             }
         } message: {
-            Text("The songs stay wherever else you saved them.")
+            Text(String(localized: "The songs stay wherever else you saved them."))
         }
     }
 
@@ -305,22 +305,22 @@ struct MacRootView: View {
     @ViewBuilder
     private var videoSidebar: some View {
         let signedIn = model.roster.active.isSignedIn && !model.roster.active.isExpired
-        Section("Videos", isExpanded: $videosExpanded) {
-            sidebarRow("Home", "play.rectangle", .videos)
+        Section(String(localized: "Videos"), isExpanded: $videosExpanded) {
+            sidebarRow(String(localized: "Home"), "play.rectangle", .videos)
             if signedIn {
-                sidebarRow("Subscriptions", "person.2.crop.square.stack", .subscriptions)
+                sidebarRow(String(localized: "Subscriptions"), "person.2.crop.square.stack", .subscriptions)
             }
             if videoSearch.submitted != nil {
-                sidebarRow("Search Results", "magnifyingglass", .videoSearch)
+                sidebarRow(String(localized: "Search Results"), "magnifyingglass", .videoSearch)
             }
-            sidebarRow("Watch History", "clock.arrow.circlepath", .watched)
+            sidebarRow(String(localized: "Watch History"), "clock.arrow.circlepath", .watched)
             if signedIn {
-                sidebarRow("Watch Later", "clock", .videoPlaylist("WL"))
-                sidebarRow("Liked Videos", "hand.thumbsup", .videoPlaylist("LL"))
+                sidebarRow(String(localized: "Watch Later"), "clock", .videoPlaylist("WL"))
+                sidebarRow(String(localized: "Liked Videos"), "hand.thumbsup", .videoPlaylist("LL"))
             }
         }
         if signedIn, let channels = model.subscribedChannels, !channels.isEmpty {
-            Section("Channels", isExpanded: $channelsExpanded) {
+            Section(String(localized: "Channels"), isExpanded: $channelsExpanded) {
                 // Those that posted lately, as YouTube's own sidebar shows them; All Channels is A to Z.
                 ForEach((model.channelsByUpload.isEmpty ? channels : model.channelsByUpload).prefix(12), id: \.id) { channel in
                     if let id = channel.id {
@@ -328,11 +328,11 @@ struct MacRootView: View {
                     }
                 }
                 if channels.count > 12 {
-                    sidebarRow("All Channels", "chevron.down.circle", .channels, count: channels.count)
+                    sidebarRow(String(localized: "All Channels"), "chevron.down.circle", .channels, count: channels.count)
                 }
             }
         }
-        Section("Explore", isExpanded: $exploreExpanded) {
+        Section(String(localized: "Explore"), isExpanded: $exploreExpanded) {
             ForEach(ExploreTopic.allCases) { topic in
                 sidebarRow(topic.title, topic.systemImage, .explore(topic))
             }
@@ -344,14 +344,14 @@ struct MacRootView: View {
     @ViewBuilder
     private var pinnedSidebar: some View {
         if !library.pins.isEmpty {
-            Section("Pinned", isExpanded: $pinnedExpanded) {
+            Section(String(localized: "Pinned"), isExpanded: $pinnedExpanded) {
                 ForEach(library.pins) { pin in
                     pinnedRow(pin)
                         .contextMenu {
                             PinMenuItem(pin: pin)
-                            Button("Move Up", systemImage: "arrow.up") { library.movePin(pin, by: -1) }
+                            Button(String(localized: "Move Up"), systemImage: "arrow.up") { library.movePin(pin, by: -1) }
                                 .disabled(library.pins.first == pin)
-                            Button("Move Down", systemImage: "arrow.down") { library.movePin(pin, by: 1) }
+                            Button(String(localized: "Move Down"), systemImage: "arrow.down") { library.movePin(pin, by: 1) }
                                 .disabled(library.pins.last == pin)
                         }
                 }
@@ -374,52 +374,52 @@ struct MacRootView: View {
         case .artist(let artist): sidebarRow(artist.name, "music.mic", .pinned(pin))
         case .userPlaylist(let id):
             if let playlist = library.userPlaylist(id) { sidebarRow(playlist.name, "music.note", .userPlaylist(id)) }
-        case .liked: sidebarRow("Liked Songs", "heart", .liked)
+        case .liked: sidebarRow(String(localized: "Liked Songs"), "heart", .liked)
         }
     }
 
     @ViewBuilder
     private var musicSidebar: some View {
         pinnedSidebar
-        Section("Music", isExpanded: $musicExpanded) {
-            sidebarRow("Home", "house", .home)
-            sidebarRow("Radio", "dot.radiowaves.left.and.right", .radio)
-            sidebarRow("Browse", "square.grid.2x2", .browse)
+        Section(String(localized: "Music"), isExpanded: $musicExpanded) {
+            sidebarRow(String(localized: "Home"), "house", .home)
+            sidebarRow(String(localized: "Radio"), "dot.radiowaves.left.and.right", .radio)
+            sidebarRow(String(localized: "Browse"), "square.grid.2x2", .browse)
             if search.submitted != nil {
-                sidebarRow("Search Results", "magnifyingglass", .search)
+                sidebarRow(String(localized: "Search Results"), "magnifyingglass", .search)
             }
         }
-        Section("Library", isExpanded: $libraryExpanded) {
-            sidebarRow("Recently Played", "clock", .recent)
-            sidebarRow("History", "clock.arrow.circlepath", .history)
-            sidebarRow("Liked Songs", "heart", .liked, count: library.liked.count)
-            sidebarRow("Albums", "square.stack", .albums)
-            sidebarRow("Playlists", "music.note.list", .playlists)
-            sidebarRow("Artists", "music.mic", .artists)
-            sidebarRow("Downloads", "arrow.down.circle", .downloads, count: downloads.songs.count)
-            sidebarRow("Ready Offline", "airplane", .offline)
-            sidebarRow("Listening Stats", "chart.bar", .stats)
-            sidebarRow("Last.fm", "dot.radiowaves.left.and.right", .lastFM)
+        Section(String(localized: "Library"), isExpanded: $libraryExpanded) {
+            sidebarRow(String(localized: "Recently Played"), "clock", .recent)
+            sidebarRow(String(localized: "History"), "clock.arrow.circlepath", .history)
+            sidebarRow(String(localized: "Liked Songs"), "heart", .liked, count: library.liked.count)
+            sidebarRow(String(localized: "Albums"), "square.stack", .albums)
+            sidebarRow(String(localized: "Playlists"), "music.note.list", .playlists)
+            sidebarRow(String(localized: "Artists"), "music.mic", .artists)
+            sidebarRow(String(localized: "Downloads"), "arrow.down.circle", .downloads, count: downloads.songs.count)
+            sidebarRow(String(localized: "Ready Offline"), "airplane", .offline)
+            sidebarRow(String(localized: "Listening Stats"), "chart.bar", .stats)
+            sidebarRow(String(localized: "Last.fm"), "dot.radiowaves.left.and.right", .lastFM)
         }
-        Section("Your Playlists", isExpanded: $playlistsExpanded) {
+        Section(String(localized: "Your Playlists"), isExpanded: $playlistsExpanded) {
             ForEach(library.userPlaylists) { playlist in
                 sidebarRow(playlist.name, "music.note", .userPlaylist(playlist.id))
                     .contextMenu {
-                        Button("Play", systemImage: "play") { player.play(playlist.songs) }
+                        Button(String(localized: "Play"), systemImage: "play") { player.play(playlist.songs) }
                             .disabled(playlist.songs.isEmpty)
-                        Button("Rename…", systemImage: "pencil") {
+                        Button(String(localized: "Rename…"), systemImage: "pencil") {
                             draftName = playlist.name
                             renaming = playlist
                         }
                         Divider()
-                        Button("Delete Playlist…", systemImage: "trash", role: .destructive) { deleting = playlist }
+                        Button(String(localized: "Delete Playlist…"), systemImage: "trash", role: .destructive) { deleting = playlist }
                     }
             }
             Button {
                 draftName = ""
                 namingPlaylist = true
             } label: {
-                MacSidebarLabel(title: "New Playlist", systemImage: "plus", isSelected: false, dimmed: true)
+                MacSidebarLabel(title: String(localized: "New Playlist"), systemImage: "plus", isSelected: false, dimmed: true)
             }
             .buttonStyle(.plain)
             .listRowInsets(MacSidebarLabel.insets)
@@ -474,9 +474,9 @@ struct MacRootView: View {
         let active = model.roster.active
         return Menu {
             if let back = model.quickSwitchTarget {
-                Button("Switch to \(back.displayName)", systemImage: "arrow.left.arrow.right") { model.switchProfile(to: back.id) }
+                Button(String(localized: "Switch to \(back.displayName)"), systemImage: "arrow.left.arrow.right") { model.switchProfile(to: back.id) }
             }
-            Section("Profiles") {
+            Section(String(localized: "Profiles")) {
                 ForEach(model.roster.profiles) { profile in
                     Toggle(isOn: Binding(get: { profile.id == model.roster.activeID }, set: { if $0 { model.switchProfile(to: profile.id) } })) {
                         Text(profile.displayName)
@@ -484,13 +484,13 @@ struct MacRootView: View {
                     }
                 }
             }
-            Button("Add Profile…", systemImage: "person.badge.plus") { model.isAddingProfile = true }
+            Button(String(localized: "Add Profile…"), systemImage: "person.badge.plus") { model.isAddingProfile = true }
             Divider()
-            Button("Edit Profile…", systemImage: "person.crop.circle") {
+            Button(String(localized: "Edit Profile…"), systemImage: "person.crop.circle") {
                 model.requestedSettingsPane = .profile
                 model.isProfilePresented = true
             }
-            Button("Settings…", systemImage: "gearshape") { model.isProfilePresented = true }
+            Button(String(localized: "Settings…"), systemImage: "gearshape") { model.isProfilePresented = true }
         } label: {
             HStack(spacing: 10) {
                 ProfileAvatar(profile: active, size: 28)
@@ -511,8 +511,8 @@ struct MacRootView: View {
         .buttonStyle(MacSidebarButtonStyle())
         .padding(.horizontal, 10)
         .padding(.bottom, 10)
-        .help("Switch Profile")
-        .accessibilityLabel("Profile, \(active.displayName)")
+        .help(String(localized: "Switch Profile"))
+        .accessibilityLabel(String(localized: "Profile, \(active.displayName)"))
     }
 
     // MARK: Detail
@@ -524,10 +524,10 @@ struct MacRootView: View {
         case .radio: RadioView()
         case .browse: MacBrowseView(search: search) { submit($0) }
         case .search: MacSearchResultsView(model: search)
-        case .recent: SavedSongsView(title: "Recently Played", source: .recent)
-        case .liked: SavedSongsView(title: "Liked Songs", source: .liked)
-        case .downloads: SavedSongsView(title: "Downloads", source: .downloaded)
-        case .offline: SavedSongsView(title: "Ready Offline", source: .offline)
+        case .recent: SavedSongsView(title: String(localized: "Recently Played"), source: .recent)
+        case .liked: SavedSongsView(title: String(localized: "Liked Songs"), source: .liked)
+        case .downloads: SavedSongsView(title: String(localized: "Downloads"), source: .downloaded)
+        case .offline: SavedSongsView(title: String(localized: "Ready Offline"), source: .offline)
         case .albums: MacLibraryGrid(kind: .albums)
         case .playlists: MacLibraryGrid(kind: .playlists)
         case .artists: MacLibraryGrid(kind: .artists)
@@ -544,17 +544,17 @@ struct MacRootView: View {
         case .videos: VideoHomeView(feed: model.videoFeed(.home)).id(model.roster.activeID)
         case .subscriptions: VideoHomeView(feed: model.videoFeed(.subscriptions)).id(model.roster.activeID)
         case .watched: VideoLibraryView()
-        case .videoPlaylist(let id): VideoPlaylistView(playlistId: id, title: id == "WL" ? "Watch Later" : "Liked Videos").id(id)
+        case .videoPlaylist(let id): VideoPlaylistView(playlistId: id, title: id == "WL" ? String(localized: "Watch Later") : String(localized: "Liked Videos")).id(id)
         case .channel(let id):
             ChannelView(channelId: id, name: model.subscribedChannels?.first { $0.id == id }?.name ?? "").id(id)
         case .explore(let topic): ExploreView(topic: topic).id(topic)
         case .channels: SubscribedChannelsView()
         case .videoSearch:
             MacPage {
-                MacPageTitle(title: videoSearch.submitted ?? "Search", subtitle: "YouTube")
+                MacPageTitle(title: videoSearch.submitted ?? String(localized: "Search"), subtitle: String(localized: "YouTube"))
                 VideoSearchResultsView(model: videoSearch)
             }
-            .navigationTitle("Search Results")
+            .navigationTitle(String(localized: "Search Results"))
         }
     }
 
@@ -677,11 +677,11 @@ private struct MacSidebarGlance: View {
             if !player.upcoming.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Up Next")
+                        Text(String(localized: "Up Next"))
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button("Show All", action: openQueue)
+                        Button(String(localized: "Show All"), action: openQueue)
                             .font(.system(size: 11, weight: .medium))
                             .buttonStyle(.plain)
                             .foregroundStyle(Color.accentColor)
@@ -701,10 +701,10 @@ private struct MacSidebarGlance: View {
                         .frame(width: 28, height: 28)
                         .background(Color.accentColor.opacity(0.15), in: .rect(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("\(library.listening(on: Date()).listeningText) today")
+                        Text(String(localized: "\(library.listening(on: Date()).listeningText) today"))
                             .font(.system(size: 12, weight: .semibold))
                         let streak = library.streak()
-                        Text(streak == 0 ? "Play something to start a streak" : streak == 1 ? "1-day streak" : "\(streak)-day streak")
+                        Text(streak == 0 ? String(localized: "Play something to start a streak") : streak == 1 ? String(localized: "1-day streak") : String(localized: "\(streak)-day streak"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -714,7 +714,7 @@ private struct MacSidebarGlance: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help("Listening Stats")
+            .help(String(localized: "Listening Stats"))
         }
         .padding(10)
         .background(.fill.quaternary, in: .rect(cornerRadius: 12, style: .continuous))
@@ -750,6 +750,6 @@ private struct MacUpNextRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .contextMenu { SongMenuItems(song: item.song) }
-        .help("Play Now")
+        .help(String(localized: "Play Now"))
     }
 }

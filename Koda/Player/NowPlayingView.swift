@@ -20,6 +20,12 @@ struct NowPlayingView: View {
     /// The album's tall loop is ready to show.
     @State private var hasTallArt = false
     @State private var size: CGSize = .zero
+    @State private var utility: PlayerUtility?
+
+    private enum PlayerUtility: Identifiable {
+        case sound, translation, audio
+        var id: Self { self }
+    }
 
     /// With a tall loop the album's art moves in place of the square cover, as Music shows it:
     /// across the top of the one-column player while its cover page is open, and down the whole
@@ -63,6 +69,23 @@ struct NowPlayingView: View {
             setPanel(requested)
         }
         .playlistPicker(whenOnTop: true)
+        .sheet(item: $utility) { destination in
+            NavigationStack {
+                Group {
+                    switch destination {
+                    case .sound: AudioCenterView()
+                    case .translation: LyricsTranslationSettingsView()
+                    case .audio: AudioInformationView()
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { utility = nil }
+                    }
+                }
+            }
+            .appEnvironment(app)
+        }
     }
 
     /// The phone's player: one column, the cover giving way to lyrics or the queue.
@@ -194,6 +217,11 @@ struct NowPlayingView: View {
                         SleepTimerMenu()
                         if panel == .lyrics { LyricsTimingMenu(songId: song.id) }
                     }
+                    Section {
+                        Button("Sound Center", systemImage: "slider.vertical.3") { utility = .sound }
+                        Button("Chinese Lyrics", systemImage: "translate") { utility = .translation }
+                        Button("Audio Information", systemImage: "waveform.path") { utility = .audio }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.title3.weight(.semibold))
@@ -305,7 +333,7 @@ struct NowPlayingView: View {
     }
 
     /// `activeImage` is spelled out because not every symbol has a filled form; `list.bullet.fill` draws nothing.
-    private func panelButton(_ target: Panel, systemImage: String, activeImage: String, label: String) -> some View {
+    private func panelButton(_ target: Panel, systemImage: String, activeImage: String, label: LocalizedStringKey) -> some View {
         let active = panel == target
         return Button {
             setPanel(active ? .artwork : target)
@@ -374,7 +402,7 @@ struct LikeButton: View {
         }
         .buttonStyle(.plain)
         .sensoryFeedback(.impact(weight: .light), trigger: liked)
-        .accessibilityLabel(liked ? "Unlike" : "Like")
+        .accessibilityLabel(liked ? String(localized: "Unlike") : String(localized: "Like"))
     }
 }
 
@@ -427,7 +455,7 @@ struct TransportControls: View {
     }
 
     /// Only the pressed button answers: its own symbol bounces.
-    private func skipButton(_ symbol: String, label: String, size: CGFloat = 32, taps: Int, action: @escaping () -> Void) -> some View {
+    private func skipButton(_ symbol: String, label: LocalizedStringKey, size: CGFloat = 32, taps: Int, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size))
@@ -533,7 +561,7 @@ private struct LyricsTimingMenu: View {
                 Button("Reset Timing", systemImage: "arrow.counterclockwise") { library.setLyricsOffset(0, for: songId) }
             }
         } label: {
-            Label(offset == 0 ? "Lyrics Timing" : String(format: "Lyrics Timing (%+.1fs)", offset), systemImage: "timer")
+            Label(offset == 0 ? String(localized: "Lyrics Timing") : String(format: String(localized: "Lyrics Timing (%+.1fs)"), locale: Locale.current, offset), systemImage: "timer")
         }
         // The menu stays open between steps, so the listener can nudge and watch the lyrics move.
         .menuActionDismissBehavior(.disabled)

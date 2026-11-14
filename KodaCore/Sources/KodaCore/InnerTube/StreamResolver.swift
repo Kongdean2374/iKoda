@@ -14,6 +14,8 @@ public struct ResolvedStream: Sendable, Equatable {
     public var expiresAt: Date?
     /// The lighter format Data Saver picked: never kept as the song's file, which should be the best one.
     public var isDataSaver = false
+    /// Declarations from the actual selected format; absent on legacy/local-only streams.
+    public var metadata: AudioStreamMetadata? = nil
 
     func isFresh(at now: Date = Date()) -> Bool {
         guard let expiresAt else { return true }
@@ -137,7 +139,7 @@ actor StreamResolver {
         // OK without streamingData is the bot check's other signature.
         guard root["streamingData"].exists else { return .refused }
         guard let stream = Self.pickAudio(root, videoId: videoId) else {
-            throw MusicError.unplayable("No playable audio")
+            throw MusicError.unplayable(NSLocalizedString("No playable audio", bundle: KodaLocalization.bundle, comment: ""))
         }
         let choices = Choices(best: stream, light: Self.pickAudio(root, videoId: videoId, quality: .dataSaver) ?? stream)
         if await identity.isVetted(token) { return .stream(choices) }
@@ -229,7 +231,11 @@ actor StreamResolver {
             duration: durationMs.map { $0 / 1000 } ?? root["videoDetails"]["lengthSeconds"].double,
             loudnessDb: best["loudnessDb"].double,
             expiresAt: expire,
-            isDataSaver: quality == .dataSaver)
+            isDataSaver: quality == .dataSaver,
+            metadata: AudioStreamMetadata(mimeType: best["mimeType"].nonEmpty,
+                                          bitrate: best["bitrate"].int,
+                                          sampleRate: best["audioSampleRate"].double,
+                                          channels: best["audioChannels"].int))
     }
 
     private static func nonce(_ length: Int) -> String {

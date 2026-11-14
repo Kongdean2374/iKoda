@@ -170,7 +170,7 @@ public struct WatchPage: Sendable {
 public enum ChannelTabKind: String, Sendable, CaseIterable {
     case videos, live
 
-    public var title: String { self == .videos ? "Videos" : "Live" }
+    public var title: String { self == .videos ? NSLocalizedString("Videos", bundle: KodaLocalization.bundle, comment: "") : NSLocalizedString("Live", bundle: KodaLocalization.bundle, comment: "") }
 }
 
 public struct ChannelTab: Sendable, Hashable {

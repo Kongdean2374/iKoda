@@ -4,15 +4,15 @@ import SwiftUI
 extension StreamQuality {
     var title: String {
         switch self {
-        case .high: "High Quality"
-        case .dataSaver: "Data Saver"
+        case .high: String(localized: "High Quality")
+        case .dataSaver: String(localized: "Data Saver")
         }
     }
 
     var detail: String {
         switch self {
-        case .high: "AAC 128 kbps"
-        case .dataSaver: "HE-AAC 48 kbps, about a third of the data"
+        case .high: String(localized: "AAC 128 kbps")
+        case .dataSaver: String(localized: "HE-AAC 48 kbps, about a third of the data")
         }
     }
 }
@@ -27,11 +27,13 @@ struct EqualizerSettingsView: View {
                 ForEach(EqualizerPreset.allCases) { preset in
                     Button {
                         player.equalizer = preset
+                        player.soundSettings.customEnabled = false
+                        player.soundSettings.enabled = true
                     } label: {
                         HStack {
                             Text(preset.title).foregroundStyle(.primary)
                             Spacer()
-                            if player.equalizer == preset {
+                            if player.equalizer == preset && !player.soundSettings.customEnabled {
                                 Image(systemName: "checkmark")
                                     .fontWeight(.semibold)
                                     .foregroundStyle(Color.accentColor)
@@ -39,7 +41,7 @@ struct EqualizerSettingsView: View {
                         }
                         .contentShape(.rect)
                     }
-                    .accessibilityAddTraits(player.equalizer == preset ? .isSelected : [])
+                    .accessibilityAddTraits(player.equalizer == preset && !player.soundSettings.customEnabled ? .isSelected : [])
                 }
             } footer: {
                 Text("The equalizer shapes every song you play, from the next moment of the one playing. Songs that are boosted are played a little quieter, so loud ones never distort.")
@@ -59,8 +61,8 @@ struct AudioQualitySettingsView: View {
         @Bindable var player = player
         Form {
             Section {
-                picker("Wi‑Fi Streaming", selection: $player.unmeteredQuality)
-                picker("Mobile Data Streaming", selection: $player.meteredQuality)
+                picker(String(localized: "Wi‑Fi Streaming"), selection: $player.unmeteredQuality)
+                picker(String(localized: "Mobile Data Streaming"), selection: $player.meteredQuality)
             } footer: {
                 Text("Data Saver streams use about a third of the data. In Low Data Mode, Koda always uses Data Saver. Downloads and songs kept as you play them are always High Quality, so a Data Saver stream isn't kept.")
             }
