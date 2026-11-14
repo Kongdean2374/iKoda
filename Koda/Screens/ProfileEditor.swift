@@ -14,11 +14,11 @@ struct AvatarEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            row("Shape", count: KodaAvatar.shapes, selected: avatar.shapeIndex) { $0.shape = $1 }
-            row("Colour", count: KodaAvatar.colors, selected: avatar.colorIndex, name: { KodaAvatar.colorways[$0].name }) { $0.color = $1 }
-            row("Eyes", count: KodaAvatar.eyeStyles, selected: avatar.eyesIndex) { $0.eyes = $1 }
-            row("Mouth", count: KodaAvatar.mouths, selected: avatar.mouthIndex) { $0.mouth = $1 }
-            row("Extra", count: KodaAvatar.extras, selected: avatar.extraIndex, name: { $0 == 0 ? "None" : "Extra \($0)" }) { $0.extra = $1 }
+            row(String(localized: "Shape"), count: KodaAvatar.shapes, selected: avatar.shapeIndex) { $0.shape = $1 }
+            row(String(localized: "Colour"), count: KodaAvatar.colors, selected: avatar.colorIndex, name: { KodaAvatar.colorways[$0].name }) { $0.color = $1 }
+            row(String(localized: "Eyes"), count: KodaAvatar.eyeStyles, selected: avatar.eyesIndex) { $0.eyes = $1 }
+            row(String(localized: "Mouth"), count: KodaAvatar.mouths, selected: avatar.mouthIndex) { $0.mouth = $1 }
+            row(String(localized: "Extra"), count: KodaAvatar.extras, selected: avatar.extraIndex, name: { $0 == 0 ? String(localized: "None") : String(localized: "Extra \($0)") }) { $0.extra = $1 }
             HStack {
                 Toggle("Rosy Cheeks", isOn: $avatar.blush)
                     .fixedSize()
@@ -130,7 +130,7 @@ struct ProfileEditorView: View {
                     AvatarEditor(avatar: $avatar)
                         .padding(.vertical, 6)
                 case .photo:
-                    PhotosPicker(app.profilePhotos.photo(for: profile) == nil ? "Choose Photo…" : "Choose Another Photo…",
+                    PhotosPicker(app.profilePhotos.photo(for: profile) == nil ? String(localized: "Choose Photo…") : String(localized: "Choose Another Photo…"),
                                  selection: $photo, matching: .images)
                 case .account:
                     Text("Your Google account's picture. It changes when you change it on Google.")
@@ -174,7 +174,7 @@ struct ProfileEditorView: View {
                 dismiss()
             }
         } message: {
-            Text("Its liked songs, playlists, history and stats are deleted from this device. \(profile.isSignedIn ? "Your YouTube Music account isn't affected." : "")")
+            Text("Its liked songs, playlists, history and stats are deleted from this device. \(profile.isSignedIn ? String(localized: "Your YouTube Music account isn't affected.") : "")")
         }
     }
 
@@ -199,12 +199,12 @@ private struct AccountSection: View {
             if profile.isSignedIn {
                 LabeledContent("YouTube Music", value: profile.handle ?? profile.displayName)
                 if profile.isExpired {
-                    NavigationLink("Sign In Again") { YouTubeSignInView(into: profile.id) }
+                    NavigationLink(String(localized: "Sign In Again")) { YouTubeSignInView(into: profile.id) }
                 } else if profile.id == app.roster.activeID {
                     Button {
                         app.syncAccount(force: true)
                     } label: {
-                        LabeledContent("Sync Library Now") {
+                        LabeledContent(String(localized: "Sync Library Now")) {
                             if app.isSyncingAccount { ProgressView() }
                         }
                     }
@@ -215,14 +215,14 @@ private struct AccountSection: View {
                     set: { on in app.roster.update(profile.id) { $0.sendsPlaysToYouTube = on } }))
                 Button("Sign Out…", role: .destructive) { confirmSignOut = true }
             } else {
-                NavigationLink("Sign In to YouTube Music") { YouTubeSignInView(into: profile.id) }
+                NavigationLink(String(localized: "Sign In to YouTube Music")) { YouTubeSignInView(into: profile.id) }
             }
         } header: {
             Text("Account")
         } footer: {
             Text(profile.isSignedIn
-                 ? "Home and your library follow your YouTube Music account. With YouTube history on, songs you play for 15 seconds appear in your history on YouTube Music and shape its recommendations; nothing is sent while Koda's listening history is off."
-                 : "Sign in to bring your YouTube Music likes, playlists and Home to this profile. Everything already here stays.")
+                 ? String(localized: "Home and your library follow your YouTube Music account. With YouTube history on, songs you play for 15 seconds appear in your history on YouTube Music and shape its recommendations; nothing is sent while Koda's listening history is off.")
+                 : String(localized: "Sign in to bring your YouTube Music likes, playlists and Home to this profile. Everything already here stays."))
         }
         .confirmationDialog("Sign out of YouTube Music?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { app.signOut(profile.id) }
@@ -248,7 +248,7 @@ struct AddProfileView: View {
             Group {
                 if makesLocal { local } else { choices }
             }
-            .navigationTitle(makesLocal ? "New Profile" : "Add Profile")
+            .navigationTitle(makesLocal ? String(localized: "New Profile") : String(localized: "Add Profile"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -278,7 +278,7 @@ struct AddProfileView: View {
                 NavigationLink {
                     YouTubeSignInView(into: nil) { dismiss() }
                 } label: {
-                    choice(title: "Sign In to YouTube Music", detail: "Your account's likes, playlists and Home, kept in step.",
+                    choice(title: String(localized: "Sign In to YouTube Music"), detail: String(localized: "Your account's likes, playlists and Home, kept in step."),
                            systemImage: "person.crop.circle.badge.checkmark")
                 }
                 .buttonStyle(.plain)
@@ -286,7 +286,7 @@ struct AddProfileView: View {
                 Button {
                     withAnimation(.smooth) { makesLocal = true }
                 } label: {
-                    choice(title: "Profile on This \(Platform.isMac ? "Mac" : "iPhone")", detail: "No account needed. Everything stays on this device.",
+                    choice(title: String(localized: "Profile on This \(Platform.isMac ? "Mac" : "iPhone")"), detail: String(localized: "No account needed. Everything stays on this device."),
                            systemImage: "person.crop.circle.badge.plus")
                 }
                 .buttonStyle(.plain)
@@ -406,7 +406,7 @@ struct ProfilesGrid: View {
                     Button("Edit Profile…", systemImage: "pencil") { editing = profile.id }
                 }
                 .accessibilityLabel("\(profile.displayName), \(profile.subtitle)")
-                .accessibilityHint(isActive ? "Current profile. Double-tap to edit." : "Double-tap to switch to this profile.")
+                .accessibilityHint(isActive ? String(localized: "Current profile. Double-tap to edit.") : String(localized: "Double-tap to switch to this profile."))
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
             Button { adding = true } label: {

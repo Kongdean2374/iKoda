@@ -235,9 +235,9 @@ public enum LyricsSource: String, CaseIterable, Codable, Sendable, Identifiable 
     /// What the listener gets from it.
     public var detail: String {
         switch self {
-        case .youLyPlus: "Word-by-word, with duets and backing vocals"
-        case .betterLyrics: "Word-by-word, from several catalogues"
-        case .lrclib: "Line-by-line and plain lyrics, community-made"
+        case .youLyPlus: NSLocalizedString("Word-by-word, with duets and backing vocals", bundle: KodaLocalization.bundle, comment: "")
+        case .betterLyrics: NSLocalizedString("Word-by-word, from several catalogues", bundle: KodaLocalization.bundle, comment: "")
+        case .lrclib: NSLocalizedString("Line-by-line and plain lyrics, community-made", bundle: KodaLocalization.bundle, comment: "")
         }
     }
 }

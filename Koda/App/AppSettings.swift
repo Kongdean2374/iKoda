@@ -11,9 +11,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .system: "Automatic"
-            case .light: "Light"
-            case .dark: "Dark"
+            case .system: String(localized: "Automatic")
+            case .light: String(localized: "Light")
+            case .dark: String(localized: "Dark")
             }
         }
         var colorScheme: ColorScheme? {
@@ -31,9 +31,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .small: "Small"
-            case .standard: "Default"
-            case .large: "Large"
+            case .small: String(localized: "Small")
+            case .standard: String(localized: "Default")
+            case .large: String(localized: "Large")
             }
         }
         /// Point size of a sung line; backing vocals are drawn at 70% of it.
@@ -63,7 +63,7 @@ final class AppSettings {
 
         var id: Self { self }
         var seconds: TimeInterval { TimeInterval(rawValue) }
-        var title: String { "\(rawValue) Seconds" }
+        var title: String { String(localized: "\(rawValue) Seconds") }
         var backSymbol: String { "gobackward.\(rawValue)" }
         var forwardSymbol: String { "goforward.\(rawValue)" }
     }
@@ -72,7 +72,7 @@ final class AppSettings {
     enum Mode: String, CaseIterable, Identifiable {
         case music, video
         var id: Self { self }
-        var title: String { self == .music ? "Music" : "Video" }
+        var title: String { self == .music ? String(localized: "Music") : String(localized: "Video") }
         var systemImage: String { self == .music ? "music.note" : "play.rectangle.fill" }
     }
 
@@ -83,9 +83,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .on: "On"
-            case .wifiOnly: "Wi\u{2011}Fi Only"
-            case .off: "Off"
+            case .on: String(localized: "On")
+            case .wifiOnly: String(localized: "Wi\u{2011}Fi Only")
+            case .off: String(localized: "Off")
             }
         }
         /// Loops already kept play whatever the network; this is only about fetching new ones.
@@ -100,9 +100,9 @@ final class AppSettings {
         var id: Self { self }
         var title: String {
             switch self {
-            case .off: "Off"
-            case .translation: "Translation"
-            case .pronunciation: "Pronunciation"
+            case .off: String(localized: "Off")
+            case .translation: String(localized: "Translation")
+            case .pronunciation: String(localized: "Pronunciation")
             }
         }
         var systemImage: String {

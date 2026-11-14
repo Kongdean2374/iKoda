@@ -1,0 +1,29 @@
+import Foundation
+
+// Run against the unpacked IPA, in a fresh process with -AppleLanguages '(zh-Hant-TW)'.
+// This exercises Apple's locale fallback and compiled .strings/.stringsdict, not source catalogs.
+func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+    guard condition() else { fatalError(message) }
+}
+let path = CommandLine.arguments[1]
+guard let app = Bundle(path: path) else { fatalError("Cannot open packaged app: \(path)") }
+require(app.localizations.contains("zh-Hant"), "App lacks zh-Hant")
+require(app.developmentLocalization == "en", "English must remain the development language")
+require(app.preferredLocalizations.first == "zh-Hant", "zh-Hant-TW did not resolve to zh-Hant: \(app.preferredLocalizations)")
+require(app.localizedString(forKey: "Home", value: nil, table: nil) == "首頁", "Home did not load in Traditional Chinese")
+let permissions = app.localizedString(forKey: "NSMicrophoneUsageDescription", value: nil, table: "InfoPlist")
+require(permissions.contains("語音搜尋"), "Localized permission text is missing")
+guard let widget = Bundle(path: path + "/PlugIns/KodaWidgets.appex") else { fatalError("Missing widget extension") }
+require(widget.preferredLocalizations.first == "zh-Hant", "Widget locale fallback failed")
+require(widget.localizedString(forKey: "Quick Play", value: nil, table: nil) == "快速播放", "Widget translation missing")
+let enumerator = FileManager.default.enumerator(atPath: path)!
+var coreFound = false
+for case let relative as String in enumerator where relative.hasSuffix("KodaCore_KodaCore.bundle") {
+    guard let core = Bundle(path: path + "/" + relative) else { continue }
+    require(core.localizations.contains("zh-Hant"), "Core lacks zh-Hant")
+    require(core.preferredLocalizations.first == "zh-Hant", "Core locale fallback failed")
+    require(core.localizedString(forKey: "Bass Booster", value: nil, table: nil) == "低音增強", "Core translation missing")
+    coreFound = true
+}
+require(coreFound, "Packaged KodaCore resource bundle missing")
+print("PASS: packaged app, widget and KodaCore select zh-Hant for zh-Hant-TW; translated UI and permission strings load.")

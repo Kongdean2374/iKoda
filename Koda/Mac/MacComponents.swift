@@ -255,7 +255,7 @@ struct MacShelf<Content: View>: View {
         }
     }
 
-    private func pageButton(_ symbol: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func pageButton(_ symbol: String, help: LocalizedStringKey, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .bold))
@@ -459,7 +459,7 @@ struct MacPlayButtons: View {
             }
             .buttonStyle(.glassProminent)
             Button(action: shuffle) {
-                Label(shuffleTitle, systemImage: shuffleTitle == "Shuffle" ? "shuffle" : "dot.radiowaves.left.and.right")
+                Label(LocalizedStringKey(shuffleTitle), systemImage: shuffleTitle == "Shuffle" ? "shuffle" : "dot.radiowaves.left.and.right")
                     .padding(.horizontal, 6)
             }
             .buttonStyle(.glass)
@@ -703,7 +703,7 @@ private struct MacTrackRow: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
-            .help(liked ? "Remove from Liked" : "Like")
+            .help(liked ? String(localized: "Remove from Liked") : String(localized: "Like"))
         }
     }
 

@@ -35,11 +35,11 @@ struct HistoryView: View {
         Group {
             if Platform.isMac { macBody } else { phoneBody }
         }
-        .navigationTitle("History")
-        .confirmationDialog("Clear your listening history?", isPresented: $confirmsClear, titleVisibility: .visible) {
-            Button("Clear History", role: .destructive) { library.clearHistory() }
+        .navigationTitle(String(localized: "History"))
+        .confirmationDialog(String(localized: "Clear your listening history?"), isPresented: $confirmsClear, titleVisibility: .visible) {
+            Button(String(localized: "Clear History"), role: .destructive) { library.clearHistory() }
         } message: {
-            Text("Recently Played and Quick picks start over. Liked songs and stats stay.")
+            Text(String(localized: "Recently Played and Quick picks start over. Liked songs and stats stay."))
         }
     }
 
@@ -54,11 +54,11 @@ struct HistoryView: View {
                         }
                         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                         .swipeActions(edge: .leading) {
-                            Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([event.song]) }
+                            Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([event.song]) }
                                 .tint(.indigo)
                         }
                         .swipeActions(edge: .trailing) {
-                            Button("Remove", systemImage: "trash", role: .destructive) {
+                            Button(String(localized: "Remove"), systemImage: "trash", role: .destructive) {
                                 withAnimation { library.removeFromHistory(event) }
                             }
                         }
@@ -72,7 +72,7 @@ struct HistoryView: View {
         }
         .toolbar {
             if !library.history.isEmpty {
-                Button("Clear", role: .destructive) { confirmsClear = true }
+                Button(String(localized: "Clear"), role: .destructive) { confirmsClear = true }
             }
         }
     }
@@ -82,9 +82,9 @@ struct HistoryView: View {
         let all = library.history.map(\.song)
         return MacPage(spacing: 28) {
             MacCollectionHeader(
-                kind: "Library",
-                title: "History",
-                detail: all.isEmpty ? nil : (all.count == 1 ? "1 play" : "\(all.count) plays"),
+                kind: String(localized: "Library"),
+                title: String(localized: "History"),
+                detail: all.isEmpty ? nil : (all.count == 1 ? String(localized: "1 play") : String(localized: "\(all.count) plays")),
                 canPlay: !all.isEmpty,
                 play: { player.play(Array(all.prefix(200))) },
                 shuffle: { player.play(Array(all.prefix(200)), startAt: Int.random(in: 0..<max(min(all.count, 200), 1)), shuffled: true) }
@@ -92,7 +92,7 @@ struct HistoryView: View {
                 MacSymbolCover(systemImage: "clock.arrow.circlepath", tint: .orange, size: side)
             } actions: {
                 if !all.isEmpty {
-                    Button("Clear History", role: .destructive) { confirmsClear = true }
+                    Button(String(localized: "Clear History"), role: .destructive) { confirmsClear = true }
                         .buttonStyle(.glass)
                         .controlSize(.large)
                 }
@@ -106,7 +106,7 @@ struct HistoryView: View {
                         let songs = day.plays.map(\.song)
                         MacTrackList(songs: songs, showsAlbum: false, play: { player.play(songs, startAt: $0) }, rowMenu: { index in
                             let run = day.plays[index]
-                            return AnyView(Button(run.count > 1 ? "Remove \(run.count) Plays from History" : "Remove from History",
+                            return AnyView(Button(run.count > 1 ? String(localized: "Remove \(run.count) Plays from History") : String(localized: "Remove from History"),
                                                   systemImage: "trash", role: .destructive) {
                                 library.removeFromHistory(run)
                             })
@@ -121,16 +121,16 @@ struct HistoryView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView("Nothing Played Yet", systemImage: "clock.arrow.circlepath",
+        ContentUnavailableView(String(localized: "Nothing Played Yet"), systemImage: "clock.arrow.circlepath",
                                description: Text(app.settings.savesListeningHistory
-                                                 ? "Each song you play appears here, under the day you played it."
-                                                 : "Listening history is off, so songs you play aren't kept."))
+                                                 ? String(localized: "Each song you play appears here, under the day you played it.")
+                                                 : String(localized: "Listening history is off, so songs you play aren't kept.")))
     }
 
     private static func title(for day: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(day) { return "Today" }
-        if calendar.isDateInYesterday(day) { return "Yesterday" }
+        if calendar.isDateInToday(day) { return String(localized: "Today") }
+        if calendar.isDateInYesterday(day) { return String(localized: "Yesterday") }
         let sameYear = calendar.isDate(day, equalTo: .now, toGranularity: .year)
         return day.formatted(sameYear ? .dateTime.weekday(.wide).day().month(.wide) : .dateTime.day().month(.wide).year())
     }

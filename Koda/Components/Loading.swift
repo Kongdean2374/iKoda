@@ -17,13 +17,13 @@ extension Error {
     /// What a listener is told when something did not load.
     var friendlyMessage: String {
         switch self as? MusicError {
-        case .network: "Check your connection and try again."
-        case .botCheck: "YouTube is refusing requests right now. Try again in a little while."
-        case .unplayable(let reason): reason ?? "This isn't available."
-        case .badResponse: "YouTube sent something unexpected. Try again."
-        case .signedOut: "YouTube signed this account out. Sign in again to continue."
-        case .rateLimited: "YouTube is asking Koda to slow down. Try again in a few minutes."
-        case nil: "Something went wrong. Try again."
+        case .network: String(localized: "Check your connection and try again.")
+        case .botCheck: String(localized: "YouTube is refusing requests right now. Try again in a little while.")
+        case .unplayable(let reason): reason ?? String(localized: "This isn't available.")
+        case .badResponse: String(localized: "YouTube sent something unexpected. Try again.")
+        case .signedOut: String(localized: "YouTube signed this account out. Sign in again to continue.")
+        case .rateLimited: String(localized: "YouTube is asking Koda to slow down. Try again in a few minutes.")
+        case nil: String(localized: "Something went wrong. Try again.")
         }
     }
 }
@@ -83,7 +83,7 @@ struct PlayShuffleButtons: View {
                 taps += 1
                 shuffle()
             } label: {
-                Label(shuffleTitle, systemImage: shuffleTitle == "Shuffle" ? "shuffle" : "dot.radiowaves.left.and.right")
+                Label(LocalizedStringKey(shuffleTitle), systemImage: shuffleTitle == "Shuffle" ? "shuffle" : "dot.radiowaves.left.and.right")
                     .frame(maxWidth: .infinity)
             }
         }

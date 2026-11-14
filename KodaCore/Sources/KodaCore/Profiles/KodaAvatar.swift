@@ -125,18 +125,18 @@ extension KodaAvatar {
     /// the same peach face in light mode, dark mode and under an album's
     /// colours. Appended to, never reordered: the index is stored.
     public static let colorways: [Colorway] = [
-        Colorway(name: "Peach", fill: RGB(0xFFD8C2), ink: RGB(0x5A2E1F), blush: RGB(0xFF8A65)),
-        Colorway(name: "Mint", fill: RGB(0xC8F2DC), ink: RGB(0x1F4D3A), blush: RGB(0x5CCB95)),
-        Colorway(name: "Lilac", fill: RGB(0xE3D4FF), ink: RGB(0x3B2A66), blush: RGB(0xA98BFF)),
-        Colorway(name: "Sky", fill: RGB(0xCFE8FF), ink: RGB(0x1D3C5C), blush: RGB(0x6FB3F2)),
-        Colorway(name: "Butter", fill: RGB(0xFFF0B8), ink: RGB(0x5C4A12), blush: RGB(0xF2B63C)),
-        Colorway(name: "Rose", fill: RGB(0xFFD3E0), ink: RGB(0x5E2238), blush: RGB(0xFF7FA5)),
-        Colorway(name: "Teal", fill: RGB(0xBFEDEA), ink: RGB(0x12474A), blush: RGB(0x45C1BC)),
-        Colorway(name: "Coral", fill: RGB(0xFFC9C2), ink: RGB(0x5C211B), blush: RGB(0xFF7961)),
-        Colorway(name: "Moss", fill: RGB(0xDDEBC0), ink: RGB(0x34451A), blush: RGB(0x9BC253)),
-        Colorway(name: "Sand", fill: RGB(0xF0E2CF), ink: RGB(0x4A3B2A), blush: RGB(0xD9A066)),
-        Colorway(name: "Dusk", fill: RGB(0x2E2A3D), ink: RGB(0xF3EEFF), blush: RGB(0x8E7CC3)),
-        Colorway(name: "Night", fill: RGB(0x1F2A44), ink: RGB(0xE8F0FF), blush: RGB(0x5B8DEF)),
+        Colorway(name: NSLocalizedString("Peach", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xFFD8C2), ink: RGB(0x5A2E1F), blush: RGB(0xFF8A65)),
+        Colorway(name: NSLocalizedString("Mint", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xC8F2DC), ink: RGB(0x1F4D3A), blush: RGB(0x5CCB95)),
+        Colorway(name: NSLocalizedString("Lilac", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xE3D4FF), ink: RGB(0x3B2A66), blush: RGB(0xA98BFF)),
+        Colorway(name: NSLocalizedString("Sky", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xCFE8FF), ink: RGB(0x1D3C5C), blush: RGB(0x6FB3F2)),
+        Colorway(name: NSLocalizedString("Butter", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xFFF0B8), ink: RGB(0x5C4A12), blush: RGB(0xF2B63C)),
+        Colorway(name: NSLocalizedString("Rose", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xFFD3E0), ink: RGB(0x5E2238), blush: RGB(0xFF7FA5)),
+        Colorway(name: NSLocalizedString("Teal", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xBFEDEA), ink: RGB(0x12474A), blush: RGB(0x45C1BC)),
+        Colorway(name: NSLocalizedString("Coral", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xFFC9C2), ink: RGB(0x5C211B), blush: RGB(0xFF7961)),
+        Colorway(name: NSLocalizedString("Moss", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xDDEBC0), ink: RGB(0x34451A), blush: RGB(0x9BC253)),
+        Colorway(name: NSLocalizedString("Sand", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0xF0E2CF), ink: RGB(0x4A3B2A), blush: RGB(0xD9A066)),
+        Colorway(name: NSLocalizedString("Dusk", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0x2E2A3D), ink: RGB(0xF3EEFF), blush: RGB(0x8E7CC3)),
+        Colorway(name: NSLocalizedString("Night", bundle: KodaLocalization.bundle, comment: ""), fill: RGB(0x1F2A44), ink: RGB(0xE8F0FF), blush: RGB(0x5B8DEF)),
     ]
 }
 

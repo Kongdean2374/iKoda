@@ -96,7 +96,7 @@ struct QuickPlayView: View {
         .containerBackground(for: .widget) { background }
     }
 
-    private func tile(_ title: String, systemImage: String, intent: some AppIntent) -> some View {
+    private func tile(_ title: LocalizedStringKey, systemImage: String, intent: some AppIntent) -> some View {
         Button(intent: intent) {
             VStack(alignment: .leading, spacing: 0) {
                 Image(systemName: systemImage)
@@ -105,6 +105,7 @@ struct QuickPlayView: View {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundStyle(.white)
             .padding(12)

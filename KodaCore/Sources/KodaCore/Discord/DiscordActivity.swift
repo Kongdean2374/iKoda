@@ -125,8 +125,8 @@ struct DiscordActivity: Encodable, Equatable, Sendable {
         }
         // Buttons are plain links and can't open Koda, so the label says where the tap goes.
         var buttons: [Button] = []
-        if let songURL { buttons.append(Button(label: "Listen on YouTube Music", url: songURL)) }
-        buttons.append(Button(label: "Get Koda", url: Self.releasesURL))
+        if let songURL { buttons.append(Button(label: NSLocalizedString("Listen on YouTube Music", bundle: KodaLocalization.bundle, comment: ""), url: songURL)) }
+        buttons.append(Button(label: NSLocalizedString("Get Koda", bundle: KodaLocalization.bundle, comment: ""), url: Self.releasesURL))
         self.buttons = buttons
     }
 
@@ -247,7 +247,7 @@ enum DiscordIPC {
         if event == "ERROR" {
             let data = json["data"] as? [String: Any]
             let code = (data?["code"] as? NSNumber).map { " (\($0))" } ?? ""
-            return .error(nonce: nonce, message: (data?["message"] as? String ?? "Unknown error") + code)
+            return .error(nonce: nonce, message: (data?["message"] as? String ?? NSLocalizedString("Unknown error", bundle: KodaLocalization.bundle, comment: "")) + code)
         }
         return json["cmd"] != nil ? .success(nonce: nonce) : .other
     }

@@ -64,7 +64,7 @@ struct VideoThumbnail: View {
     @ViewBuilder
     private var badge: some View {
         if video.isLive {
-            Label("Live", systemImage: "dot.radiowaves.left.and.right")
+            Label(String(localized: "Live"), systemImage: "dot.radiowaves.left.and.right")
                 .labelStyle(.titleAndIcon)
                 .font(.caption2.weight(.bold))
                 .padding(.horizontal, 6)
@@ -165,9 +165,9 @@ struct VideoMenuItems: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        ShareLink(item: video.watchURL, subject: Text(video.title)) { Label("Share", systemImage: "square.and.arrow.up") }
+        ShareLink(item: video.watchURL, subject: Text(video.title)) { Label(String(localized: "Share"), systemImage: "square.and.arrow.up") }
         if let channel = video.channel, let id = channel.id {
-            Button("Go to Channel", systemImage: "person.crop.square") { app.open(.channel(id: id, name: channel.name)) }
+            Button(String(localized: "Go to Channel"), systemImage: "person.crop.square") { app.open(.channel(id: id, name: channel.name)) }
         }
     }
 }
@@ -175,7 +175,7 @@ struct VideoMenuItems: View {
 extension Video {
     /// The stand-ins a feed draws, redacted, while it loads.
     static let placeholders = (0..<8).map {
-        Video(id: "placeholder-\($0)", title: "A video title that runs to two lines", channel: ChannelRef(id: nil, name: "Channel name"),
-              views: "1.2M views", published: "2 days ago")
+        Video(id: "placeholder-\($0)", title: String(localized: "A video title that runs to two lines"), channel: ChannelRef(id: nil, name: String(localized: "Channel name")),
+              views: String(localized: "1.2M views"), published: String(localized: "2 days ago"))
     }
 }

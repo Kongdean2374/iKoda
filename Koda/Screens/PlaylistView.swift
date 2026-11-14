@@ -23,7 +23,7 @@ struct PlaylistView: View {
         let title = state.value?.playlist.title ?? summary.title
         return MacPage(spacing: 28) {
             MacCollectionHeader(
-                kind: "Playlist",
+                kind: String(localized: "Playlist"),
                 title: title,
                 byline: state.value?.author ?? summary.subtitle,
                 detail: state.value?.detailLine,
@@ -55,24 +55,24 @@ struct PlaylistView: View {
     @ViewBuilder
     private var macActions: some View {
         let saved = library.isSaved(playlist: summary.id)
-        Button(saved ? "Remove from Library" : "Add to Library", systemImage: saved ? "checkmark" : "plus") {
+        Button(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"), systemImage: saved ? "checkmark" : "plus") {
             library.toggleSave(state.value?.playlist ?? summary)
         }
         .buttonStyle(MacIconButtonStyle())
-        .help(saved ? "Remove from Library" : "Add to Library")
+        .help(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"))
         if !songs.isEmpty {
             DownloadButton(songs: songs, allSongs: allSongs)
                 .buttonStyle(MacIconButtonStyle())
         }
         MacMoreMenu {
             if !songs.isEmpty {
-                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
-                Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
+                Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
                 AddToPlaylistMenu(songs: songs)
             }
             PinMenuItem(pin: .playlist(summary))
             ShareLink(item: URL(string: "https://music.youtube.com/playlist?list=\(summary.id)")!) {
-                Label("Share", systemImage: "square.and.arrow.up")
+                Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
             }
         }
     }
@@ -113,7 +113,7 @@ struct PlaylistView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 let saved = library.isSaved(playlist: summary.id)
-                Button(saved ? "Remove from Library" : "Add to Library", systemImage: saved ? "checkmark" : "plus") {
+                Button(saved ? String(localized: "Remove from Library") : String(localized: "Add to Library"), systemImage: saved ? "checkmark" : "plus") {
                     library.toggleSave(state.value?.playlist ?? summary)
                 }
                 .sensoryFeedback(.success, trigger: saved)
@@ -124,15 +124,15 @@ struct PlaylistView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Menu("More", systemImage: "ellipsis") {
+                Menu(String(localized: "More"), systemImage: "ellipsis") {
                     if !songs.isEmpty {
-                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
-                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
                         AddToPlaylistMenu(songs: songs)
                     }
                     PinMenuItem(pin: .playlist(summary))
                     ShareLink(item: URL(string: "https://music.youtube.com/playlist?list=\(summary.id)")!) {
-                        Label("Share", systemImage: "square.and.arrow.up")
+                        Label(String(localized: "Share"), systemImage: "square.and.arrow.up")
                     }
                 }
             }

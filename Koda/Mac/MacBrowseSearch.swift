@@ -13,13 +13,13 @@ struct MacBrowseView: View {
 
     var body: some View {
         MacPage {
-            MacPageTitle(title: "Browse")
+            MacPageTitle(title: String(localized: "Browse"))
             if !library.searches.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        MacSectionTitle(title: "Recent searches")
+                        MacSectionTitle(title: String(localized: "Recent searches"))
                         Spacer()
-                        Button("Clear") { library.clearSearches() }
+                        Button(String(localized: "Clear")) { library.clearSearches() }
                             .buttonStyle(.plain)
                             .foregroundStyle(Color.accentColor)
                     }
@@ -32,7 +32,7 @@ struct MacBrowseView: View {
                             .buttonStyle(.glass)
                             .buttonBorderShape(.capsule)
                             .contextMenu {
-                                Button("Remove", systemImage: "trash", role: .destructive) { library.removeSearch(query) }
+                                Button(String(localized: "Remove"), systemImage: "trash", role: .destructive) { library.removeSearch(query) }
                             }
                         }
                     }
@@ -43,7 +43,7 @@ struct MacBrowseView: View {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 200)
             } else {
                 VStack(alignment: .leading, spacing: 14) {
-                    MacSectionTitle(title: "Moods & genres")
+                    MacSectionTitle(title: String(localized: "Moods & genres"))
                         .padding(.horizontal, MacMetrics.gutter)
                     MacGrid(items: search.moods, minimum: 200) { mood, _ in
                         NavigationLink(value: Route.mood(mood)) {
@@ -54,7 +54,7 @@ struct MacBrowseView: View {
                 }
             }
         }
-        .navigationTitle("Browse")
+        .navigationTitle(String(localized: "Browse"))
         .task { await search.loadMoods(music: app.music) }
     }
 }
@@ -122,18 +122,18 @@ struct MacSearchResultsView: View {
 
     var body: some View {
         MacPage(spacing: 32) {
-            MacPageTitle(title: model.submitted ?? "Search", subtitle: "Results for") {
+            MacPageTitle(title: model.submitted ?? String(localized: "Search"), subtitle: String(localized: "Results for")) {
                 // Where to look, as Music's search page offers Apple Music or the library.
                 HStack(spacing: 12) {
-                    Picker("Search In", selection: $model.scope) {
-                        Text("YouTube Music").tag(SearchModel.Scope.catalog)
-                        Text("Your Library").tag(SearchModel.Scope.library)
+                    Picker(String(localized: "Search In"), selection: $model.scope) {
+                        Text(String(localized: "YouTube Music")).tag(SearchModel.Scope.catalog)
+                        Text(String(localized: "Your Library")).tag(SearchModel.Scope.library)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .fixedSize()
                     if model.scope == .catalog {
-                        Picker("Show", selection: $model.filter) {
+                        Picker(String(localized: "Show"), selection: $model.filter) {
                             ForEach(SearchFilter.allCases) { Text($0.title).tag($0) }
                         }
                         .labelsHidden()
@@ -154,7 +154,7 @@ struct MacSearchResultsView: View {
                 }
             }
         }
-        .navigationTitle("Search")
+        .navigationTitle(String(localized: "Search"))
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onChange(of: model.filter) { Task { await model.run(music: app.music) } }
     }
@@ -181,7 +181,7 @@ struct MacSearchResultsView: View {
         layout {
             if let top = found.top {
                 VStack(alignment: .leading, spacing: 12) {
-                    MacSectionTitle(title: "Top result")
+                    MacSectionTitle(title: String(localized: "Top result"))
                     MacTopResult(item: top, songs: found.topSongs)
                 }
                 .frame(width: wide ? 380 : nil)
@@ -189,7 +189,7 @@ struct MacSearchResultsView: View {
             }
             if !songs.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    MacSectionTitle(title: "Songs")
+                    MacSectionTitle(title: String(localized: "Songs"))
                         .padding(.leading, 6)
                     VStack(spacing: 2) {
                         ForEach(songs) { song in
@@ -203,16 +203,16 @@ struct MacSearchResultsView: View {
         .padding(.horizontal, MacMetrics.gutter)
 
         if !found.albums.isEmpty {
-            MacShelf(title: "Albums") { ForEach(found.albums) { MacItemCard(item: .album($0)) } }
+            MacShelf(title: String(localized: "Albums")) { ForEach(found.albums) { MacItemCard(item: .album($0)) } }
         }
         if !found.artists.isEmpty {
-            MacShelf(title: "Artists") { ForEach(found.artists) { MacArtistCard(artist: $0) } }
+            MacShelf(title: String(localized: "Artists")) { ForEach(found.artists) { MacArtistCard(artist: $0) } }
         }
         if !found.playlists.isEmpty {
-            MacShelf(title: "Playlists") { ForEach(found.playlists) { MacItemCard(item: .playlist($0)) } }
+            MacShelf(title: String(localized: "Playlists")) { ForEach(found.playlists) { MacItemCard(item: .playlist($0)) } }
         }
         if !found.videos.isEmpty {
-            MacShelf(title: "Videos") { ForEach(found.videos) { MacItemCard(item: .song($0)) } }
+            MacShelf(title: String(localized: "Videos")) { ForEach(found.videos) { MacItemCard(item: .song($0)) } }
         }
     }
 }
@@ -266,10 +266,10 @@ private struct MacTopResult: View {
 
     private var kind: String {
         switch item {
-        case .artist(let a): ["Artist", a.subtitle].compactMap { $0 }.joined(separator: " · ")
+        case .artist(let a): [String(localized: "Artist"), a.subtitle].compactMap { $0 }.joined(separator: " · ")
         case .album(let a): a.cardSubtitle
-        case .playlist(let p): ["Playlist", p.subtitle].compactMap { $0 }.joined(separator: " · ")
-        case .song(let s): ["Song", s.artistLine].joined(separator: " · ")
+        case .playlist(let p): [String(localized: "Playlist"), p.subtitle].compactMap { $0 }.joined(separator: " · ")
+        case .song(let s): [String(localized: "Song"), s.artistLine].joined(separator: " · ")
         }
     }
 }
@@ -286,16 +286,16 @@ struct MacLibraryGrid: View {
 
     private var title: String {
         switch kind {
-        case .albums: "Albums"
-        case .playlists: "Playlists"
-        case .artists: "Artists"
+        case .albums: String(localized: "Albums")
+        case .playlists: String(localized: "Playlists")
+        case .artists: String(localized: "Artists")
         }
     }
 
     var body: some View {
         MacPage(spacing: 24) {
-            MacPageTitle(title: title, subtitle: "Library") {
-                Picker("Sort By", selection: $sort) {
+            MacPageTitle(title: title, subtitle: String(localized: "Library")) {
+                Picker(String(localized: "Sort By"), selection: $sort) {
                     ForEach(LibrarySort.allCases) { Text($0.title).tag($0) }
                 }
                 .fixedSize()
@@ -303,21 +303,21 @@ struct MacLibraryGrid: View {
             switch kind {
             case .albums:
                 if library.albums.isEmpty {
-                    empty("No Albums", "square.stack", "Add albums with the + button on their pages.")
+                    empty(String(localized: "No Albums"), "square.stack", String(localized: "Add albums with the + button on their pages."))
                 } else {
                     MacGrid(items: sortedAlbums) { album, side in MacItemCard(item: .album(album), width: side) }
                 }
             case .playlists:
                 if library.playlists.isEmpty && library.userPlaylists.isEmpty {
-                    empty("No Playlists", "music.note.list", "Make one with New Playlist in the sidebar, or add playlists with the + button on their pages.")
+                    empty(String(localized: "No Playlists"), "music.note.list", String(localized: "Make one with New Playlist in the sidebar, or add playlists with the + button on their pages."))
                 } else {
                     if !library.userPlaylists.isEmpty {
-                        MacSectionTitle(title: "Your Playlists")
+                        MacSectionTitle(title: String(localized: "Your Playlists"))
                             .padding(.horizontal, MacMetrics.gutter)
                         MacGrid(items: sortedUserPlaylists) { playlist, side in
                             NavigationLink(value: Route.userPlaylist(playlist.id)) {
                                 MacCoverCard(title: playlist.name,
-                                             subtitle: playlist.songs.count == 1 ? "1 song" : "\(playlist.songs.count) songs",
+                                             subtitle: playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"),
                                              width: side,
                                              onPlay: playlist.songs.isEmpty ? nil : { player.play(playlist.songs) }) {
                                     PlaylistCover(playlist: playlist, size: side, cornerRadius: 10)
@@ -327,7 +327,7 @@ struct MacLibraryGrid: View {
                         }
                     }
                     if !library.playlists.isEmpty {
-                        MacSectionTitle(title: "Saved Playlists")
+                        MacSectionTitle(title: String(localized: "Saved Playlists"))
                             .padding(.horizontal, MacMetrics.gutter)
                             .padding(.top, library.userPlaylists.isEmpty ? 0 : 12)
                         MacGrid(items: sortedPlaylists) { playlist, side in MacItemCard(item: .playlist(playlist), width: side) }
@@ -335,7 +335,7 @@ struct MacLibraryGrid: View {
                 }
             case .artists:
                 if library.artists.isEmpty {
-                    empty("No Artists", "music.mic", "Add artists with the + button on their pages.")
+                    empty(String(localized: "No Artists"), "music.mic", String(localized: "Add artists with the + button on their pages."))
                 } else {
                     MacGrid(items: sortedArtists, minimum: MacMetrics.artistCard) { artist, side in MacArtistCard(artist: artist, width: side) }
                 }
@@ -400,7 +400,7 @@ struct MacSearchSuggestions: View {
                 if let link = YouTubeLink(text: query) {
                     row(link.openTitle, systemImage: "link", prominent: true) { submit(query) }
                 } else {
-                    row("Search for “\(text)”", systemImage: "magnifyingglass", prominent: true) { submit(text) }
+                    row(String(localized: "Search for “\(text)”"), systemImage: "magnifyingglass", prominent: true) { submit(text) }
                 }
                 ForEach(suggestions.filter { $0.caseInsensitiveCompare(text) != .orderedSame }, id: \.self) { suggestion in
                     row(suggestion, systemImage: "magnifyingglass") { submit(suggestion) }
@@ -409,7 +409,7 @@ struct MacSearchSuggestions: View {
             .padding(.horizontal, MacMetrics.gutter - 10)
             if !songs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    MacSectionTitle(title: "In Your Library")
+                    MacSectionTitle(title: String(localized: "In Your Library"))
                         .padding(.horizontal, MacMetrics.gutter)
                     VStack(spacing: 2) {
                         ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in

@@ -82,9 +82,9 @@ struct DownloadButton: View {
         }
         .disabled(songs.isEmpty)
         .sensoryFeedback(.start, trigger: started)
-        .confirmationDialog(state == .downloaded ? "Remove these downloads?" : "Stop downloading?",
+        .confirmationDialog(state == .downloaded ? String(localized: "Remove these downloads?") : String(localized: "Stop downloading?"),
                             isPresented: $confirmsRemoval, titleVisibility: .visible) {
-            Button(state == .downloaded ? "Remove Downloads" : "Stop and Remove", role: .destructive) {
+            Button(state == .downloaded ? String(localized: "Remove Downloads") : String(localized: "Stop and Remove"), role: .destructive) {
                 downloads.remove(songs)
             }
         } message: {
@@ -100,9 +100,9 @@ struct DownloadButton: View {
 
     private func label(_ state: Downloads.State) -> String {
         switch state {
-        case .none: "Download"
-        case .waiting, .downloading: "Downloading"
-        case .downloaded: "Downloaded"
+        case .none: String(localized: "Download")
+        case .waiting, .downloading: String(localized: "Downloading")
+        case .downloaded: String(localized: "Downloaded")
         }
     }
 }

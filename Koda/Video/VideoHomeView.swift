@@ -25,7 +25,7 @@ struct VideoHomeView: View {
             }
             .padding(.vertical, 8)
         }
-        .navigationTitle(feed.kind == .subscriptions ? "Subscriptions" : "Videos")
+        .navigationTitle(feed.kind == .subscriptions ? String(localized: "Subscriptions") : String(localized: "Videos"))
         .refreshable { await load(feed) }
         .task { if feed.needsLoad { await load(feed) } }
         .toolbar {
@@ -46,17 +46,17 @@ struct VideoHomeView: View {
                 .loadingPlaceholder()
         case .failed(let message):
             ContentUnavailableView {
-                Label("Couldn't Load Videos", systemImage: "wifi.exclamationmark")
+                Label(String(localized: "Couldn't Load Videos"), systemImage: "wifi.exclamationmark")
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await load(model) } }.buttonStyle(.glass)
+                Button(String(localized: "Try Again")) { Task { await load(model) } }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, minHeight: 360)
         case .loaded(let videos):
             if videos.isEmpty {
-                ContentUnavailableView("Nothing Here Yet", systemImage: "play.rectangle",
-                                       description: Text(model.kind == .subscriptions ? "Videos from channels you subscribe to appear here." : "Search for something to watch."))
+                ContentUnavailableView(String(localized: "Nothing Here Yet"), systemImage: "play.rectangle",
+                                       description: Text(model.kind == .subscriptions ? String(localized: "Videos from channels you subscribe to appear here.") : String(localized: "Search for something to watch.")))
                     .frame(maxWidth: .infinity, minHeight: 360)
             } else {
                 ForEach(videos) { video in
@@ -80,14 +80,14 @@ struct VideoHomeView: View {
 
     private var macBody: some View {
         MacPage {
-            MacPageTitle(title: feed.kind == .subscriptions ? "Subscriptions" : "Videos") {
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await load(feed) } }
+            MacPageTitle(title: feed.kind == .subscriptions ? String(localized: "Subscriptions") : String(localized: "Videos")) {
+                Button(String(localized: "Refresh"), systemImage: "arrow.clockwise") { Task { await load(feed) } }
                     .labelStyle(.iconOnly)
                     .keyboardShortcut("r", modifiers: .command)
             }
             VideoGrid(model: feed) { await load(feed) }
         }
-        .navigationTitle(feed.kind == .subscriptions ? "Subscriptions" : "Videos")
+        .navigationTitle(feed.kind == .subscriptions ? String(localized: "Subscriptions") : String(localized: "Videos"))
         .task { if feed.needsLoad { await load(feed) } }
     }
 
@@ -110,17 +110,17 @@ struct VideoGrid: View {
             VideoCardGrid(videos: Video.placeholders).loadingPlaceholder()
         case .failed(let message):
             ContentUnavailableView {
-                Label("Couldn't Load Videos", systemImage: "wifi.exclamationmark")
+                Label(String(localized: "Couldn't Load Videos"), systemImage: "wifi.exclamationmark")
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await retry() } }.buttonStyle(.glass)
+                Button(String(localized: "Try Again")) { Task { await retry() } }.buttonStyle(.glass)
             }
             .frame(maxWidth: .infinity, minHeight: 320)
         case .loaded(let videos):
             if videos.isEmpty {
-                ContentUnavailableView("Nothing Here Yet", systemImage: "play.rectangle",
-                                       description: Text(model.kind == .subscriptions ? "Videos from channels you subscribe to appear here." : "Search YouTube from the toolbar."))
+                ContentUnavailableView(String(localized: "Nothing Here Yet"), systemImage: "play.rectangle",
+                                       description: Text(model.kind == .subscriptions ? String(localized: "Videos from channels you subscribe to appear here.") : String(localized: "Search YouTube from the toolbar.")))
                     .frame(maxWidth: .infinity, minHeight: 320)
             } else {
                 VideoCardGrid(videos: videos)
@@ -151,7 +151,7 @@ struct VideoCardGrid: View {
                 .contextMenu {
                     VideoMenuItems(video: video)
                     if let remove {
-                        Button("Remove from Watched", systemImage: "trash", role: .destructive) { remove(video) }
+                        Button(String(localized: "Remove from Watched"), systemImage: "trash", role: .destructive) { remove(video) }
                     }
                 }
             }
@@ -175,9 +175,9 @@ struct RecentlyWatchedShelf: View {
 
     var body: some View {
         if Platform.isMac {
-            MacShelf(title: "Recently Watched", seeAll: .watched) { cards(width: 260) }
+            MacShelf(title: String(localized: "Recently Watched"), seeAll: .watched) { cards(width: 260) }
         } else {
-            ShelfView(title: "Recently Watched", seeAll: .watched) { cards(width: 220) }
+            ShelfView(title: String(localized: "Recently Watched"), seeAll: .watched) { cards(width: 220) }
         }
     }
 
@@ -204,12 +204,12 @@ struct VideoSearchResultsView: View {
                 .loadingPlaceholder()
         case .failed(let message):
             ContentUnavailableView {
-                Label("Couldn't Search", systemImage: "wifi.exclamationmark")
+                Label(String(localized: "Couldn't Search"), systemImage: "wifi.exclamationmark")
             } description: {
                 Text(message)
             } actions: {
                 if let query = model.submitted {
-                    Button("Try Again") { Task { await model.search(query, music: app.music) } }.buttonStyle(.glass)
+                    Button(String(localized: "Try Again")) { Task { await model.search(query, music: app.music) } }.buttonStyle(.glass)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 320)

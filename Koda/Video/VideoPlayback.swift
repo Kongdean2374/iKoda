@@ -223,7 +223,7 @@ final class VideoPlayback {
             } catch is CancellationError {
             } catch {
                 guard current?.id == video.id else { return }
-                self.error = (error as? MusicError).map(Self.message) ?? "This video couldn't be played."
+                self.error = (error as? MusicError).map(Self.message) ?? String(localized: "This video couldn't be played.")
             }
         }
     }
@@ -484,10 +484,10 @@ final class VideoPlayback {
 
     private static func message(_ error: MusicError) -> String {
         switch error {
-        case .unplayable(let reason): reason ?? "This video isn't available."
-        case .network: "Couldn't connect. Check your connection and try again."
-        case .botCheck: "YouTube is asking Koda to wait a moment. Try again shortly."
-        default: "This video couldn't be played."
+        case .unplayable(let reason): reason ?? String(localized: "This video isn't available.")
+        case .network: String(localized: "Couldn't connect. Check your connection and try again.")
+        case .botCheck: String(localized: "YouTube is asking Koda to wait a moment. Try again shortly.")
+        default: String(localized: "This video couldn't be played.")
         }
     }
 

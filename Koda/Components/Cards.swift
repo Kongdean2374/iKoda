@@ -66,7 +66,7 @@ struct ArtistCard: View {
 extension AlbumSummary {
     /// "Album · 2020", "Single · The Weeknd".
     var cardSubtitle: String {
-        [kind?.rawValue, artistLine.isEmpty ? year.map(String.init) : artistLine].compactMap { $0 }.joined(separator: " · ")
+        [kind?.title, artistLine.isEmpty ? year.map(String.init) : artistLine].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

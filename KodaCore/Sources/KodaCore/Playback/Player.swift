@@ -609,13 +609,13 @@ public final class Player {
         switch error as? MusicError {
         case .unplayable:
             // A verdict on this video; the rest of the queue is fine.
-            skipBroken(item, message: "This song isn't available")
+            skipBroken(item, message: NSLocalizedString("This song isn't available", bundle: KodaLocalization.bundle, comment: ""))
         case .botCheck:
-            phase = .failed("YouTube is refusing playback right now. Try again in a little while.")
+            phase = .failed(NSLocalizedString("YouTube is refusing playback right now. Try again in a little while.", bundle: KodaLocalization.bundle, comment: ""))
             isBuffering = false
             wantsToPlay = false
         default:
-            phase = .failed("Couldn't load this song. Check your connection and try again.")
+            phase = .failed(NSLocalizedString("Couldn't load this song. Check your connection and try again.", bundle: KodaLocalization.bundle, comment: ""))
             isBuffering = false
             wantsToPlay = false
         }
@@ -1436,7 +1436,7 @@ public final class Player {
         // Silence whatever AVQueuePlayer moved on to while this one reloads.
         avPlayer.pause()
         guard retried.insert(id).inserted else {
-            skipBroken(current, message: "This song stopped loading")
+            skipBroken(current, message: NSLocalizedString("This song stopped loading", bundle: KodaLocalization.bundle, comment: ""))
             return
         }
         generation += 1

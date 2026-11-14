@@ -137,7 +137,7 @@ actor StreamResolver {
         // OK without streamingData is the bot check's other signature.
         guard root["streamingData"].exists else { return .refused }
         guard let stream = Self.pickAudio(root, videoId: videoId) else {
-            throw MusicError.unplayable("No playable audio")
+            throw MusicError.unplayable(NSLocalizedString("No playable audio", bundle: KodaLocalization.bundle, comment: ""))
         }
         let choices = Choices(best: stream, light: Self.pickAudio(root, videoId: videoId, quality: .dataSaver) ?? stream)
         if await identity.isVetted(token) { return .stream(choices) }

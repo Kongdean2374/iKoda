@@ -91,12 +91,12 @@ private struct WelcomePage: View {
                 .padding(.top, 48)
 
                 VStack(alignment: .leading, spacing: 26) {
-                    WelcomeFeature(systemImage: "sparkles.rectangle.stack", title: "Made From What You Love",
-                                   detail: "Your Mix and Quick picks come from your own listening, starting with a few artists you pick.")
-                    WelcomeFeature(systemImage: "person.crop.circle.badge.checkmark", title: "Your YouTube Music",
-                                   detail: "Sign in to bring your likes, playlists and Home, and keep them in step.")
-                    WelcomeFeature(systemImage: "person.2", title: "A Profile for Everyone",
-                                   detail: "Each person gets their own library, history and Home on this \(Platform.isMac ? "Mac" : "iPhone").")
+                    WelcomeFeature(systemImage: "sparkles.rectangle.stack", title: String(localized: "Made From What You Love"),
+                                   detail: String(localized: "Your Mix and Quick picks come from your own listening, starting with a few artists you pick."))
+                    WelcomeFeature(systemImage: "person.crop.circle.badge.checkmark", title: String(localized: "Your YouTube Music"),
+                                   detail: String(localized: "Sign in to bring your likes, playlists and Home, and keep them in step."))
+                    WelcomeFeature(systemImage: "person.2", title: String(localized: "A Profile for Everyone"),
+                                   detail: String(localized: "Each person gets their own library, history and Home on this \(Platform.isMac ? "Mac" : "iPhone")."))
                 }
                 .padding(.horizontal, 8)
             }
@@ -106,7 +106,7 @@ private struct WelcomePage: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .safeAreaBar(edge: .bottom) {
-            OnboardingButton("Continue", action: next)
+            OnboardingButton(String(localized: "Continue"), action: next)
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -156,12 +156,12 @@ private struct OnboardingAccountPage: View {
                     .contentTransition(.symbolEffect(.replace))
                     .padding(.top, 32)
                     .accessibilityHidden(true)
-                Text(profile.isSignedIn ? "You're Signed In" : "Bring Your YouTube Music")
+                Text(profile.isSignedIn ? String(localized: "You're Signed In") : String(localized: "Bring Your YouTube Music"))
                     .font(.largeTitle.bold())
                     .multilineTextAlignment(.center)
                 Text(profile.isSignedIn
-                     ? "Your likes, playlists and saved albums are coming in now, and stay in step from here on."
-                     : "Sign in to bring your likes, playlists and Home to Koda. Google's own page handles the sign-in; Koda never sees your password.")
+                     ? String(localized: "Your likes, playlists and saved albums are coming in now, and stay in step from here on.")
+                     : String(localized: "Sign in to bring your likes, playlists and Home to Koda. Google's own page handles the sign-in; Koda never sees your password."))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
@@ -213,7 +213,7 @@ private struct OnboardingAccountPage: View {
         .safeAreaBar(edge: .bottom) {
             VStack(spacing: 6) {
                 if profile.isSignedIn {
-                    OnboardingButton("Continue", action: next)
+                    OnboardingButton(String(localized: "Continue"), action: next)
                 } else {
                     NavigationLink {
                         YouTubeSignInView(into: profile.id)
@@ -251,7 +251,7 @@ private struct OnboardingDonePage: View {
                 .symbolRenderingMode(.hierarchical)
                 .symbolEffect(.bounce, value: appeared)
                 .accessibilityHidden(true)
-            Text(isFirstLaunch ? "You're All Set" : "Taste Updated")
+            Text(isFirstLaunch ? String(localized: "You're All Set") : String(localized: "Taste Updated"))
                 .font(.largeTitle.bold())
             Text(summary)
                 .foregroundStyle(.secondary)
@@ -262,7 +262,7 @@ private struct OnboardingDonePage: View {
         }
         .frame(maxWidth: .infinity)
         .safeAreaBar(edge: .bottom) {
-            OnboardingButton(isFirstLaunch ? "Start Listening" : "Done", action: finish)
+            OnboardingButton(isFirstLaunch ? String(localized: "Start Listening") : String(localized: "Done"), action: finish)
         }
         .navigationBarBackButtonHidden()
         .onAppear { appeared = true }
@@ -270,11 +270,11 @@ private struct OnboardingDonePage: View {
 
     private var summary: String {
         var parts: [String] = []
-        if !taste.picked.isEmpty { parts.append(taste.picked.count == 1 ? "1 artist" : "\(taste.picked.count) artists") }
-        if !taste.genres.isEmpty { parts.append(taste.genres.count == 1 ? "1 genre" : "\(taste.genres.count) genres") }
-        if taste.kept > 0 { parts.append(taste.kept == 1 ? "1 song" : "\(taste.kept) songs") }
-        guard !parts.isEmpty else { return "Home fills in as you listen. You can pick artists any time in Settings." }
-        return "Home is built from \(ListFormatter.localizedString(byJoining: parts)), and gets better the more you listen."
+        if !taste.picked.isEmpty { parts.append(taste.picked.count == 1 ? String(localized: "1 artist") : String(localized: "\(taste.picked.count) artists")) }
+        if !taste.genres.isEmpty { parts.append(taste.genres.count == 1 ? String(localized: "1 genre") : String(localized: "\(taste.genres.count) genres")) }
+        if taste.kept > 0 { parts.append(taste.kept == 1 ? String(localized: "1 song") : String(localized: "\(taste.kept) songs")) }
+        guard !parts.isEmpty else { return String(localized: "Home fills in as you listen. You can pick artists any time in Settings.") }
+        return String(localized: "Home is built from \(ListFormatter.localizedString(byJoining: parts)), and gets better the more you listen.")
     }
 }
 

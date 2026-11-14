@@ -26,13 +26,13 @@ enum LastFMUI {
         for track in tracks {
             let title: String
             if track.isNowPlaying {
-                title = "Now"
+                title = String(localized: "Now")
             } else if let date = track.playedAt {
-                title = calendar.isDateInToday(date) ? "Today"
-                    : calendar.isDateInYesterday(date) ? "Yesterday"
+                title = calendar.isDateInToday(date) ? String(localized: "Today")
+                    : calendar.isDateInYesterday(date) ? String(localized: "Yesterday")
                     : date.formatted(.dateTime.weekday(.wide).day().month(.wide))
             } else {
-                title = "Earlier"
+                title = String(localized: "Earlier")
             }
             if groups.last?.0 == title { groups[groups.count - 1].1.append(track) } else { groups.append((title, [track])) }
         }
@@ -41,24 +41,24 @@ enum LastFMUI {
 
     /// "12,345 scrobbles".
     static func scrobbles(_ count: Int) -> String {
-        count == 1 ? "1 scrobble" : "\(count.formatted()) scrobbles"
+        count == 1 ? String(localized: "1 scrobble") : String(localized: "\(count.formatted()) scrobbles")
     }
 
     /// "Scrobbling since 2014 · United Kingdom".
     static func since(_ profile: LastFMProfile) -> String? {
-        let parts = [profile.registered.map { "Scrobbling since \($0.formatted(.dateTime.year()))" },
+        let parts = [profile.registered.map { String(localized: "Scrobbling since \($0.formatted(.dateTime.year()))") },
                      profile.country.isEmpty ? nil : profile.country].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// How the queue stands, in a line: what's waiting, or when the last play went.
     static func status(_ lastFM: LastFM) -> String {
-        if lastFM.isPaused { return "Paused while listening history is off" }
+        if lastFM.isPaused { return String(localized: "Paused while listening history is off") }
         if !lastFM.queued.isEmpty {
-            return lastFM.queued.count == 1 ? "1 play waiting to send" : "\(lastFM.queued.count) plays waiting to send"
+            return lastFM.queued.count == 1 ? String(localized: "1 play waiting to send") : String(localized: "\(lastFM.queued.count) plays waiting to send")
         }
-        if let sent = lastFM.lastSent { return "Up to date · last sent \(sent.formatted(.relative(presentation: .named)))" }
-        return "Up to date"
+        if let sent = lastFM.lastSent { return String(localized: "Up to date · last sent \(sent.formatted(.relative(presentation: .named)))") }
+        return String(localized: "Up to date")
     }
 }
 
@@ -104,7 +104,7 @@ struct LastFMTrackRow: View {
             }
             Spacer(minLength: 8)
             if track.isNowPlaying {
-                Label("Now", systemImage: "waveform")
+                Label(String(localized: "Now"), systemImage: "waveform")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.accentColor)
                     .symbolEffect(.variableColor.iterative, options: .repeat(.continuous))

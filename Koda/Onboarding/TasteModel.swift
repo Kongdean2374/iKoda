@@ -178,7 +178,7 @@ final class TasteModel {
             for artist in artists {
                 group.addTask { [music] in
                     let songs = ((try? await music.artist(artist.id).topSongs) ?? []).prefix(2)
-                    return songs.map { Card(song: $0, reason: "Because you like \(artist.name)") }
+                    return songs.map { Card(song: $0, reason: String(localized: "Because you like \(artist.name)")) }
                 }
             }
             var all: [[Card]] = []
@@ -189,7 +189,7 @@ final class TasteModel {
             for genre in genreNames {
                 group.addTask { [music] in
                     let songs = ((try? await music.search("\(genre) songs", filter: .songs).songs) ?? []).prefix(3)
-                    return songs.map { Card(song: $0, reason: genre) }
+                    return songs.map { Card(song: $0, reason: NSLocalizedString(genre, comment: "Display genre only; queries and stored preferences retain the original genre.")) }
                 }
             }
             var all: [[Card]] = []
@@ -204,7 +204,7 @@ final class TasteModel {
            let radio = try? await music.radio(for: seed.id) {
             let pickedNames = Set(picked.map { $0.name.lowercased() })
             discovery = radio.songs.filter { !pickedNames.contains(Taste.leadArtist($0).lowercased()) && $0.id != seed.id }
-                .prefix(5).map { Card(song: $0, reason: "Something new") }
+                .prefix(5).map { Card(song: $0, reason: String(localized: "Something new")) }
         }
         let buckets = [Self.interleave(artistCards), Self.interleave(genreCards), discovery]
         var seen = Set<String>()

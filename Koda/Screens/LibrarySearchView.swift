@@ -13,7 +13,7 @@ struct LibrarySearchResults: View {
         let found = library.search(query, extra: downloads.store.completeSongs)
         List {
             if !found.songs.isEmpty {
-                Section("Songs") {
+                Section(String(localized: "Songs")) {
                     ForEach(Array(found.songs.prefix(50).enumerated()), id: \.element.id) { index, song in
                         SongRow(song: song) { player.play(found.songs, startAt: index) }
                             .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
@@ -21,7 +21,7 @@ struct LibrarySearchResults: View {
                 }
             }
             if !found.userPlaylists.isEmpty {
-                Section("Your Playlists") {
+                Section(String(localized: "Your Playlists")) {
                     ForEach(found.userPlaylists) { playlist in
                         NavigationLink(value: Route.userPlaylist(playlist.id)) {
                             row(title: playlist.name, subtitle: songCount(playlist.songs.count)) {
@@ -32,7 +32,7 @@ struct LibrarySearchResults: View {
                 }
             }
             if !found.albums.isEmpty {
-                Section("Albums") {
+                Section(String(localized: "Albums")) {
                     ForEach(found.albums) { album in
                         NavigationLink(value: Route.album(album)) {
                             row(title: album.title, subtitle: album.cardSubtitle) {
@@ -43,7 +43,7 @@ struct LibrarySearchResults: View {
                 }
             }
             if !found.playlists.isEmpty {
-                Section("Playlists") {
+                Section(String(localized: "Playlists")) {
                     ForEach(found.playlists) { playlist in
                         NavigationLink(value: Route.playlist(playlist)) {
                             row(title: playlist.title, subtitle: playlist.subtitle) {
@@ -54,7 +54,7 @@ struct LibrarySearchResults: View {
                 }
             }
             if !found.artists.isEmpty {
-                Section("Artists") {
+                Section(String(localized: "Artists")) {
                     ForEach(found.artists) { artist in
                         NavigationLink(value: Route.artist(artist)) {
                             row(title: artist.name, subtitle: nil) {
@@ -70,9 +70,9 @@ struct LibrarySearchResults: View {
         .overlay {
             if found.isEmpty {
                 ContentUnavailableView {
-                    Label("Not in Your Library", systemImage: "magnifyingglass")
+                    Label(String(localized: "Not in Your Library"), systemImage: "magnifyingglass")
                 } description: {
-                    Text("Nothing you've liked, saved, downloaded or played matches “\(query)”. Switch to YouTube Music to search everything.")
+                    Text(String(localized: "Nothing you've liked, saved, downloaded or played matches “\(query)”. Switch to YouTube Music to search everything."))
                 }
             }
         }
@@ -102,19 +102,19 @@ struct MacLibrarySearchResults: View {
         let found = library.search(query, extra: downloads.store.completeSongs)
         if found.isEmpty {
             ContentUnavailableView {
-                Label("Not in Your Library", systemImage: "magnifyingglass")
+                Label(String(localized: "Not in Your Library"), systemImage: "magnifyingglass")
             } description: {
-                Text("Nothing you've liked, saved, downloaded or played matches “\(query)”.")
+                Text(String(localized: "Nothing you've liked, saved, downloaded or played matches “\(query)”."))
             }
             .frame(maxWidth: .infinity, minHeight: 300)
         } else {
             if !found.songs.isEmpty {
-                MacSectionTitle(title: "Songs")
+                MacSectionTitle(title: String(localized: "Songs"))
                     .padding(.horizontal, MacMetrics.gutter)
                 MacTrackList(songs: Array(found.songs.prefix(100))) { player.play(found.songs, startAt: $0) }
             }
             if !found.userPlaylists.isEmpty {
-                MacShelf(title: "Your Playlists") {
+                MacShelf(title: String(localized: "Your Playlists")) {
                     ForEach(found.userPlaylists) { playlist in
                         NavigationLink(value: Route.userPlaylist(playlist.id)) {
                             MacCoverCard(title: playlist.name, subtitle: songCount(playlist.songs.count),
@@ -127,18 +127,18 @@ struct MacLibrarySearchResults: View {
                 }
             }
             if !found.albums.isEmpty {
-                MacShelf(title: "Albums") { ForEach(found.albums) { MacItemCard(item: .album($0)) } }
+                MacShelf(title: String(localized: "Albums")) { ForEach(found.albums) { MacItemCard(item: .album($0)) } }
             }
             if !found.playlists.isEmpty {
-                MacShelf(title: "Playlists") { ForEach(found.playlists) { MacItemCard(item: .playlist($0)) } }
+                MacShelf(title: String(localized: "Playlists")) { ForEach(found.playlists) { MacItemCard(item: .playlist($0)) } }
             }
             if !found.artists.isEmpty {
-                MacShelf(title: "Artists") { ForEach(found.artists) { MacArtistCard(artist: $0) } }
+                MacShelf(title: String(localized: "Artists")) { ForEach(found.artists) { MacArtistCard(artist: $0) } }
             }
         }
     }
 }
 
 private func songCount(_ count: Int) -> String {
-    count == 1 ? "1 song" : "\(count) songs"
+    count == 1 ? String(localized: "1 song") : String(localized: "\(count) songs")
 }

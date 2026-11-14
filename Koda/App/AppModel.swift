@@ -339,7 +339,7 @@ final class AppModel {
         do {
             let radio = try await music.radio(for: videoId)
             guard let seed = radio.songs.first(where: { $0.id == videoId }) ?? radio.songs.first else {
-                linkError = "That song isn't available."
+                linkError = String(localized: "That song isn't available.")
                 return
             }
             player.play([seed] + radio.songs.filter { $0.id != seed.id })
