@@ -2334,7 +2334,7 @@ public final class Player {
                 // This notification itself is evidence of a reset, not an inferred HTTP or
                 // decoder failure. Existing bounded recovery may try the new pipeline again.
                 recover(id, at: savedPosition,
-                        error: NSError(domain: AVFoundationErrorDomain, code: AVError.Code.mediaServicesWereReset.rawValue))
+                        error: NSError(domain: AVFoundationErrorDomain, code: -11819)) // AVErrorMediaServicesWereReset
             }
         }
         updateNowPlaying()
