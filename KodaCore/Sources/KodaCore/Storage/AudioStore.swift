@@ -53,6 +53,8 @@ public final class AudioStore: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     private var handles: [String: FileHandle] = [:]
+    /// A late decoder failure must not discard a newer file written at the same path.
+    private var fileVersions: [String: UUID] = [:]
     /// Songs being played or fetched, by how many users; never evicted.
     private var inUse: [String: Int] = [:]
     private var cacheLimitBytes: Int64
@@ -66,23 +68,35 @@ public final class AudioStore: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if let data = try? Data(contentsOf: indexFile),
            let saved = try? JSONDecoder().decode([Entry].self, from: data) {
-            // A file that went missing holds nothing, whatever the index says.
-            for var entry in saved {
-                if !FileManager.default.fileExists(atPath: fileURL(entry.videoId).path) { entry.ranges = ByteRanges() }
-                entries[entry.videoId] = entry
-            }
+            for entry in saved { entries[entry.videoId] = entry }
+            // Missing, truncated or replaced bytes cannot be made complete by an old index.
+            var changed = false
+            for id in Array(entries.keys) { changed = validateStoredFile(id) || changed }
+            if changed { scheduleSave() }
         }
     }
 
     // MARK: Reading
 
     public func entry(_ videoId: String) -> Entry? {
-        lock.withLock { entries[videoId] }
+        var changed = false
+        let entry = lock.withLock {
+            changed = validateStoredFile(videoId)
+            return entries[videoId]
+        }
+        if changed { scheduleSave() }
+        return entry
     }
 
     /// Downloads, most recently added first.
     public var downloads: [Entry] {
-        lock.withLock { entries.values.filter(\.isDownload).sorted { $0.added > $1.added } }
+        var changed = false
+        let result = lock.withLock {
+            for id in entries.values.filter(\.isDownload).map(\.videoId) { changed = validateStoredFile(id) || changed }
+            return entries.values.filter(\.isDownload).sorted { $0.added > $1.added }
+        }
+        if changed { scheduleSave() }
+        return result
     }
 
     /// Songs held whole, downloaded or kept from listening, most recently played first: what
@@ -106,14 +120,20 @@ public final class AudioStore: @unchecked Sendable {
 
     /// The song as a stream from its file, when every byte of it is here.
     func completeStream(_ videoId: String) -> ResolvedStream? {
-        lock.withLock {
+        var changed = false
+        let result: ResolvedStream? = lock.withLock {
+            changed = validateStoredFile(videoId)
             guard var entry = entries[videoId], entry.isComplete else { return nil }
             entry.lastUsed = Date()
             entries[videoId] = entry
+            let version = fileVersions[videoId] ?? UUID()
+            fileVersions[videoId] = version
             return ResolvedStream(videoId: videoId, url: fileURL(videoId), userAgent: "", itag: entry.itag ?? 0,
                                   contentLength: entry.contentLength, duration: entry.duration,
-                                  loudnessDb: entry.loudnessDb, expiresAt: nil)
+                                  loudnessDb: entry.loudnessDb, expiresAt: nil, localFileVersion: version)
         }
+        if changed { scheduleSave() }
+        return result
     }
 
     func contiguousLength(_ videoId: String, from offset: Int64) -> Int64 {
@@ -149,6 +169,7 @@ public final class AudioStore: @unchecked Sendable {
     /// (another length) starts the file again.
     func prepare(_ stream: ResolvedStream, song: Song?) {
         lock.withLock {
+            _ = validateStoredFile(stream.videoId)
             var entry = entries[stream.videoId] ?? Entry(videoId: stream.videoId, song: song, at: Date())
             if let length = stream.contentLength, entry.contentLength != nil, entry.contentLength != length {
                 discardBytes(&entry)
@@ -172,6 +193,7 @@ public final class AudioStore: @unchecked Sendable {
             let wasComplete = entry.isComplete
             try handle.seek(toOffset: UInt64(offset))
             try handle.write(contentsOf: data)
+            fileVersions[videoId] = UUID()
             entry.ranges.insert(offset..<(offset + Int64(data.count)))
             entries[videoId] = entry
             guard entry.isComplete, !wasComplete else { return false }
@@ -204,6 +226,24 @@ public final class AudioStore: @unchecked Sendable {
             entries[videoId] = entry
         }
         scheduleSave()
+    }
+
+    /// Remove only an exact local file positively rejected by the decoder. Remote failures,
+    /// audio-session interruptions and an old item's failure never erase a valid download.
+    /// Its existing download designation remains, so Downloads can fetch it again normally.
+    @discardableResult
+    public func discardInvalidLocalStream(_ stream: ResolvedStream, error: Error?) -> Bool {
+        guard stream.url.isFileURL, LocalAudioFailure.isConfirmed(error) else { return false }
+        let discarded = lock.withLock {
+            guard stream.url.standardizedFileURL == fileURL(stream.videoId).standardizedFileURL,
+                  let version = stream.localFileVersion, version == fileVersions[stream.videoId],
+                  var entry = entries[stream.videoId] else { return false }
+            discardBytes(&entry)
+            entries[stream.videoId] = entry
+            return true
+        }
+        if discarded { scheduleSave() }
+        return discarded
     }
 
     // MARK: Downloads
@@ -252,6 +292,33 @@ public final class AudioStore: @unchecked Sendable {
 
     // MARK: Housekeeping
 
+    /// Called with the lock held (or during initialization). Validate size, not file contents:
+    /// AVFoundation remains responsible for decoding, avoiding audio scans on the main thread.
+    @discardableResult
+    private func validateStoredFile(_ videoId: String) -> Bool {
+        guard var entry = entries[videoId], let highestByte = entry.ranges.ranges.last?.upperBound else { return false }
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(atPath: fileURL(videoId).path)
+        } catch {
+            let failure = error as NSError
+            // File protection or temporarily unavailable storage is not proof of corruption.
+            guard failure.domain == NSCocoaErrorDomain,
+                  [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(failure.code) else { return false }
+            discardBytes(&entry)
+            entries[videoId] = entry
+            return true
+        }
+        guard let size = (attributes[.size] as? NSNumber)?.int64Value,
+              let type = attributes[.type] as? FileAttributeType else { return false }
+        let regularFile = type == .typeRegular
+        let matches = regularFile && size >= highestByte && (!entry.isComplete || size == entry.contentLength)
+        guard !matches else { return false }
+        discardBytes(&entry)
+        entries[videoId] = entry
+        return true
+    }
+
     /// Bring the cache under its limit, least recently played first.
     func evict() {
         lock.withLock {
@@ -285,6 +352,7 @@ public final class AudioStore: @unchecked Sendable {
         handles[entry.videoId] = nil
         try? FileManager.default.removeItem(at: fileURL(entry.videoId))
         entry.ranges = ByteRanges()
+        fileVersions[entry.videoId] = UUID()
     }
 
     /// Called with the lock held.
@@ -293,6 +361,7 @@ public final class AudioStore: @unchecked Sendable {
         handles[videoId] = nil
         try? FileManager.default.removeItem(at: fileURL(videoId))
         entries[videoId] = nil
+        fileVersions[videoId] = nil
     }
 
     /// Write the index a moment later, once, for the newest state.

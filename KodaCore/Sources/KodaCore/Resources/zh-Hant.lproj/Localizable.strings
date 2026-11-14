@@ -1,4 +1,5 @@
 /* KodaCore user-facing text. Media metadata and persisted values are never localized. */
+"The audio session could not be activated. Try playing again." = "無法啟用音訊工作階段，請再次嘗試播放。";
 "%@ (Last.fm error %lld)" = "%@（Last.fm 錯誤 %lld）";
 "%lld plays are waiting to be sent, so new ones aren't being kept. Sync to send them." = "已有 %lld 筆播放紀錄等待傳送，因此無法再儲存新紀錄。請同步以傳送這些紀錄。";
 "Acoustic" = "原音";
@@ -92,3 +93,11 @@
 "This translation file is too large. Use a file under 1 MB with at most 5,000 lines." = "翻譯檔案過大。請使用小於 1 MB、最多 5,000 行的檔案。";
 "This translation file uses an unsupported version." = "不支援此翻譯檔案的版本。";
 "Use a UTF-8 translation LRC or a valid translation JSON file." = "請使用 UTF-8 編碼的翻譯 LRC，或有效的翻譯 JSON 檔案。";
+
+/* Koda 0.4 enhancements. */
+"The complete playlist could not be loaded. Your current queue was kept. Retry to continue loading." = "無法載入完整播放清單，已保留目前的播放佇列。請重試以繼續載入。";
+"The playlist preparation state is invalid. Start loading the playlist again." = "播放清單的準備狀態無效，請重新載入播放清單。";
+"This playlist exceeds the safe limit of %lld pages. No partial queue was started." = "這份播放清單超過 %lld 頁的安全上限，因此未開始播放不完整的佇列。";
+"This playlist exceeds the safe limit of %lld songs. No partial queue was started." = "這份播放清單超過 %lld 首歌曲的安全上限，因此未開始播放不完整的佇列。";
+"This playlist has no playable songs." = "此播放清單沒有可播放的歌曲。";
+"YouTube returned a repeated playlist page. The complete playlist could not be prepared." = "YouTube 傳回重複的播放清單頁面，無法準備完整播放清單。";

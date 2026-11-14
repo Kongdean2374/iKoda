@@ -359,7 +359,25 @@ struct SchemaPlayAudioIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
+        if case .playlist(let playlist) = audioEntity,
+           UUID(uuidString: playlist.id).flatMap({ app.library.userPlaylist($0) }) == nil {
+            // Online playlists must finish metadata pagination before choosing their
+            // first shuffled song. Local playlists already contain their complete source.
+            switch queueLocation {
+            case .next:
+                try await IntentPlaylistPlayback.enqueue(id: playlist.id, app: app, playNext: true)
+            case .tail:
+                try await IntentPlaylistPlayback.enqueue(id: playlist.id, app: app, playNext: false)
+            case nil:
+                try await IntentPlaylistPlayback.start(
+                    id: playlist.id, app: app, shuffled: playbackAttributes.contains(.shuffle),
+                    repeatMode: playbackAttributes.contains(.repeat) ? .all : nil
+                )
+            }
+            return .result()
+        }
         let songs = try await Self.songs(for: audioEntity, app: app)
+        try Task.checkCancellation()
         guard !songs.isEmpty else { throw AppIntentError(wrapping: SchemaIntentError.nothingFound) }
         let player = app.player
         switch queueLocation {
@@ -388,7 +406,9 @@ struct SchemaPlayAudioIntent: AudioPlaybackIntent {
             return try await app.music.artist(artist.id).topSongs
         case .playlist(let playlist):
             if let uuid = UUID(uuidString: playlist.id), let mine = app.library.userPlaylist(uuid) { return mine.songs }
-            return try await app.music.playlist(playlist.id).songs
+            // Also serves Play Next, Play Last and Add to Playlist: retain those actions,
+            // but apply them only after the full source has loaded successfully.
+            return try await app.music.playlistForPlayback(playlist.id)
         }
     }
 }
@@ -469,6 +489,7 @@ struct SchemaAddToPlaylistIntent {
             throw AppIntentError(wrapping: SchemaIntentError.nothingFound)
         }
         let songs = try await SchemaPlayAudioIntent.songs(for: audioEntity, app: app)
+        try Task.checkCancellation()
         let added = app.library.add(songs, toPlaylist: target.id)
         guard added > 0 else { return .result(dialog: "That's already in \(target.name).") }
         return .result(dialog: "Added to \(target.name).")

@@ -30,6 +30,8 @@ for case let relative as String in enumerator where relative.hasSuffix("KodaCore
     require(core.preferredLocalizations.first == "zh-Hant", "Core locale fallback failed")
     require(core.localizedString(forKey: "Bass Booster", value: nil, table: nil) == "低音增強", "Core translation missing")
     require(core.localizedString(forKey: "Original and Chinese", value: nil, table: nil) == "原文＋中文雙語", "Core lyrics mode translation missing")
+    require(core.localizedString(forKey: "This playlist has no playable songs.", value: nil, table: nil) == "此播放清單沒有可播放的歌曲。", "Core playlist translation missing")
+    require(core.localizedString(forKey: "The audio session could not be activated. Try playing again.", value: nil, table: nil) == "無法啟用音訊工作階段，請再次嘗試播放。", "Core audio-session translation missing")
     coreFound = true
 }
 require(coreFound, "Packaged KodaCore resource bundle missing")

@@ -76,56 +76,194 @@ public struct LyricTranslationDocument: Codable, Sendable, Equatable {
         return Self(lines: clean, language: language, version: version)
     }
 
-    /// Each translation occurrence can serve only one original occurrence. Repeated choruses
-    /// match by timestamp, not text; original+translation pairs sharing an LRC stamp are supported.
-    /// Unmatched rows stay original. JSON can disambiguate simultaneous singers explicitly.
+    /// Maximum-coverage, one-to-one matching inside the timestamp tolerance. If a nearer
+    /// translation would strand another line, an augmenting path reassigns earlier matches.
+    /// Explicit source/voice fields are hard constraints; compatible explicit rows are tried
+    /// before unlabelled rows, then by distance and file order. No global time shift is inferred.
+    ///
+    /// Neighbours are generated from narrow timestamp windows, not an n×m matrix. The search
+    /// is iterative (no recursion for long files), with O(n + m) auxiliary memory. Ambiguous
+    /// unlabelled matches are put back into chronological order after coverage is established.
     public func aligned(to originals: [LyricLine], tolerance: TimeInterval = 0.5) -> [Int: String] {
-        let tolerance = min(1, max(0, tolerance))
-        var used = Set<Int>()
-        var result: [Int: String] = [:]
-        let candidates = lines.enumerated().sorted {
+        let tolerance = tolerance.isFinite ? min(1, max(0, tolerance)) : 0.5
+        let sources = originals.enumerated().filter { $0.element.time.isFinite }.sorted {
             $0.element.time == $1.element.time ? $0.offset < $1.offset : $0.element.time < $1.element.time
-        }
-        let originalTimes = Dictionary(grouping: originals, by: \.text).mapValues { $0.map(\.time) }
-        func firstCandidate(at time: TimeInterval) -> Int {
-            var low = 0, high = candidates.count
+        }.map(\.element)
+        guard !sources.isEmpty else { return [:] }
+
+        func firstTime(_ times: [TimeInterval], at time: TimeInterval) -> Int {
+            var low = 0, high = times.count
             while low < high {
                 let mid = (low + high) / 2
-                if candidates[mid].element.time < time { low = mid + 1 } else { high = mid }
+                if times[mid] < time { low = mid + 1 } else { high = mid }
             }
             return low
         }
-        for original in originals {
-            let voice: String
-            switch original.voice {
-            case .lead: voice = "lead"
-            case .duet: voice = "duet"
-            case .together: voice = "together"
+        // Ignore source-text rows in bilingual LRC before matching. This test is independent
+        // of a candidate's eventual partner and also handles two singers at the same stamp.
+        let originalTimes = Dictionary(grouping: sources, by: {
+            $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }).mapValues { $0.map(\.time) }
+        let candidates = lines.enumerated().filter { _, candidate in
+            guard candidate.time.isFinite else { return false }
+            let text = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return false }
+            guard let times = originalTimes[text] else { return true }
+            var index = firstTime(times, at: candidate.time - tolerance - 0.000_001)
+            while index < times.count, times[index] <= candidate.time + tolerance + 0.000_001 {
+                if abs(times[index] - candidate.time) <= tolerance { return false }
+                index += 1
             }
-            let start = firstCandidate(at: original.time - tolerance)
-            let end = firstCandidate(at: original.time + tolerance + 0.000_001)
-            let matching = candidates[start..<end].filter { index, candidate in
-                !used.contains(index) && abs(candidate.time - original.time) <= tolerance
-                    && (candidate.original == nil || candidate.original == original.text)
-                    && (candidate.voice == nil || candidate.voice == voice)
-                    && candidate.text.trimmingCharacters(in: .whitespacesAndNewlines) != original.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Ignore original rows in a bilingual LRC, including another singer's row.
-                    && !(originalTimes[candidate.text] ?? []).contains { abs($0 - candidate.time) <= tolerance }
+            return true
+        }.sorted {
+            $0.element.time == $1.element.time ? $0.offset < $1.offset : $0.element.time < $1.element.time
+        }
+        guard !candidates.isEmpty else { return [:] }
+        let times = candidates.map { $0.element.time }
+        var groupStarts = [Int](repeating: 0, count: candidates.count)
+        for index in candidates.indices where index > 0 {
+            groupStarts[index] = times[index] == times[index - 1] ? groupStarts[index - 1] : index
+        }
+        let hasExplicit = candidates.contains { $0.element.original != nil || $0.element.voice != nil }
+        let windows = sources.map { source in
+            // Widen only the binary-search window for floating-point subtraction rounding;
+            // the edge predicate below still enforces the exact requested tolerance.
+            (lower: firstTime(times, at: source.time - tolerance - 0.000_001),
+             upper: firstTime(times, at: source.time + tolerance + 0.000_001),
+             pivot: firstTime(times, at: source.time))
+        }
+        let voices = sources.map { source -> String in
+            switch source.voice {
+            case .lead: "lead"
+            case .duet: "duet"
+            case .together: "together"
             }
-            let best = matching.min { lhs, rhs in
-                let leftSpecific = lhs.element.original != nil || lhs.element.voice != nil
-                let rightSpecific = rhs.element.original != nil || rhs.element.voice != nil
-                if leftSpecific != rightSpecific { return leftSpecific }
-                let left = abs(lhs.element.time - original.time), right = abs(rhs.element.time - original.time)
-                return left == right ? lhs.offset < rhs.offset : left < right
+        }
+
+        // Two monotone cursors enumerate each window by distance without sorting or storing
+        // its edges. Returning true stops the search as soon as an augmenting path is found.
+        func visitCandidates(for sourceIndex: Int, _ visit: (Int) -> Bool) -> Bool {
+            let source = sources[sourceIndex]
+            let window = windows[sourceIndex]
+            for pass in 0..<(hasExplicit ? 2 : 1) {
+                let wantsExplicit = hasExplicit && pass == 0
+                var leftEnd = window.pivot - 1, right = window.pivot
+                var left = leftEnd >= window.lower ? max(window.lower, groupStarts[leftEnd]) : window.lower - 1
+                while leftEnd >= window.lower || right < window.upper {
+                    let takeLeft: Bool
+                    if leftEnd < window.lower {
+                        takeLeft = false
+                    } else if right >= window.upper {
+                        takeLeft = true
+                    } else {
+                        let before = abs(times[left] - source.time), after = abs(times[right] - source.time)
+                        takeLeft = before < after || (before == after && candidates[left].offset < candidates[right].offset)
+                    }
+                    let index: Int
+                    if takeLeft {
+                        index = left
+                        left += 1
+                        if left > leftEnd {
+                            leftEnd = groupStarts[leftEnd] - 1
+                            left = leftEnd >= window.lower ? max(window.lower, groupStarts[leftEnd]) : window.lower - 1
+                        }
+                    } else {
+                        index = right; right += 1
+                    }
+                    let candidate = candidates[index].element
+                    let explicit = candidate.original != nil || candidate.voice != nil
+                    guard explicit == wantsExplicit, abs(candidate.time - source.time) <= tolerance,
+                          candidate.original == nil || candidate.original == source.text,
+                          candidate.voice == nil || candidate.voice == voices[sourceIndex] else { continue }
+                    if visit(index) { return true }
+                }
             }
-            if let best {
-                used.insert(best.offset)
-                result[original.id] = best.element.text
+            return false
+        }
+
+        var sourceMatch = [Int?](repeating: nil, count: sources.count)
+        var candidateMatch = [Int?](repeating: nil, count: candidates.count)
+        var visitedSources = [Int](repeating: -1, count: sources.count)
+        var visitedCandidates = [Int](repeating: -1, count: candidates.count)
+        var predecessor = [Int](repeating: -1, count: candidates.count)
+        var closedCandidates = [Bool](repeating: false, count: candidates.count)
+        var matchedCount = 0
+        // Give explicit anchors and closer pairs first choice when several sources compete
+        // for a partial translation. Augmentation can still move them to cover more lines.
+        let firstChoices = sources.indices.map { source -> Int? in
+            var first: Int?
+            _ = visitCandidates(for: source) { candidate in first = candidate; return true }
+            return first
+        }
+        let searchOrder = sources.indices.filter { firstChoices[$0] != nil }.sorted { lhs, rhs in
+            let a = firstChoices[lhs]!, b = firstChoices[rhs]!
+            let aExplicit = candidates[a].element.original != nil || candidates[a].element.voice != nil
+            let bExplicit = candidates[b].element.original != nil || candidates[b].element.voice != nil
+            if aExplicit != bExplicit { return aExplicit }
+            let aDistance = abs(times[a] - sources[lhs].time), bDistance = abs(times[b] - sources[rhs].time)
+            return aDistance == bDistance ? lhs < rhs : aDistance < bDistance
+        }
+        for root in searchOrder {
+            if matchedCount == candidates.count { break }
+            var pending = [root]
+            var head = 0
+            visitedSources[root] = root
+            var endpoint: Int?
+            var reachedCandidates: [Int] = []
+            while head < pending.count, endpoint == nil {
+                let source = pending[head]
+                head += 1
+                _ = visitCandidates(for: source) { candidate in
+                    guard !closedCandidates[candidate], visitedCandidates[candidate] != root else { return false }
+                    visitedCandidates[candidate] = root
+                    reachedCandidates.append(candidate)
+                    predecessor[candidate] = source
+                    guard let owner = candidateMatch[candidate] else {
+                        endpoint = candidate
+                        return true
+                    }
+                    if visitedSources[owner] != root {
+                        visitedSources[owner] = root
+                        pending.append(owner)
+                    }
+                    return false
+                }
             }
+            if endpoint == nil {
+                // A failed search found a saturated closed set: every compatible edge of
+                // its matched owners stays inside this set. Later sources cannot add a
+                // free candidate to it. Freeze it rather than repeatedly scanning a dense
+                // deficient group (for example thousands of simultaneous untranslated rows).
+                for candidate in reachedCandidates { closedCandidates[candidate] = true }
+            } else {
+                matchedCount += 1
+            }
+            // Flip the entire alternating path, so every previous covered line stays covered.
+            while let candidate = endpoint {
+                let source = predecessor[candidate]
+                endpoint = sourceMatch[source]
+                sourceMatch[source] = candidate
+                candidateMatch[candidate] = source
+            }
+        }
+
+        // Generic rows have only interval constraints. Uncrossing their matches preserves
+        // validity and coverage, never increases absolute timestamp distance, and avoids
+        // reversing adjacent translated lines just because the later one was a little nearer.
+        let genericSources = sources.indices.filter { source in
+            guard let match = sourceMatch[source] else { return false }
+            return candidates[match].element.original == nil && candidates[match].element.voice == nil
+        }
+        let genericCandidates = genericSources.compactMap { sourceMatch[$0] }.sorted()
+        for (source, candidate) in zip(genericSources, genericCandidates) { sourceMatch[source] = candidate }
+
+        var result: [Int: String] = [:]
+        for source in sources.indices {
+            if let candidate = sourceMatch[source] { result[sources[source].id] = candidates[candidate].element.text }
         }
         return result
     }
+
 }
 
 /// Pure display policy, shared by UI and tests. Original word/voice data is never rewritten.

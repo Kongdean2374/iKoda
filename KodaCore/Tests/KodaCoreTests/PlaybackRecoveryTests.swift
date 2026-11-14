@@ -16,8 +16,12 @@ struct PlaybackRecoveryTests {
             #expect(ticket.delay == delay)
             #expect(ticket.position == 42)
             #expect(ticket.occurrenceID == id)
+            #expect(policy.attempts == attempt, "scheduling a timer does not begin a reload")
             let consumed = policy.consume(ticket)
             #expect(consumed)
+            #expect(policy.attempts == attempt + 1)
+            let consumedTwice = policy.consume(ticket)
+            #expect(!consumedTwice, "one ticket can begin only one reload")
             // Even brief successful playback cannot create an unbounded retry loop.
             policy.markRecovered()
         }
@@ -47,8 +51,84 @@ struct PlaybackRecoveryTests {
         #expect(ticket.occurrenceID == id)
         #expect(ticket.position == 91)
         #expect(ticket.attempt == 1)
+        #expect(policy.attempts == 0)
         let repeatedRestoration = policy.networkRestored(for: id, at: 91, wantsToPlay: true)
         #expect(repeatedRestoration == .ignore)
+    }
+
+    @Test func tenNetworkFlapsBeforeRetryStartsSpendNoAttempts() {
+        let id = UUID()
+        var policy = PlaybackRecovery()
+        var decision = policy.request(for: id, at: 91, error: URLError(.timedOut), wantsToPlay: true, network: online)
+        var staleTickets: [RecoveryTicket] = []
+        for _ in 0..<10 {
+            guard case .retry(let ticket) = decision else {
+                Issue.record("Restoration should schedule the same unspent attempt"); return
+            }
+            #expect(ticket.attempt == 1)
+            #expect(ticket.delay == 1)
+            #expect(ticket.position == 91)
+            #expect(policy.attempts == 0)
+            let suspended = policy.suspendForNetwork(ticket)
+            #expect(suspended)
+            #expect(policy.waitingForNetwork)
+            #expect(policy.pending == nil)
+            #expect(policy.attempts == 0)
+            staleTickets.append(ticket)
+            decision = policy.networkRestored(for: id, at: 91, wantsToPlay: true)
+        }
+        guard case .retry(let ready) = decision else { Issue.record("Expected a final retry"); return }
+        for stale in staleTickets {
+            let staleConsume = policy.consume(stale)
+            let staleSuspension = policy.suspendForNetwork(stale)
+            #expect(!staleConsume)
+            #expect(!staleSuspension)
+        }
+        #expect(policy.isCurrent(ready))
+        let started = policy.consume(ready)
+        #expect(started)
+        #expect(policy.attempts == 1)
+        // The next two actual starts retain the normal 2/4-second backoff and limit.
+        for attempt in 2...3 {
+            guard case .retry(let ticket) = policy.request(for: id, at: 91, error: MusicError.network,
+                                                         wantsToPlay: true, network: online) else {
+                Issue.record("Flapping must not exhaust the real reload budget"); return
+            }
+            #expect(ticket.attempt == attempt)
+            #expect(ticket.delay == Double(attempt == 2 ? 2 : 4))
+            let consumed = policy.consume(ticket)
+            #expect(consumed)
+        }
+        let exhausted = policy.request(for: id, at: 91, error: MusicError.network, wantsToPlay: true, network: online)
+        #expect(exhausted == .stop(.network))
+        #expect(policy.attempts == 3)
+    }
+
+    @Test func unknownConnectivityWaitsWithoutSpendingAnAttempt() {
+        var policy = PlaybackRecovery()
+        let decision = policy.request(for: UUID(), at: 23, error: MusicError.network,
+                                      wantsToPlay: true, network: NetworkSnapshot())
+        #expect(decision == .waitForNetwork)
+        #expect(policy.pending == nil)
+        #expect(policy.attempts == 0)
+    }
+
+    @Test func confirmedLocalReplacementUsesTheSameFiniteBudgetAndNeedsConnectivity() {
+        let id = UUID()
+        var policy = PlaybackRecovery(maximumAttempts: 1)
+        let offlineResult = policy.requestLocalReplacement(for: id, at: 37, wantsToPlay: true, network: offline)
+        #expect(offlineResult == .stop(.unavailable))
+        #expect(policy.attempts == 0)
+        guard case .retry(let ticket) = policy.requestLocalReplacement(for: id, at: 37, wantsToPlay: true, network: online) else {
+            Issue.record("A confirmed invalid local file can use its legitimate online source"); return
+        }
+        #expect(ticket.position == 37)
+        #expect(policy.lastFailure == .unavailable)
+        let started = policy.consume(ticket)
+        #expect(started)
+        let exhausted = policy.requestLocalReplacement(for: id, at: 37, wantsToPlay: true, network: online)
+        #expect(exhausted == .stop(.unavailable))
+        #expect(policy.attempts == 1)
     }
 
     @Test func pauseAndQueueChangeInvalidateDelayedWork() {
@@ -62,6 +142,7 @@ struct PlaybackRecoveryTests {
         policy.cancel()
         let consumed = policy.consume(stale)
         #expect(!consumed)
+        #expect(policy.attempts == 0)
         let whilePaused = policy.request(for: first, at: 12, error: nil, wantsToPlay: false, network: online)
         #expect(whilePaused == .ignore)
         policy.begin(for: second)
@@ -90,6 +171,29 @@ struct PlaybackRecoveryTests {
         #expect(PlaybackFailureReason.classify(wrapped) == .network)
     }
 
+    @Test func permanentVerdictsInvalidatePendingOrOfflineRetriesImmediately() {
+        for suspend in [false, true] {
+            let id = UUID()
+            var policy = PlaybackRecovery()
+            guard case .retry(let ticket) = policy.request(for: id, at: 42, error: MusicError.network,
+                                                         wantsToPlay: true, network: online) else {
+                Issue.record("Expected initial transient retry"); return
+            }
+            if suspend { policy.suspendForNetwork(ticket) }
+            let stopped = policy.request(for: id, at: 42, error: MusicError.badResponse(403),
+                                         wantsToPlay: true, network: offline)
+            #expect(stopped == .stop(.forbidden))
+            #expect(policy.lastFailure == .forbidden)
+            #expect(policy.pending == nil)
+            #expect(!policy.waitingForNetwork)
+            let staleStart = policy.consume(ticket)
+            #expect(!staleStart)
+            let restored = policy.networkRestored(for: id, at: 42, wantsToPlay: true)
+            #expect(restored == .ignore)
+            #expect(policy.attempts == 0)
+        }
+    }
+
     @Test func nonfinitePositionIsNeverPassedBackIntoThePlayer() {
         var policy = PlaybackRecovery()
         guard case .retry(let ticket) = policy.request(for: UUID(), at: .nan, error: nil, wantsToPlay: true, network: online) else {
@@ -115,6 +219,23 @@ struct PlaybackRecoveryTests {
         state.began(wantsToPlay: false)
         let originallyPaused = state.ended(shouldResume: true)
         #expect(!originallyPaused)
+    }
+
+    @Test func explicitResumeClearsStaleInterruptionOnlyAfterSuccessfulActivation() {
+        var state = PlaybackInterruptionState()
+        state.began(wantsToPlay: true)
+        let refused = state.explicitResume(activationSucceeded: false)
+        #expect(!refused)
+        #expect(state.isInterrupted)
+        let allowed = state.explicitResume(activationSucceeded: true)
+        #expect(allowed)
+        #expect(!state.isInterrupted)
+        let lateNotification = state.ended(shouldResume: true)
+        #expect(!lateNotification, "a late system notification must not start playback twice")
+        state.began(wantsToPlay: false)
+        state.userPaused()
+        let deliberateNewPlay = state.explicitResume(activationSucceeded: true)
+        #expect(deliberateNewPlay, "the user's new explicit play intent may replace their old pause")
     }
 }
 

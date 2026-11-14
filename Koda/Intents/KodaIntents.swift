@@ -135,6 +135,48 @@ private extension Song {
 
 // MARK: - Playing
 
+enum PlaylistIntentError: Error, LocalizedError, CustomLocalizedStringResourceConvertible {
+    case preparationFailed
+
+    var localizedStringResource: LocalizedStringResource {
+        "Koda couldn't prepare the complete playlist. Open Koda to retry."
+    }
+
+    var errorDescription: String? { String(localized: localizedStringResource) }
+}
+
+/// Siri must wait for the complete collection before announcing that playback started.
+/// Cancelling an intent also cancels its own metadata request, never a newer selection.
+@MainActor
+enum IntentPlaylistPlayback {
+    static func start(id: String, app: AppModel, shuffled: Bool = false, repeatMode: RepeatMode? = nil) async throws {
+        try Task.checkCancellation()
+        let request = app.player.playPlaylist(id: id, shuffled: shuffled, repeatMode: repeatMode)
+        try await finish(request, app: app)
+    }
+
+    static func enqueue(id: String, app: AppModel, playNext: Bool) async throws {
+        try Task.checkCancellation()
+        let request = app.player.enqueuePlaylist(id: id, playNext: playNext)
+        try await finish(request, app: app)
+    }
+
+    private static func finish(_ request: Task<Bool, Never>, app: AppModel) async throws {
+        let started = await withTaskCancellationHandler {
+            await request.value
+        } onCancel: {
+            request.cancel()
+        }
+        try Task.checkCancellation()
+        guard !request.isCancelled else { throw CancellationError() }
+        guard started else {
+            // A newer playback action superseded this request; do not announce its result.
+            guard app.player.playlistLoadingError != nil else { throw CancellationError() }
+            throw PlaylistIntentError.preparationFailed
+        }
+    }
+}
+
 struct PlaySongIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Song"
     static let description = IntentDescription("Plays a song, followed by songs like it.", categoryName: "Playback")
@@ -206,9 +248,7 @@ struct SearchAndPlayIntent: AudioPlaybackIntent {
             app.player.play(songs)
             return .result(dialog: "Playing \(album.title).")
         case .playlist(let playlist):
-            let songs = try await app.music.playlist(playlist.id).songs
-            guard !songs.isEmpty else { break }
-            app.player.play(songs)
+            try await IntentPlaylistPlayback.start(id: playlist.id, app: app)
             return .result(dialog: "Playing \(playlist.title).")
         case .artist(let artist):
             let page = try await app.music.artist(artist.id)

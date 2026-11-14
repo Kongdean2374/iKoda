@@ -225,7 +225,7 @@ private struct BarVolume: View {
     var body: some View {
         HStack(spacing: 6) {
             Button {
-                if showsSlider { player.volume = player.volume > 0 ? 0 : 0.7 } else { showsPopover.toggle() }
+                if showsSlider { player.isMuted.toggle() } else { showsPopover.toggle() }
             } label: {
                 Image(systemName: symbol)
                     .font(.system(size: 12, weight: .semibold))
@@ -234,7 +234,7 @@ private struct BarVolume: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(BarButtonStyle())
-            .help(showsSlider ? (player.volume > 0 ? String(localized: "Mute") : String(localized: "Unmute")) : String(localized: "Volume"))
+            .help(showsSlider ? (player.isMuted ? String(localized: "Unmute") : String(localized: "Mute")) : String(localized: "Volume"))
             .popover(isPresented: $showsPopover, arrowEdge: .bottom) {
                 slider
                     .frame(width: 160)
@@ -246,9 +246,10 @@ private struct BarVolume: View {
         .animation(.snappy(duration: 0.15), value: hovering)
         .accessibilityElement()
         .accessibilityLabel("Volume")
-        .accessibilityValue(Text(Double(player.volume), format: .percent.precision(.fractionLength(0))))
+        .accessibilityValue(Text(Double(player.isMuted ? 0 : player.volume), format: .percent.precision(.fractionLength(0))))
         .accessibilityAdjustableAction { direction in
             player.volume = min(1, max(0, player.volume + (direction == .increment ? 0.1 : -0.1)))
+            player.isMuted = false
         }
     }
 
@@ -259,7 +260,7 @@ private struct BarVolume: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.primary.opacity(0.15))
                 Capsule().fill(.primary.opacity(0.7))
-                    .frame(width: max(0, width * CGFloat(player.volume)))
+                    .frame(width: max(0, width * CGFloat(player.isMuted ? 0 : player.volume)))
             }
             .clipShape(.capsule)
             .frame(height: hovering ? 6 : 4)
@@ -268,13 +269,15 @@ private struct BarVolume: View {
             .onHover { hovering = $0 }
             .gesture(DragGesture(minimumDistance: 0).onChanged {
                 player.volume = Float(min(1, max(0, $0.location.x / width)))
+                player.isMuted = false
             })
         }
         .frame(height: 12)
     }
 
     private var symbol: String {
-        switch player.volume {
+        if player.isMuted { return "speaker.slash.fill" }
+        return switch player.volume {
         case 0: "speaker.slash.fill"
         case ..<0.34: "speaker.wave.1.fill"
         case ..<0.67: "speaker.wave.2.fill"

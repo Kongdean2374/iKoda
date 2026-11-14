@@ -1,9 +1,9 @@
 # Release identity and unsigned artifacts
 
-The app and widget use the same fixed marketing version, `0.4.0`. Their checked-in
-build baseline is `10000`, above the previous released build `3`. The build baseline
-also identifies a local Xcode build; Actions injects a higher number without changing
-or committing any project file.
+The app and widget use the same fixed marketing version, `0.4.1`, a patch following
+the delivered `0.4.0` build `10601`. Their checked-in build baseline remains `10000`,
+originally raised above Koda 0.3 build `3`. The baseline also identifies a local Xcode
+build; Actions injects a higher number without changing or committing any project file.
 
 For this existing `Build` workflow, the CI build number is:
 
@@ -11,7 +11,7 @@ For this existing `Build` workflow, the CI build number is:
 10000 + github.run_number × 100 + github.run_attempt
 ```
 
-For example, workflow run 25 attempt 1 is build 12501; rerunning it is build 12502.
+For example, workflow run 7 attempt 1 is build 10701; rerunning it is build 10702.
 A new run has a higher slot than all 99 supported attempts of the preceding run.
 Attempt 100 fails explicitly instead of colliding with the next run. Rerunning an old
 workflow keeps that old run's identity and does not represent a newer release than a
@@ -19,13 +19,13 @@ subsequent workflow run; publish releases from the latest run. If the workflow c
 is ever reset or moved to another repository, increase the checked-in baseline beyond
 all released builds before publishing again.
 
-`python3 scripts/build-version.py --run-number 25 --attempt 1` prints the identity.
+`python3 scripts/build-version.py --run-number 7 --attempt 1` prints the identity.
 It checks that both app/widget Debug and Release versions agree. The read-only
-`--next-feature-version 0.4.0` helper prints `0.5.0`, and never lowers an existing
+`--next-feature-version 0.4.1` helper prints `0.5.0`, and never lowers an existing
 release. CI uses the checked-in semantic version rather than automatically changing it.
 
 The original Xcode 27 iOS Release build and unsigned packaging are retained. The
-archive is named `Koda-0.4.0-build<build number>.ipa` and uploaded as an Actions artifact
+archive is named `Koda-0.4.1-build<build number>.ipa` and uploaded as an Actions artifact
 with the same version/build name. Mac Catalyst uses the same identity with a `-mac`
 artifact/DMG suffix. Distinct attempts therefore do not overwrite an older artifact.
 No Apple ID, certificate, signing secret or new credential is needed.

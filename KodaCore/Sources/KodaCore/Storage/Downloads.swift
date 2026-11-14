@@ -1,52 +1,74 @@
 import Foundation
 import Observation
 
-/// Songs the listener downloaded, and the work of fetching them: two at a time, in the order
-/// asked, picked up again at the next launch when the app closed first. A song already held
-/// whole from listening is downloaded at once, with nothing fetched.
+/// Two active transfers, with retry delays outside the active slots. Metadata and bytes are
+/// retained by AudioStore using the existing download format and resume from missing ranges.
 @MainActor
 @Observable
 public final class Downloads {
     public enum State: Equatable, Sendable {
-        case none
-        /// Asked for: waiting its turn, or for a connection it may use.
-        case waiting
-        /// How much of it is here, 0 to 1.
+        case none, waiting
         case downloading(Double)
         case downloaded
+        /// Automatic attempts stopped; the listener can explicitly retry or remove the song.
+        case failed
     }
 
-    /// Downloaded songs and those on their way, most recently added first.
+    public struct CollectionRequest: Hashable, Sendable {
+        fileprivate let id: UUID
+    }
+
     public private(set) var songs: [Song] = []
-    /// Space downloads take, updated as each finishes.
     public private(set) var bytes: Int64 = 0
     private var states: [String: State] = [:]
 
-    /// Off, downloads wait for Wi-Fi.
+    /// Off, downloads wait for Wi-Fi. Existing sessions must also adopt this restriction.
     public var allowsCellular: Bool {
         didSet {
-            UserDefaults.standard.set(allowsCellular, forKey: Keys.cellular)
-            session = Self.makeSession(allowsCellular: allowsCellular)
+            guard allowsCellular != oldValue else { return }
+            defaults.set(allowsCellular, forKey: Keys.cellular)
+            replaceSession()
         }
     }
 
     @ObservationIgnored public let store: AudioStore
     @ObservationIgnored private let music: YouTubeMusic
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var session: URLSession
     @ObservationIgnored private var queue: [String] = []
-    @ObservationIgnored private var running: [String: Task<Void, Never>] = [:]
+    private struct Job: Sendable {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+    @ObservationIgnored private var running: [String: Job] = [:]
+    @ObservationIgnored private var retrying: [String: Job] = [:]
+    @ObservationIgnored private var failures: [String: Int] = [:]
+    @ObservationIgnored private var refreshedURLs: Set<String> = []
+    private struct CollectionWork: Sendable {
+        let anchors: Set<String>
+        var task: Task<Void, Never>?
+    }
+    @ObservationIgnored private var collections: [UUID: CollectionWork] = [:]
+    @ObservationIgnored private var networkTask: Task<Void, Never>?
+    @ObservationIgnored private var network = NetworkPath.shared.snapshot
+
+    // Deterministic test seams. Production always uses the resolver, URLSession and clock.
+    @ObservationIgnored var streamLoader: (@Sendable (String) async throws -> ResolvedStream)?
+    @ObservationIgnored var fillLoader: (@Sendable (String, ResolvedStream, URLSession, AudioStore) async throws -> Void)?
+    @ObservationIgnored var retrySleep: (@Sendable (Duration) async throws -> Void)?
+    @ObservationIgnored var networkSnapshotOverride: NetworkSnapshot? { didSet { pump() } }
 
     private static let parallel = 2
-    /// Bytes per request; a song takes a few.
+    static let maximumAttempts = 6
     nonisolated private static let chunk: Int64 = 1 << 20
-    private enum Keys {
-        static let cellular = "koda.downloads.cellular"
-    }
+    private enum Keys { static let cellular = "koda.downloads.cellular" }
+    private enum Outcome { case complete, cancelled, retry(Duration), failed, unavailable }
 
-    public init(store: AudioStore, music: YouTubeMusic) {
+    public init(store: AudioStore, music: YouTubeMusic, defaults: UserDefaults = .standard) {
         self.store = store
         self.music = music
-        let cellular = UserDefaults.standard.object(forKey: Keys.cellular) as? Bool ?? true
+        self.defaults = defaults
+        let cellular = defaults.object(forKey: Keys.cellular) as? Bool ?? true
         allowsCellular = cellular
         session = Self.makeSession(allowsCellular: cellular)
         for entry in store.downloads {
@@ -56,34 +78,44 @@ public final class Downloads {
             if !entry.isComplete { queue.append(song.id) }
         }
         bytes = store.downloadBytes
+        networkTask = Task { [weak self] in
+            for await snapshot in NetworkPath.shared.updates() {
+                guard !Task.isCancelled else { return }
+                self?.network = snapshot
+                self?.pump()
+            }
+        }
         pump()
     }
 
-    // MARK: Reading
+    deinit {
+        networkTask?.cancel()
+        for job in running.values { job.task.cancel() }
+        for job in retrying.values { job.task.cancel() }
+        for work in collections.values { work.task?.cancel() }
+        session.invalidateAndCancel()
+    }
 
     public func state(of song: Song) -> State { states[song.id] ?? .none }
 
-    /// An album's or playlist's: downloaded when every song is, downloading while any is
-    /// on its way, with the share of the whole that is here.
     public func state(of songs: [Song]) -> State {
         guard !songs.isEmpty else { return .none }
         var here = 0.0
         var onTheWay = false
+        var failed = false
         for song in songs {
             switch state(of: song) {
             case .none: break
             case .waiting: onTheWay = true
-            case .downloading(let progress):
-                onTheWay = true
-                here += progress
+            case .downloading(let progress): onTheWay = true; here += progress
             case .downloaded: here += 1
+            case .failed: failed = true
             }
         }
         if here >= Double(songs.count) { return .downloaded }
-        return onTheWay ? .downloading(here / Double(songs.count)) : .none
+        if onTheWay { return .downloading(here / Double(songs.count)) }
+        return failed ? .failed : .none
     }
-
-    // MARK: Changing
 
     public func download(_ songs: [Song]) {
         var seen = Set<String>()
@@ -96,12 +128,55 @@ public final class Downloads {
         pump()
     }
 
-    public func remove(_ songs: [Song]) {
+    /// A delayed playlist result belongs to this explicit download intent. Removing any of
+    /// its initial songs, or Remove All, invalidates it even if its old view ignores cancellation.
+    public func beginCollection(_ songs: [Song]) -> CollectionRequest {
+        let request = CollectionRequest(id: UUID())
+        collections[request.id] = CollectionWork(anchors: Set(songs.map(\.id)))
+        download(songs)
+        return request
+    }
+
+    @discardableResult
+    public func completeCollection(_ songs: [Song], request: CollectionRequest) -> Bool {
+        guard collections.removeValue(forKey: request.id) != nil else { return false }
+        download(songs)
+        return true
+    }
+
+    /// Let Stop/Remove All cancel metadata work owned by another still-visible collection view.
+    public func attachCollectionTask(_ task: Task<Void, Never>, request: CollectionRequest) {
+        guard collections[request.id] != nil else { task.cancel(); return }
+        collections[request.id]?.task = task
+    }
+
+    public func cancelCollection(_ request: CollectionRequest) {
+        collections.removeValue(forKey: request.id)?.task?.cancel()
+    }
+
+    public func retry(_ songs: [Song]) {
+        for song in songs where states[song.id] == .failed {
+            failures[song.id] = nil
+            refreshedURLs.remove(song.id)
+            states[song.id] = .waiting
+            enqueue(song.id)
+        }
+        pump()
+    }
+
+    public func remove(_ songs: [Song]) { remove(songs, invalidatingCollections: true) }
+
+    private func remove(_ songs: [Song], invalidatingCollections: Bool) {
         let ids = Set(songs.map(\.id))
+        if invalidatingCollections {
+            let cancelled = collections.filter { !$0.value.anchors.isDisjoint(with: ids) }.map(\.key)
+            for id in cancelled { cancelCollection(CollectionRequest(id: id)) }
+        }
         for id in ids {
-            running[id]?.cancel()
-            running[id] = nil
+            cancelJob(id)
             states[id] = nil
+            failures[id] = nil
+            refreshedURLs.remove(id)
         }
         queue.removeAll { ids.contains($0) }
         self.songs.removeAll { ids.contains($0.id) }
@@ -111,64 +186,161 @@ public final class Downloads {
     }
 
     public func removeAll() {
+        for work in collections.values { work.task?.cancel() }
+        collections.removeAll()
         remove(songs)
     }
 
-    // MARK: Fetching
+    /// Playback found invalid local audio. Keep the download intent and recover its missing
+    /// bytes under the same network policy, rather than leaving a stale Downloaded indicator.
+    public func refreshInvalidatedDownload(_ id: String) {
+        guard states[id] != nil, store.entry(id)?.isComplete != true else { return }
+        cancelJob(id)
+        failures[id] = nil
+        refreshedURLs.remove(id)
+        states[id] = .waiting
+        enqueue(id)
+        bytes = store.downloadBytes
+        pump()
+    }
+
+    private func cancelJob(_ id: String) {
+        // Remove ownership first: late completion cannot clear a replacement job for this id.
+        let active = running.removeValue(forKey: id)
+        let waiting = retrying.removeValue(forKey: id)
+        active?.task.cancel()
+        waiting?.task.cancel()
+    }
+
+    private func replaceSession() {
+        let previous = session
+        session = Self.makeSession(allowsCellular: allowsCellular)
+        let interrupted = songs.map(\.id).filter { running[$0] != nil }
+        for id in interrupted {
+            let job = running.removeValue(forKey: id)
+            job?.task.cancel()
+            if states[id] != nil { states[id] = .waiting; enqueue(id) }
+        }
+        // Session configuration is immutable. Even a task currently on Wi-Fi could otherwise
+        // migrate to cellular under the old policy. Already written byte ranges are retained.
+        previous.invalidateAndCancel()
+        pump()
+    }
+
+    private var mayUseNetwork: Bool {
+        let snapshot = networkSnapshotOverride ?? network
+        guard snapshot.status != .offline else { return false }
+        if allowsCellular { return true }
+        return snapshot.status == .online && [.wifi, .wired, .other].contains(snapshot.interface)
+    }
+
+    private func enqueue(_ id: String) {
+        guard states[id] != nil, running[id] == nil, retrying[id] == nil, !queue.contains(id) else { return }
+        queue.append(id)
+    }
 
     private func pump() {
-        while running.count < Self.parallel, !queue.isEmpty {
-            let id = queue.removeFirst()
-            guard let song = songs.first(where: { $0.id == id }) else { continue }
-            running[id] = Task { [weak self] in
-                await self?.fetch(song)
-                self?.running[id] = nil
-                self?.pump()
+        while running.count < Self.parallel {
+            guard let index = queue.firstIndex(where: { mayUseNetwork || store.entry($0)?.isComplete == true }) else { return }
+            let id = queue.remove(at: index)
+            guard states[id] != nil, running[id] == nil, retrying[id] == nil,
+                  let song = songs.first(where: { $0.id == id }) else { continue }
+            let token = UUID()
+            let activeSession = session
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let outcome = await fetch(song, token: token, session: activeSession)
+                finish(song, token: token, outcome: outcome)
             }
+            running[id] = Job(token: token, task: task)
         }
     }
 
-    private func fetch(_ song: Song) async {
+    private func owns(_ id: String, token: UUID) -> Bool {
+        !Task.isCancelled && running[id]?.token == token && states[id] != nil
+    }
+
+    /// One bounded attempt, never a sleep inside an active transfer slot.
+    private func fetch(_ song: Song, token: UUID, session: URLSession) async -> Outcome {
         let id = song.id
+        guard owns(id, token: token) else { return .cancelled }
         store.beginUse(id)
         defer { store.endUse(id) }
-        var refreshedURL = false
-        var delay: Duration = .seconds(10)
-        while !Task.isCancelled {
-            if store.entry(id)?.isComplete == true { break }
-            do {
-                let stream = try await music.stream(for: id)
-                store.prepare(stream, song: song)
-                // Without its length the file can't be laid out; a later answer may have it.
-                guard stream.contentLength != nil else { throw MusicError.network }
-                states[id] = .downloading(progress(id))
+        if store.entry(id)?.isComplete == true { return .complete }
+        do {
+            let stream: ResolvedStream
+            if let streamLoader { stream = try await streamLoader(id) }
+            else { stream = try await music.stream(for: id) }
+            guard owns(id, token: token) else { return .cancelled }
+            guard stream.contentLength != nil else { throw MusicError.network }
+            store.prepare(stream, song: song)
+            states[id] = .downloading(progress(id))
+            if let fillLoader { try await fillLoader(id, stream, session, store) }
+            else {
                 try await Self.fill(id, from: stream, session: session, store: store) { [weak self] in
-                    guard let self, self.states[id] != nil else { return }
-                    self.states[id] = .downloading(self.progress(id))
+                    guard let self, owns(id, token: token) else { return }
+                    states[id] = .downloading(progress(id))
                 }
-            } catch is CancellationError {
-                return
-            } catch MusicError.unplayable(_) {
-                // A verdict on the video: it can never be downloaded.
-                remove([song])
-                return
-            } catch {
-                if Task.isCancelled { return }
-                if !refreshedURL, (error as? URLError)?.code == .badServerResponse {
-                    // googlevideo refused the URL: one fresh one, at once.
-                    refreshedURL = true
-                    await music.streamFailed(id)
-                    continue
-                }
-                // Offline or refused: wait its turn again a little later, longer each time.
-                states[id] = .waiting
-                try? await Task.sleep(for: delay)
-                delay = min(delay * 2, .seconds(300))
             }
+            guard owns(id, token: token) else { return .cancelled }
+            guard store.entry(id)?.isComplete == true else { throw MusicError.network }
+            return .complete
+        } catch {
+            guard owns(id, token: token) else { return .cancelled }
+            if error is CancellationError { return .failed }
+            if let musicError = error as? MusicError, case .unplayable = musicError { return .unavailable }
+            failures[id, default: 0] += 1
+            guard failures[id, default: 0] < Self.maximumAttempts else { return .failed }
+            let refusedURL = (error as? URLError)?.code == .badServerResponse
+                || (error as? MusicError) == .badResponse(401) || (error as? MusicError) == .badResponse(403)
+                || (error as? AudioStreamResponseError) == .httpStatus(401)
+                || (error as? AudioStreamResponseError) == .httpStatus(403)
+            if refusedURL, refreshedURLs.insert(id).inserted {
+                await music.streamFailed(id)
+                guard owns(id, token: token) else { return .cancelled }
+                return .retry(.zero)
+            }
+            guard PlaybackFailureReason.classify(error).isRetryable else { return .failed }
+            return .retry(.seconds(min(300, 10 * (1 << (failures[id, default: 1] - 1)))))
         }
-        guard !Task.isCancelled, states[id] != nil else { return }
-        states[id] = .downloaded
-        bytes = store.downloadBytes
+    }
+
+    private func finish(_ song: Song, token: UUID, outcome: Outcome) {
+        let id = song.id
+        guard running[id]?.token == token else { return }
+        running[id] = nil
+        switch outcome {
+        case .complete:
+            states[id] = .downloaded
+            failures[id] = nil
+            refreshedURLs.remove(id)
+            bytes = store.downloadBytes
+        case .retry(let delay):
+            states[id] = .waiting
+            scheduleRetry(id, delay: delay)
+        case .failed: states[id] = .failed
+        case .unavailable: remove([song], invalidatingCollections: false)
+        case .cancelled: break
+        }
+        pump()
+    }
+
+    private func scheduleRetry(_ id: String, delay: Duration) {
+        if delay == .zero { enqueue(id); return }
+        let token = UUID()
+        let sleep = retrySleep
+        let task = Task { [weak self] in
+            do {
+                if let sleep { try await sleep(delay) }
+                else { try await Task.sleep(for: delay) }
+                try Task.checkCancellation()
+            } catch { return }
+            guard let self, retrying[id]?.token == token else { return }
+            retrying[id] = nil
+            enqueue(id)
+            pump()
+        }
+        retrying[id] = Job(token: token, task: task)
     }
 
     private func progress(_ id: String) -> Double {
@@ -176,8 +348,6 @@ public final class Downloads {
         return min(1, Double(entry.bytes) / Double(length))
     }
 
-    /// Fetch the song's missing bytes a chunk at a time and write each to its file, off the
-    /// main thread; `progressed` runs after each chunk.
     nonisolated private static func fill(_ id: String, from stream: ResolvedStream, session: URLSession, store: AudioStore,
                                          progressed: @MainActor @Sendable () -> Void) async throws {
         while let gap = store.firstGap(id) {
@@ -187,10 +357,11 @@ public final class Downloads {
             request.setValue("bytes=\(gap.lowerBound)-\(end - 1)", forHTTPHeaderField: "Range")
             request.setValue(stream.userAgent, forHTTPHeaderField: "User-Agent")
             let (data, response) = try await session.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode
-            // 200: the range was ignored and this is the whole file.
-            guard status == 206 || status == 200, !data.isEmpty else { throw URLError(.badServerResponse) }
-            try store.write(data, at: status == 200 ? 0 : gap.lowerBound, for: id)
+            try Task.checkCancellation()
+            guard let length = stream.contentLength else { throw MusicError.network }
+            let accepted = try CachingResponse.acceptedRange(response, requested: gap.lowerBound..<end, length: length)
+            guard Int64(data.count) == accepted.upperBound - accepted.lowerBound else { throw MusicError.network }
+            try store.write(data, at: accepted.lowerBound, for: id)
             await progressed()
         }
     }
@@ -198,7 +369,6 @@ public final class Downloads {
     private static func makeSession(allowsCellular: Bool) -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.allowsCellularAccess = allowsCellular
-        // Wait for a connection it may use rather than failing at once.
         configuration.waitsForConnectivity = true
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData

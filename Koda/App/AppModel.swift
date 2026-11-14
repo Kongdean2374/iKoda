@@ -46,6 +46,8 @@ final class AppModel {
     var playlistTarget: PlaylistTarget?
     /// A shared link that could not be opened, shown as an alert.
     var linkError: String?
+    /// Only the newest album-card or shared-song lookup may replace the queue.
+    @ObservationIgnored private var playbackLookupTask: Task<Void, Never>?
     /// The sheet that adds a profile, asked for from a toolbar menu, the profile page or the Mac's sidebar.
     var isAddingProfile = false
     /// The pane the Mac's Settings window should show when it next opens or is already open.
@@ -119,6 +121,12 @@ final class AppModel {
         let audio = AudioStore(directory: audioDirectory, cacheLimit: settings.cacheLimit.rawValue)
         player.audioStore = audio
         downloads = Downloads(store: audio, music: music)
+        player.onLocalAudioInvalidated = { [downloads] id in
+            downloads.refreshInvalidatedDownload(id)
+        }
+        // Music intent wins immediately, including time spent loading a playlist or stream.
+        // Waiting for onSongStarted would let an old video load/countdown reclaim playback.
+        player.onPlaybackRequested = { [videos] in videos.pause() }
         player.onSongStarted = { [library, videos] song in
             // A song and a video never play over each other.
             videos.pause()
@@ -134,7 +142,7 @@ final class AppModel {
         videos.autoplays = { settings.autoplaysVideos }
         videos.defaultQuality = { settings.videoQuality }
         videos.pauseMusic = { [player] in
-            if player.wantsToPlay { player.togglePlayPause(from: "a video starting") }
+            player.pause(from: "a video starting")
         }
         player.onListened = { [library] song, seconds in
             if settings.savesListeningHistory { library.addListening(seconds, to: song) }
@@ -202,6 +210,7 @@ final class AppModel {
     /// has one, signs requests from here on and its library is brought in step behind.
     func switchProfile(to id: UUID) {
         guard id != roster.activeID, let profile = roster.profile(id) else { return }
+        cancelPlaybackLookup()
         let leaving = roster.active
         player.clearSmartShuffleHistory()
         forgetVideoState()
@@ -221,7 +230,10 @@ final class AppModel {
             next = roster.profile(nextID)
         }
         guard deleted else { return }
-        if next != nil { player.clearSmartShuffleHistory() }
+        if next != nil {
+            cancelPlaybackLookup()
+            player.clearSmartShuffleHistory()
+        }
         forgetVideoState()
         Snapshot.remove("home-\(id.uuidString)")
         forgetAccount(of: id)
@@ -305,16 +317,33 @@ final class AppModel {
 
     /// Play an album or playlist from its card, without opening its page.
     func playCollection(_ collection: Collection) {
-        Task {
-            do {
-                let songs = switch collection {
-                case .album(let album): try await music.album(album.id).songs
-                case .playlist(let playlist): try await music.playlist(playlist.id).songs
+        cancelPlaybackLookup()
+        linkError = nil
+        switch collection {
+        case .playlist(let playlist):
+            // Player owns the first request and every continuation, so a later selection
+            // can cancel preparation before this collection replaces the current queue.
+            player.playPlaylist(id: playlist.id)
+        case .album(let album):
+            let revision = player.beginExternalPlaybackRequest()
+            let profile = roster.activeID
+            let music = music
+            playbackLookupTask = Task { [weak self] in
+                guard !Task.isCancelled, self?.roster.activeID == profile,
+                      self?.player.playbackIntentRevision == revision else { return }
+                do {
+                    let songs = try await music.album(album.id).songs
+                    guard !Task.isCancelled, let self, self.roster.activeID == profile,
+                          self.player.playbackIntentRevision == revision else { return }
+                    self.playbackLookupTask = nil
+                    guard !songs.isEmpty else { return }
+                    self.player.play(songs)
+                } catch {
+                    guard !Task.isCancelled, let self, self.roster.activeID == profile,
+                          self.player.playbackIntentRevision == revision else { return }
+                    self.playbackLookupTask = nil
+                    self.linkError = error.friendlyMessage
                 }
-                guard !songs.isEmpty else { return }
-                player.play(songs)
-            } catch {
-                linkError = error.friendlyMessage
             }
         }
     }
@@ -333,9 +362,12 @@ final class AppModel {
     }
 
     func openLink(_ link: YouTubeLink) {
+        // Even a new navigation-only link supersedes the earlier song request.
+        cancelPlaybackLookup()
+        linkError = nil
         switch link {
         case .song(let videoId):
-            Task { await playLinkedSong(videoId) }
+            playLinkedSong(videoId)
         case .album(let browseId):
             open(.album(AlbumSummary(id: browseId, title: "", artistLine: "")))
         case .playlist(let id):
@@ -345,18 +377,39 @@ final class AppModel {
         }
     }
 
+    private func cancelPlaybackLookup() {
+        playbackLookupTask?.cancel()
+        playbackLookupTask = nil
+    }
+
     /// A video id alone carries no title or artist; its radio starts with the song itself, which has both.
-    private func playLinkedSong(_ videoId: String) async {
-        do {
-            let radio = try await music.radio(for: videoId)
-            guard let seed = radio.songs.first(where: { $0.id == videoId }) ?? radio.songs.first else {
-                linkError = String(localized: "That song isn't available.")
-                return
+    private func playLinkedSong(_ videoId: String) {
+        let request = LinkedSongRequest(songID: videoId, intentRevision: player.beginExternalPlaybackRequest())
+        let profile = roster.activeID
+        let music = music
+        playbackLookupTask = Task { [weak self] in
+            guard !Task.isCancelled, self?.roster.activeID == profile,
+                  self?.player.playbackIntentRevision == request.intentRevision else { return }
+            do {
+                let radio = try await music.radio(for: videoId)
+                guard let self, self.roster.activeID == profile,
+                      request.isCurrent(revision: self.player.playbackIntentRevision, isCancelled: Task.isCancelled) else { return }
+                self.playbackLookupTask = nil
+                switch request.selection(from: radio.songs, currentRevision: self.player.playbackIntentRevision) {
+                case .superseded:
+                    return
+                case .unavailable:
+                    self.linkError = String(localized: "That song isn't available.")
+                case .queue(let songs):
+                    self.player.play(songs)
+                    self.isNowPlayingPresented = true
+                }
+            } catch {
+                guard let self, self.roster.activeID == profile,
+                      request.isCurrent(revision: self.player.playbackIntentRevision, isCancelled: Task.isCancelled) else { return }
+                self.playbackLookupTask = nil
+                self.linkError = error.friendlyMessage
             }
-            player.play([seed] + radio.songs.filter { $0.id != seed.id })
-            isNowPlayingPresented = true
-        } catch {
-            linkError = error.friendlyMessage
         }
     }
 

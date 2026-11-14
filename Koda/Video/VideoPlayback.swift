@@ -59,6 +59,7 @@ final class VideoPlayback {
     static let boostRange: ClosedRange<Float> = 1.25...3
 
     private let music: YouTubeMusic
+    @ObservationIgnored private var intent = VideoPlaybackIntent()
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var countdown: Task<Void, Never>?
     @ObservationIgnored private var legible: AVMediaSelectionGroup?
@@ -122,10 +123,16 @@ final class VideoPlayback {
 
     private func tick() {
         let status = player.timeControlStatus
-        let playing = status == .playing
+        let playing = status == .playing && player.rate > 0
+        // PiP/AirPlay's native play button can start an already prepared item directly.
+        // A real positive rate is a new video intent; pause() synchronously sets it to zero.
+        if playing, !intent.wantsToPlay, let id = current?.id {
+            intent.begin(videoID: id)
+            pauseMusic?()
+        }
         let wasPlaying = isPlaying
         if isPlaying != playing { isPlaying = playing }
-        let buffering = status == .waitingToPlayAtSpecifiedRate
+        let buffering = intent.wantsToPlay && status == .waitingToPlayAtSpecifiedRate
         if isBuffering != buffering { isBuffering = buffering }
         let now = player.currentTime().seconds
         if now.isFinite, abs(now - time) > 0.2 { time = now }
@@ -175,6 +182,8 @@ final class VideoPlayback {
         finishCurrent()
         loading?.cancel()
         cancelAutoplay()
+        player.pause()
+        player.cancelPendingPrerolls()
         player.replaceCurrentItem(with: nil)
         current = video
         error = nil
@@ -191,16 +200,19 @@ final class VideoPlayback {
         caption = nil
         legible = nil
         quality = defaultQuality()
+        let ticket = intent.begin(videoID: video.id)
         spanStart = 0
         playedSeconds = 0
         lastSpanReport = .distantPast
         lastProgressSave = -1
         pauseMusic?()
         loading = Task {
-            defer { if current?.id == video.id { isLoading = false } }
+            defer {
+                if intent.accepts(ticket) { isLoading = false; loading = nil }
+            }
             do {
                 let stream = try await music.videoStream(video.id)
-                guard !Task.isCancelled, current?.id == video.id else { return }
+                guard !Task.isCancelled, intent.accepts(ticket), current?.id == video.id else { return }
                 let item = AVPlayerItem(url: stream.url)
                 item.externalMetadata = Self.metadata(for: video)
                 item.preferredMaximumResolution = Self.limit(for: quality)
@@ -210,19 +222,21 @@ final class VideoPlayback {
                 // Back where it was left, as YouTube does; a live stream is always now.
                 if !stream.isLive, let position = resumePosition?(video.id) {
                     await player.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-                    guard current?.id == video.id else { return }
+                    guard !Task.isCancelled, intent.accepts(ticket), player.currentItem === item else { return }
                     time = position
                     spanStart = position
                     lastProgressSave = position
                     resumedFrom = position
                 }
+                guard !Task.isCancelled, intent.accepts(ticket), player.currentItem === item else { return }
                 Self.activateVideoSession()
+                isLoading = false
                 player.play()
                 onWatch?(video)
-                await loadCaptions(of: item)
+                await loadCaptions(of: item, ticket: ticket)
             } catch is CancellationError {
             } catch {
-                guard current?.id == video.id else { return }
+                guard !Task.isCancelled, intent.accepts(ticket), current?.id == video.id else { return }
                 self.error = (error as? MusicError).map(Self.message) ?? String(localized: "This video couldn't be played.")
             }
         }
@@ -236,21 +250,45 @@ final class VideoPlayback {
     }
 
     func togglePlay() {
-        if player.timeControlStatus == .paused {
-            pauseMusic?()
-            cancelAutoplay()
-            // At the end, play starts it over.
-            if hasEnded || (duration > 0 && time >= duration - 0.5) { seek(to: 0) }
-            Self.activateVideoSession()
-            player.playImmediately(atRate: boost ?? speed)
-        } else {
-            player.pause()
+        if intent.wantsToPlay && (isLoading || player.timeControlStatus != .paused) {
+            pause()
+            return
+        }
+        guard let video = current else { return }
+        // A load canceled by switching to music has no prepared item. Resume is a fresh,
+        // explicit request rather than permission for the old network task to finish.
+        guard let item = player.currentItem, item.status != .failed, error == nil else {
+            retry()
+            return
+        }
+        loading?.cancel()
+        loading = nil
+        isLoading = false
+        let ticket = intent.begin(videoID: video.id)
+        pauseMusic?()
+        cancelAutoplay()
+        if hasEnded || (duration > 0 && time >= duration - 0.5) { seek(to: 0) }
+        Self.activateVideoSession()
+        player.playImmediately(atRate: boost ?? speed)
+        if legible == nil {
+            Task { await loadCaptions(of: item, ticket: ticket) }
         }
         tick()
     }
 
+    /// Music selection and mode changes call the same cancellation path as an explicit
+    /// video pause. The item/position stay available for a later explicit resume.
     func pause() {
+        intent.pause()
+        loading?.cancel()
+        loading = nil
+        cancelAutoplay()
+        isLoading = false
+        isBuffering = false
+        boost = nil
         player.pause()
+        player.cancelPendingPrerolls()
+        player.currentItem?.cancelPendingSeeks()
         tick()
     }
 
@@ -279,8 +317,12 @@ final class VideoPlayback {
     /// Done with the video: the mini player's close button. Where it got to is kept.
     func stop() {
         finishCurrent()
+        intent.stop()
         loading?.cancel()
+        loading = nil
         cancelAutoplay()
+        player.pause()
+        player.cancelPendingPrerolls()
         player.replaceCurrentItem(with: nil)
         current = nil
         isPlaying = false
@@ -311,6 +353,7 @@ final class VideoPlayback {
     }
 
     func setBoost(_ rate: Float) {
+        guard intent.wantsToPlay, player.currentItem != nil else { return }
         // Past 2× HLS needs the item to say it can.
         let ceiling: Float = player.currentItem?.canPlayFastForward == true ? Self.boostRange.upperBound : 2
         let rate = min(max(rate, Self.boostRange.lowerBound), ceiling)
@@ -354,20 +397,26 @@ final class VideoPlayback {
         tick()
         if let id = self.current?.id, !isLive, duration > 0 { onProgress?(id, duration, duration) }
         reportSpan(final: true)
-        guard autoplays(), !isLive, let id = self.current?.id else { return }
+        guard autoplays(), !isLive, let id = self.current?.id,
+              let ticket = intent.beginAutoplay() else { return }
+        countdown?.cancel()
         countdown = Task {
+            defer {
+                if intent.accepts(ticket) { autoplayCountdown = nil; countdown = nil }
+            }
             if upNext == nil {
                 // The page was never opened (or hadn't loaded): ask YouTube what's next.
                 let page = try? await music.watchPage(id)
-                guard !Task.isCancelled, self.current?.id == id else { return }
+                guard !Task.isCancelled, intent.accepts(ticket), self.current?.id == id else { return }
                 upNext = page?.next
             }
-            guard upNext != nil else { return }
+            guard !Task.isCancelled, intent.accepts(ticket), upNext != nil else { return }
             for remaining in stride(from: 5, through: 1, by: -1) {
                 autoplayCountdown = remaining
                 try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, intent.accepts(ticket), autoplays() else { return }
             }
+            guard intent.accepts(ticket) else { return }
             playNext()
         }
     }
@@ -375,14 +424,13 @@ final class VideoPlayback {
     /// Up Next now, skipping what's left of the countdown.
     func playNext() {
         guard let next = upNext, let from = current?.id else { return }
-        countdown?.cancel()
-        countdown = nil
-        autoplayCountdown = nil
+        cancelAutoplay()
         play(next)
         autoplayed = (from, next)
     }
 
     func cancelAutoplay() {
+        intent.cancelAutoplay()
         countdown?.cancel()
         countdown = nil
         autoplayCountdown = nil
@@ -412,8 +460,9 @@ final class VideoPlayback {
         caption = option
     }
 
-    private func loadCaptions(of item: AVPlayerItem) async {
-        guard let group = try? await item.asset.loadMediaSelectionGroup(for: .legible), player.currentItem === item else { return }
+    private func loadCaptions(of item: AVPlayerItem, ticket: VideoPlaybackIntent.Ticket) async {
+        guard let group = try? await item.asset.loadMediaSelectionGroup(for: .legible),
+              !Task.isCancelled, intent.accepts(ticket), player.currentItem === item else { return }
         legible = group
         captions = group.options.filter { !$0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) }
         caption = item.currentMediaSelection.selectedMediaOption(in: group)

@@ -3043,6 +3043,23 @@
         }
       }
     },
+    "Cancel Loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Loading"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消載入"
+          }
+        }
+      }
+    },
     "Captions": {
       "extractionState": "manual",
       "localizations": {
@@ -4114,6 +4131,23 @@
         }
       }
     },
+    "Couldn't Prepare Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Prepare Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法準備播放清單"
+          }
+        }
+      }
+    },
     "Couldn't Search": {
       "extractionState": "manual",
       "localizations": {
@@ -5079,6 +5113,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "下載"
+          }
+        }
+      }
+    },
+    "Download Failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載失敗"
           }
         }
       }
@@ -7242,6 +7293,23 @@
         }
       }
     },
+    "Koda couldn't prepare the complete playlist. Open Koda to retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda couldn't prepare the complete playlist. Open Koda to retry."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 無法準備完整的播放清單。請開啟 Koda 重試。"
+          }
+        }
+      }
+    },
     "Koda couldn't read that file.": {
       "extractionState": "manual",
       "localizations": {
@@ -8054,6 +8122,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "載入中"
+          }
+        }
+      }
+    },
+    "Loading Playlist · %lld songs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading Playlist · %lld songs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入播放清單 · %lld 首歌曲"
+          }
+        }
+      }
+    },
+    "Loading all playlist pages for the queue. Your current queue stays unchanged until loading finishes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading all playlist pages for the queue. Your current queue stays unchanged until loading finishes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在為佇列載入播放清單的所有頁面。載入完成前會保留目前佇列。"
           }
         }
       }
@@ -12899,6 +13001,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "重試"
+          }
+        }
+      }
+    },
+    "Retry Download": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Download"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試下載"
+          }
+        }
+      }
+    },
+    "Retry Downloads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Downloads"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試下載"
           }
         }
       }
