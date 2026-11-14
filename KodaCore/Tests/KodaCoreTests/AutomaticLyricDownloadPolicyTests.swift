@@ -7,43 +7,87 @@ struct AutomaticLyricDownloadPolicyTests {
 
     @Test func cancellingOneSongSuppressesTheSameLanguagePairOnLaterSongs() {
         var policy = AutomaticLyricDownloadPolicy()
-        #expect(policy.begin(english, requestID: "song-a"))
-        #expect(policy.finish(english, requestID: "song-a", installed: false))
+        let started = policy.begin(english, requestID: "song-a")
+        #expect(started)
+        let finished = policy.finish(english, requestID: "song-a", installed: false)
+        #expect(finished)
         #expect(!policy.allows(english, requestID: "song-b"))
-        #expect(!policy.begin(english, requestID: "song-c"))
+        let laterStarted = policy.begin(english, requestID: "song-c")
+        #expect(!laterStarted)
         #expect(policy.allows(japanese, requestID: "song-d"))
         policy.retry(english)
-        #expect(policy.begin(english, requestID: "explicit-retry"))
+        let retried = policy.begin(english, requestID: "explicit-retry")
+        #expect(retried)
     }
 
     @Test func replacingTheViewCannotStartTwoPromptsForTheSamePair() {
         var policy = AutomaticLyricDownloadPolicy()
-        #expect(policy.begin(english, requestID: "old-host"))
+        let started = policy.begin(english, requestID: "old-host")
+        #expect(started)
         #expect(policy.allows(english, requestID: "old-host"))
-        #expect(!policy.begin(english, requestID: "old-host"))
+        let duplicate = policy.begin(english, requestID: "old-host")
+        #expect(!duplicate)
         #expect(!policy.allows(english, requestID: "new-song-host"))
-        #expect(policy.finish(english, requestID: "old-host", installed: true))
-        #expect(policy.begin(english, requestID: "new-song-host"))
-        #expect(!policy.finish(english, requestID: "old-host", installed: false))
+        let finished = policy.finish(english, requestID: "old-host", installed: true)
+        #expect(finished)
+        let nextStarted = policy.begin(english, requestID: "new-song-host")
+        #expect(nextStarted)
+        let staleFinished = policy.finish(english, requestID: "old-host", installed: false)
+        #expect(!staleFinished)
         #expect(policy.allows(english, requestID: "new-song-host"))
     }
 
     @Test func explicitRetryDuringCancellationWaitsForTheOldPromptThenRemainsAllowed() {
         var policy = AutomaticLyricDownloadPolicy()
-        #expect(policy.begin(english, requestID: "cancelled-host"))
+        let started = policy.begin(english, requestID: "cancelled-host")
+        #expect(started)
         policy.retry(english)
-        #expect(!policy.begin(english, requestID: "retry-host"))
-        #expect(policy.finish(english, requestID: "cancelled-host", installed: false))
-        #expect(policy.begin(english, requestID: "retry-host"))
+        let duplicate = policy.begin(english, requestID: "retry-host")
+        #expect(!duplicate)
+        let finished = policy.finish(english, requestID: "cancelled-host", installed: false)
+        #expect(finished)
+        let retried = policy.begin(english, requestID: "retry-host")
+        #expect(retried)
     }
 
     @Test func retryingAnotherLanguageDoesNotUndoAnEarlierCancellation() {
         var policy = AutomaticLyricDownloadPolicy()
-        #expect(policy.begin(english, requestID: "english"))
-        #expect(policy.finish(english, requestID: "english", installed: false))
+        let started = policy.begin(english, requestID: "english")
+        #expect(started)
+        let finished = policy.finish(english, requestID: "english", installed: false)
+        #expect(finished)
         policy.retry(japanese)
         #expect(!policy.allows(english, requestID: "later-song"))
         policy.retry()
         #expect(policy.allows(english, requestID: "explicit-all-retry"))
+    }
+
+    @Test func movingTheDownloadHostReleasesItsClaimWithoutSuppressingThePair() {
+        var policy = AutomaticLyricDownloadPolicy()
+        let started = policy.begin(english, requestID: "root-view")
+        #expect(started)
+        #expect(!policy.allows(english, requestID: "now-playing"))
+        let cancelled = policy.cancelHost(english, requestID: "root-view")
+        #expect(cancelled)
+        #expect(policy.allows(english, requestID: "now-playing"))
+        let replacementStarted = policy.begin(english, requestID: "now-playing")
+        #expect(replacementStarted)
+        let declined = policy.finish(english, requestID: "now-playing", installed: false)
+        #expect(declined)
+        #expect(!policy.allows(english, requestID: "next-song"))
+    }
+
+    @Test func aLateHostCancellationCannotReleaseAReplacementPrompt() {
+        var policy = AutomaticLyricDownloadPolicy()
+        let started = policy.begin(english, requestID: "old")
+        #expect(started)
+        let cancelled = policy.cancelHost(english, requestID: "old")
+        #expect(cancelled)
+        let replacementStarted = policy.begin(english, requestID: "replacement")
+        #expect(replacementStarted)
+        let staleCancellation = policy.cancelHost(english, requestID: "old")
+        #expect(!staleCancellation)
+        #expect(policy.allows(english, requestID: "replacement"))
+        #expect(!policy.allows(english, requestID: "third-host"))
     }
 }

@@ -163,9 +163,11 @@ private struct NativeLyricsLanguageDownload: View {
                 // Preparation may return while a model is downloading. Do not assume an
                 // installed session is usable until the actual language pair says so.
                 let installed = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
+                try Task.checkCancellation()
                 await coordinator.finishLanguageDownload(request, installed: installed)
             } catch {
-                await coordinator.finishLanguageDownload(request, installed: false)
+                if Task.isCancelled { await coordinator.cancelLanguageDownload(request) }
+                else { await coordinator.finishLanguageDownload(request, installed: false) }
             }
         }
     }

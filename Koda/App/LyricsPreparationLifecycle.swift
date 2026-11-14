@@ -78,11 +78,17 @@ final class LyricsPreparationLifecycle {
             self.coordinator.suspendForBackgroundExpiration()
             self.endBackgroundTask()
         }
-        if backgroundTask == .invalid, isBackground { coordinator.suspendForBackgroundExpiration() }
+        if backgroundTask != .invalid {
+            coordinator.setBackgroundExecutionAllowed(true)
+        } else {
+            coordinator.setBackgroundExecutionAllowed(false)
+            if isBackground { coordinator.suspendForBackgroundExpiration() }
+        }
         #endif
     }
 
     private func endBackgroundTask() {
+        coordinator.setBackgroundExecutionAllowed(false)
         guard backgroundTask != .invalid else { return }
         let task = backgroundTask
         backgroundTask = .invalid

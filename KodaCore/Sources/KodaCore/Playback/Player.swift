@@ -1038,6 +1038,13 @@ public final class Player {
                     await avPlayer.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                     guard token == generation else { return }
                 }
+                // A rejected local item can complete its seek before its status observer
+                // reaches this actor. Never publish that item's empty clock as a successful
+                // resume: recovery still belongs at the requested position.
+                if playerItem.status == .failed {
+                    recover(item.id, at: position, error: playerItem.error)
+                    return
+                }
                 if let total = stream.duration, total > 0 { duration = total }
                 applyLoudness(stream)
                 if fadeIn > 0 { startFadeIn(over: fadeIn) } else { cancelFadeIn() }
@@ -2258,7 +2265,12 @@ public final class Player {
     private func sampleTime() {
         let seconds = avPlayer.currentTime().seconds
         trace("sample t=\(seconds) phase=\(phase) status=\(avPlayer.timeControlStatus.rawValue)")
-        guard seconds.isFinite, phase == .ready else {
+        // AVQueuePlayer reports zero while an item is preparing, after rejecting an item,
+        // and briefly when moving to another occurrence. None is the current song's clock.
+        // In particular, preserve a restored seek position until its actual item is ready.
+        guard seconds.isFinite, phase == .ready,
+              let item = avPlayer.currentItem, item.status == .readyToPlay,
+              occurrences[ObjectIdentifier(item)] == queue.current?.id else {
             if timeAnchor.rate != 0 {
                 timeAnchor = TimeAnchor(position: position(), date: Date(), rate: 0)
                 updateNowPlaying()

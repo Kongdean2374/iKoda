@@ -250,6 +250,168 @@ struct AutomaticLyricTranslationPipelineTests {
         #expect(service.snapshot(for: current).lines == [0: "已完成", 1: "剛安裝的語言"])
         await service.flush()
     }
+
+    @Test(.timeLimit(.minutes(1))) func delayedCurrentLyricsUseAnExplicitBackgroundAllowanceWithoutStartingFutureSongs() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine()
+        let service = pipeline(directory: folder, engine: engine)
+        defer { service.suspend(); Task { await engine.finishAll() }; try? FileManager.default.removeItem(at: folder) }
+        let current = input("delayed-current", count: 1), next = input("next", count: 1)
+        // A foreground lyrics lookup is still pending when the scene becomes inactive.
+        service.setRequests(current: nil, upcoming: [], enabled: true, isForeground: true)
+        service.setRequests(current: nil, upcoming: [], enabled: true, isForeground: false,
+                            allowsBackgroundCurrent: true)
+        #expect(!service.isWorking)
+        // Its existing platform allowance admits only the completed current-song lookup.
+        service.setRequests(current: current, upcoming: [next], enabled: true, isForeground: false,
+                            allowsBackgroundCurrent: true)
+        try await engine.waitForCalls(1)
+        #expect(service.activeSongID == current.songID)
+        await engine.publish(0, values: ["0:0": "背景完成的目前歌曲"])
+        await engine.finish(0)
+        try await eventually { service.snapshot(for: current).phase == .ready }
+        try await eventually { !service.isWorking }
+        #expect(await engine.count == 1)
+        #expect(service.snapshot(for: next).phase == .idle)
+        // A subsequent background song cannot inherit the previous song's permission.
+        service.setRequests(current: next, upcoming: [], enabled: true, isForeground: false)
+        #expect(!service.isWorking)
+        #expect(await engine.count == 1)
+        await service.flush()
+    }
+
+    @Test(.timeLimit(.minutes(1))) func backgroundAdmissionRequiresEnabledWorkAndCannotUndoExpiration() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine()
+        let service = pipeline(directory: folder, engine: engine)
+        defer { service.suspend(); Task { await engine.finishAll() }; try? FileManager.default.removeItem(at: folder) }
+        let current = input("current", count: 1)
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: false)
+        #expect(!service.isWorking)
+        service.setRequests(current: current, upcoming: [], enabled: false, isForeground: false,
+                            allowsBackgroundCurrent: true)
+        #expect(!service.isWorking)
+        #expect(await engine.count == 0)
+        service.suspend()
+        // Even a late callback carrying the old permit cannot override expiration.
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: false,
+                            allowsBackgroundCurrent: true)
+        #expect(!service.isWorking)
+        #expect(await engine.count == 0)
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: true)
+        try await engine.waitForCalls(1)
+        await engine.publish(0, values: ["0:0": "前景恢復"])
+        await engine.finish(0)
+        try await eventually { service.snapshot(for: current).phase == .ready }
+        await service.flush()
+    }
+
+    @Test(.timeLimit(.minutes(1))) func normalBackgroundCompletionKeepsItsBudgetUntilTheFinalCheckpointIsDurable() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine(), gate = CheckpointGate()
+        let cache = AutomaticLyricTranslationCache(directory: folder)
+        let service = Pipeline(cache: cache, detectLanguage: { _ in "en" }) { fragments, publish in
+            try await engine.run(fragments, publish: publish)
+        }
+        service.checkpointWriter = { key, entry in
+            await gate.waitBeforeWrite()
+            await cache.store(entry, for: key)
+        }
+        defer {
+            service.suspend()
+            Task { await gate.release(); await engine.finishAll() }
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let current = input("durable-current", count: 1), next = input("future", count: 1)
+        service.setRequests(current: current, upcoming: [next], enabled: true, isForeground: false,
+                            allowsBackgroundCurrent: true)
+        try await engine.waitForCalls(1)
+        await engine.publish(0, values: ["0:0": "已翻譯，正在儲存"])
+        await engine.finish(0)
+        await gate.waitUntilEntered()
+        try await eventually { service.snapshot(for: current).phase == .ready }
+        #expect(service.isWorking)
+        #expect(service.activeSongID == current.songID)
+        #expect(await engine.count == 1)
+        let key = AutomaticLyricTranslationCache.Key(songID: current.songID, rows: current.rows)
+        let before = AutomaticLyricTranslationCache(directory: folder)
+        #expect(await before.entry(for: key) == nil)
+        await gate.release()
+        try await eventually { !service.isWorking }
+        #expect(service.activeSongID == nil)
+        #expect(await engine.count == 1) // No background speculative work follows completion.
+        let reopened = AutomaticLyricTranslationCache(directory: folder)
+        let saved = try #require(await reopened.entry(for: key))
+        #expect(saved.isComplete)
+        #expect(saved.fragments == ["0:0": "已翻譯，正在儲存"])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aLanguageRetryArrivingDuringFinalPersistenceIsNotLost() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine(), gate = CheckpointGate()
+        let cache = AutomaticLyricTranslationCache(directory: folder)
+        let service = Pipeline(cache: cache, detectLanguage: { _ in "en" }) { fragments, publish in
+            try await engine.run(fragments, publish: publish)
+        }
+        service.checkpointWriter = { key, entry in
+            await gate.waitBeforeWrite()
+            await cache.store(entry, for: key)
+        }
+        defer {
+            service.suspend()
+            Task { await gate.release(); await engine.finishAll() }
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let current = input("retry-while-writing", count: 2)
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: true)
+        try await engine.waitForCalls(1)
+        await engine.publish(0, values: ["0:0": "已完成"])
+        await engine.finish(0, outcome: .needsLanguage(.init(source: "en", target: "zh-Hant")))
+        await gate.waitUntilEntered()
+        try await eventually { service.snapshot(for: current).phase == .needsLanguage }
+        #expect(service.isWorking)
+        service.retry(songID: current.songID)
+        #expect(await engine.count == 1)
+        await gate.release()
+        try await engine.waitForCalls(2)
+        #expect(await engine.fragments(at: 1).map(\.id) == ["1:0"])
+        await engine.publish(1, values: ["1:0": "繼續完成"])
+        await engine.finish(1)
+        try await eventually { !service.isWorking }
+        #expect(service.snapshot(for: current).phase == .ready)
+        #expect(service.snapshot(for: current).lines == [0: "已完成", 1: "繼續完成"])
+    }
+}
+
+/// An asynchronous disk gate: holding a writer never blocks MainActor or a worker thread.
+private actor CheckpointGate {
+    private let enteredStream: AsyncStream<Void>
+    private let enteredContinuation: AsyncStream<Void>.Continuation
+    private let releasedStream: AsyncStream<Void>
+    private let releasedContinuation: AsyncStream<Void>.Continuation
+    private var entered = false
+    private var released = false
+
+    init() {
+        let (entryEvents, entryEmitter) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let (releaseEvents, releaseEmitter) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        enteredStream = entryEvents
+        enteredContinuation = entryEmitter
+        releasedStream = releaseEvents
+        releasedContinuation = releaseEmitter
+    }
+    func waitBeforeWrite() async {
+        entered = true
+        enteredContinuation.yield(())
+        enteredContinuation.finish()
+        guard !released else { return }
+        for await _ in releasedStream { break }
+    }
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        for await _ in enteredStream { break }
+    }
+    func release() {
+        released = true
+        releasedContinuation.yield(())
+        releasedContinuation.finish()
+    }
 }
 
 /// Cancellation deliberately does not resume the continuation. Tests can deliver late

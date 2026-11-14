@@ -61,6 +61,9 @@ final class LyricsTranslationCoordinator {
     @ObservationIgnored private var prefetchGeneration = UUID()
     @ObservationIgnored private var prefetchRemaining: [LookupKey] = []
     @ObservationIgnored private var lookupContext: [LookupKey] = []
+    @ObservationIgnored private var backgroundExecutionAllowed = false
+    @ObservationIgnored private var backgroundContinuationKey: LookupKey?
+    @ObservationIgnored private var currentRetryKey: LookupKey?
     private static let maximumCachedSongs = 200
     private static let maximumOriginalLyricsBytes = 20_000_000
     private static let upcomingCount = 5
@@ -81,8 +84,14 @@ final class LyricsTranslationCoordinator {
     func update(current: Song?, upcoming: [Song], sources: [LyricsSource], customSources: [CustomLyricsSource],
                 automaticEnabled: Bool, showsTranslation: Bool, isForeground: Bool) {
         let becameActive = !foreground && isForeground
+        let leavingForeground = foreground && !isForeground
         let changedSong = currentSong?.id != current?.id
+        let priorCurrentLookupKey = currentSong.flatMap { desiredLookups[$0.id] }
         let wasPreparing = self.automaticEnabled && self.showsTranslation
+        if leavingForeground {
+            backgroundContinuationKey = hasCurrentWork && wasPreparing
+                ? currentSong.flatMap { desiredLookups[$0.id] } : nil
+        }
         if becameActive { expirationSuspended = false }
         currentSong = current
         var seen = Set<String>()
@@ -103,6 +112,13 @@ final class LyricsTranslationCoordinator {
             lookupContext = context
         }
         let prepares = automaticEnabled && showsTranslation
+        let currentLookupKey = current.flatMap { desiredLookups[$0.id] }
+        if isForeground || !prepares || expirationSuspended || currentLookupKey != backgroundContinuationKey {
+            backgroundContinuationKey = nil
+        }
+        if becameActive || changedSong || currentLookupKey != priorCurrentLookupKey || (!wasPreparing && prepares) {
+            currentRetryKey = currentLookupKey
+        }
         if !isForeground || !prepares || expirationSuspended {
             cancelPrefetch(keepingCurrent: true)
         } else if changed || becameActive || !wasPreparing {
@@ -113,13 +129,7 @@ final class LyricsTranslationCoordinator {
         }
         if !automaticEnabled { pipeline.suspend() }
         refreshTranslationRequests()
-        if becameActive || changedSong || (!wasPreparing && prepares),
-           let currentInput = current.flatMap({ inputs[$0.id]?.input }) {
-            switch pipeline.snapshot(for: currentInput).phase {
-            case .failed, .paused, .needsLanguage: pipeline.retry(songID: currentInput.songID)
-            default: break
-            }
-        }
+        retryPreparedCurrentIfNeeded()
         trimMemoryInputs()
     }
 
@@ -173,10 +183,14 @@ final class LyricsTranslationCoordinator {
     /// Exact source rows gate reuse, including when a retry finds a different provider.
     func register(songID: String?, lines: [LyricsTranslationText]) {
         guard let songID else { return }
-        if inputs[songID]?.lines == lines { return }
+        if inputs[songID]?.lines == lines {
+            retryPreparedCurrentIfNeeded()
+            return
+        }
         inputs[songID] = PreparedInput(lines: lines, input: .init(songID: songID,
             rows: lines.map { .init(id: $0.id, text: $0.text) }))
         refreshTranslationRequests()
+        retryPreparedCurrentIfNeeded()
         trimMemoryInputs()
     }
 
@@ -211,11 +225,21 @@ final class LyricsTranslationCoordinator {
 
     func suspendForBackgroundExpiration() {
         expirationSuspended = true
+        backgroundContinuationKey = nil
         cancelPrefetch(keepingCurrent: false)
         pipeline.suspend()
     }
 
     func flush() async { await pipeline.flush() }
+
+    /// The scene owner supplies this only after UIKit grants a valid finite assertion.
+    /// Permission alone never starts work for a newly selected background song.
+    func setBackgroundExecutionAllowed(_ allowed: Bool) {
+        guard backgroundExecutionAllowed != allowed else { return }
+        backgroundExecutionAllowed = allowed
+        if !allowed { backgroundContinuationKey = nil }
+        refreshTranslationRequests()
+    }
 
     /// Source-cache clearing does not discard content-keyed automatic translations.
     func clearLyricsCache() async {
@@ -249,6 +273,7 @@ final class LyricsTranslationCoordinator {
     }
 
     func finishLanguageDownload(_ request: DownloadRequest, installed: Bool) {
+        guard !Task.isCancelled else { cancelLanguageDownload(request); return }
         let pair = AutomaticLyricDownloadPolicy.Pair(source: request.source, target: request.target)
         guard downloadPolicy.finish(pair, requestID: request.id, installed: installed) else { return }
         // A failed/cancelled foreground prompt is not remounted indefinitely. Retry is
@@ -279,6 +304,14 @@ final class LyricsTranslationCoordinator {
         }
     }
 
+    func cancelLanguageDownload(_ request: DownloadRequest) {
+        let pair = AutomaticLyricDownloadPolicy.Pair(source: request.source, target: request.target)
+        guard downloadPolicy.cancelHost(pair, requestID: request.id) else { return }
+        // A replacement host might already have tried this request while the old host
+        // still held its claim. Give the now-free request a new identity so it can run.
+        downloadAttempt &+= 1
+    }
+
     private func retryCurrentLanguage(_ pair: AutomaticLyricDownloadPolicy.Pair) {
         guard let songID = currentSong?.id, let prepared = inputs[songID],
               let needed = pipeline.snapshot(for: prepared.input).languagePair,
@@ -287,9 +320,25 @@ final class LyricsTranslationCoordinator {
     }
 
     private func refreshTranslationRequests() {
+        let currentLookupKey = currentSong.flatMap { desiredLookups[$0.id] }
+        let mayContinueCurrent = !foreground && backgroundExecutionAllowed && !expirationSuspended
+            && backgroundContinuationKey != nil && currentLookupKey == backgroundContinuationKey
         pipeline.setRequests(current: currentSong.flatMap { inputs[$0.id]?.input },
                              upcoming: upcomingSongs.compactMap { inputs[$0.id]?.input },
-                             enabled: automaticEnabled && showsTranslation, isForeground: foreground && !expirationSuspended)
+                             enabled: automaticEnabled && showsTranslation, isForeground: foreground && !expirationSuspended,
+                             allowsBackgroundCurrent: mayContinueCurrent)
+    }
+
+    /// A failed prefetched record may only become known after its cached lyrics arrive.
+    /// Consume one retry per current-song admission, not on every observable update.
+    private func retryPreparedCurrentIfNeeded() {
+        guard let key = currentRetryKey, currentSong?.id == key.song.id,
+              desiredLookups[key.song.id] == key, let prepared = inputs[key.song.id] else { return }
+        currentRetryKey = nil
+        switch pipeline.snapshot(for: prepared.input).phase {
+        case .failed, .paused, .needsLanguage: pipeline.retry(songID: prepared.input.songID)
+        default: break
+        }
     }
 
     private func registerIfDesired(_ lyrics: Lyrics, for key: LookupKey) {

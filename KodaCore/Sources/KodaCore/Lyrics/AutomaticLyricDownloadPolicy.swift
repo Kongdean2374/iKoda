@@ -34,6 +34,16 @@ public struct AutomaticLyricDownloadPolicy: Sendable {
         return true
     }
 
+    /// Moving the download UI between app surfaces is not a refusal of the language
+    /// download. Release only this host's claim; the next host may ask once again.
+    @discardableResult
+    public mutating func cancelHost(_ pair: Pair, requestID: String) -> Bool {
+        guard active[pair] == requestID else { return false }
+        active.removeValue(forKey: pair)
+        retryAfterFinish.remove(pair)
+        return true
+    }
+
     public mutating func retry(_ pair: Pair? = nil) {
         if let pair {
             suppressed.remove(pair)

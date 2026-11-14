@@ -69,6 +69,9 @@ public final class AutomaticLyricTranslationPipeline {
 
     @ObservationIgnored private let cache: AutomaticLyricTranslationCache
     @ObservationIgnored private let engine: Engine
+    /// Internal asynchronous seam for persistence-order tests. Production always uses
+    /// the serialized cache actor; the writer never blocks an executor with a semaphore.
+    @ObservationIgnored var checkpointWriter: @Sendable (AutomaticLyricTranslationCache.Key, AutomaticLyricTranslationCache.Entry) async -> Void
     @ObservationIgnored private let detectLanguage: @Sendable (String) -> String?
     @ObservationIgnored private let maximumUpcoming: Int
     @ObservationIgnored private let maximumSnapshots: Int
@@ -78,9 +81,13 @@ public final class AutomaticLyricTranslationPipeline {
     @ObservationIgnored private var upcomingKeys: [Key] = []
     @ObservationIgnored private var enabled = false
     @ObservationIgnored private var foreground = true
+    /// An explicit platform execution allowance, bound to this exact source content.
+    /// It never authorizes speculative work or follows a later song automatically.
+    @ObservationIgnored private var backgroundCurrentKey: Key?
     @ObservationIgnored private var suspended = false
     @ObservationIgnored private var sequence: UInt64 = 0
     @ObservationIgnored private var active: Active?
+    @ObservationIgnored private var retryAfterFinish: Key?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var dirty: Set<Key> = []
     @ObservationIgnored private var checkpointDelay: Task<Void, Never>?
@@ -95,15 +102,18 @@ public final class AutomaticLyricTranslationPipeline {
         self.maximumSnapshots = max(21, maximumSnapshots)
         self.detectLanguage = detectLanguage
         self.engine = engine
+        checkpointWriter = { key, entry in await cache.store(entry, for: key) }
     }
 
     /// Turning display off stops speculative starts, but a running current-song job may
     /// finish. Returning to this content reuses its memory/disk result without invalidation.
-    public func setRequests(current: Input?, upcoming: [Input], enabled: Bool, isForeground: Bool) {
+    public func setRequests(current: Input?, upcoming: [Input], enabled: Bool, isForeground: Bool,
+                            allowsBackgroundCurrent: Bool = false) {
         self.enabled = enabled
         foreground = isForeground
         if isForeground { suspended = false }
         currentKey = current.map(ensureRecord)
+        backgroundCurrentKey = allowsBackgroundCurrent ? currentKey : nil
         var seen = Set<Key>()
         if let currentKey { seen.insert(currentKey) }
         upcomingKeys = upcoming.prefix(maximumUpcoming).compactMap { input in
@@ -128,7 +138,16 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     public func retry(songID: String?) {
-        guard let songID, let key = memo[songID]?.key, key != active?.key else { return }
+        guard let songID, let key = memo[songID]?.key else { return }
+        if key == active?.key {
+            // A model-download reply can arrive while this terminal result is still
+            // checkpointing. Queue its retry instead of losing that foreground action.
+            if let phase = published[key]?.phase,
+               phase == .needsLanguage || phase == .unavailable || phase == .failed {
+                retryAfterFinish = key
+            }
+            return
+        }
         if var snapshot = published[key], snapshot.phase != .ready {
             snapshot.phase = .paused
             snapshot.languagePair = nil
@@ -143,6 +162,7 @@ public final class AutomaticLyricTranslationPipeline {
     /// Foreground setRequests resumes only missing fragments after the old engine exits.
     public func suspend() {
         suspended = true
+        backgroundCurrentKey = nil
         cancelActive()
         checkpointNow()
     }
@@ -186,8 +206,14 @@ public final class AutomaticLyricTranslationPipeline {
 
     private func schedule() {
         // Active work remains the sole engine until cancellation has actually completed.
-        guard active == nil, enabled, !suspended, foreground, let currentKey else { return }
-        let next = needsWork(currentKey) ? currentKey : upcomingKeys.first(where: needsWork)
+        guard active == nil, enabled, !suspended, let currentKey else { return }
+        let next: Key?
+        if foreground {
+            next = needsWork(currentKey) ? currentKey : upcomingKeys.first(where: needsWork)
+        } else {
+            guard backgroundCurrentKey == currentKey, needsWork(currentKey) else { return }
+            next = currentKey
+        }
         guard let next, records[next] != nil else { return }
         let token = UUID()
         active = Active(key: next, token: token)
@@ -197,11 +223,14 @@ public final class AutomaticLyricTranslationPipeline {
         value.phase = .preparing
         value.languagePair = nil
         published[next] = value
-        task = Task { [weak self] in await self?.run(key: next, token: token) }
+        task = Task { [weak self] in
+            guard let self else { return }
+            await run(key: next, token: token)
+            await finish(key: next, token: token)
+        }
     }
 
     private func run(key: Key, token: UUID) async {
-        defer { finish(key: key, token: token) }
         guard var record = records[key] else { return }
         if record.plan == nil {
             let rows = record.input.rows
@@ -288,13 +317,24 @@ public final class AutomaticLyricTranslationPipeline {
         checkpointNow()
     }
 
-    private func finish(key: Key, token: UUID) {
+    private func finish(key: Key, token: UUID) async {
+        guard active?.token == token else { return }
+        // Keep the current work/budget alive until its final checkpoint is durable.
+        // Ready text can appear immediately; only execution ownership waits for disk.
+        await flush()
         guard active?.token == token else { return }
         active = nil
         task = nil
         isWorking = false
         activeSongID = nil
-        checkpointNow()
+        if retryAfterFinish == key {
+            retryAfterFinish = nil
+            if var snapshot = published[key], snapshot.phase != .ready {
+                snapshot.phase = .paused
+                snapshot.languagePair = nil
+                published[key] = snapshot
+            }
+        }
         schedule()
     }
 
@@ -309,10 +349,10 @@ public final class AutomaticLyricTranslationPipeline {
         }
         dirty.removeAll()
         let previous = persistence
-        let cache = cache
+        let writer = checkpointWriter
         persistence = Task {
             await previous?.value
-            for (key, entry) in entries { await cache.store(entry, for: key) }
+            for (key, entry) in entries { await writer(key, entry) }
         }
     }
 

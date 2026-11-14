@@ -25,6 +25,9 @@ build number and validates the actual unsigned IPA.
   independently of SwiftUI. Missing models use a foreground system download flow;
   speculative songs never open a download prompt. Installed Chinese language pairs
   are preferred, with local Traditional Chinese conversion when needed.
+- Download consent is tracked by language pair. Declining one language download
+  does not repeat its prompt on every song; explicit Retry permits another attempt.
+  Changing the player presentation is distinguished from declining a download.
 - The whole unique source-language group is submitted through Apple's streaming
   batch API. Repeated sentences are translated once and mapped back to every
   occurrence. There are no 24-line completion barriers. UI updates are throttled
@@ -33,7 +36,10 @@ build number and validates the actual unsigned IPA.
   the visible source row's position is retained without centering it again. User
   scrolling and the original natural lyric-follow behavior keep precedence.
 - Current-song work requests limited iOS background execution time before the
-  app can be suspended. On expiration, work pauses while its results remain saved.
+  app can be suspended. A lookup already admitted in the foreground can continue
+  into translation under that same finite allowance, without admitting future
+  songs. Normal completion waits for its final checkpoint before releasing that
+  allowance. On expiration, work pauses while its results remain saved.
   Foreground return resumes missing work. This is not a promise of unlimited
   translation while an app is suspended or terminated.
 
@@ -45,6 +51,9 @@ build number and validates the actual unsigned IPA.
   state and can be repaired under the existing Wi-Fi/cellular download policy.
 - Undoing Clear Queue preserves the restored finite song pool through history
   trimming and restart, while retaining songs manually added after the clear.
+- A failed local audio item's zero clock cannot replace the saved resume position
+  before its failure callback arrives. Manual retry after reconnecting preserves
+  the same queue occurrence and position.
 
 ## Validation
 
@@ -62,6 +71,11 @@ audio routes and background expiration on an iPhone. Cache hits avoid an engine
 call; first-time on-device translation still depends on model readiness, song
 length and hardware. No measured device speed improvement is claimed without a
 physical-device measurement.
+
+If iOS expires the allowance or the process is force-terminated, the latest
+not-yet-written checkpoint is best effort. At most the recent coalescing window
+(normally 750 ms, plus storage latency) may need translation again; an app cannot
+guarantee a final write after it has been suspended or killed.
 
 Apple's batch-response API does not document immediate cancellation. A new song
 has scheduling priority, but the old native request must yield or finish before

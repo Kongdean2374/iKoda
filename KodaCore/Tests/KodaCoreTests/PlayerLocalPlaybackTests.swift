@@ -201,6 +201,35 @@ struct PlayerLocalPlaybackTests {
         #expect(position >= 0)
     }
 
+    @Test func anItemRemovedBeforeItsObserverRunsCannotReplaceTheSavedClockWithZero() async throws {
+        let h = try Harness(savedPosition: 42)
+        defer { h.cleanUp() }
+        h.player.resume()
+        try await waitFor("prepared local item at the saved position") {
+            h.player.currentPlayerItem?.status == .readyToPlay && h.player.position() >= 42
+        }
+        h.player.pause()
+        let held = h.player.position()
+        let occurrence = h.player.queue.current?.id
+        // Reproduce AVQueuePlayer discarding an item before its asynchronous currentItem
+        // callback runs. Pause samples synchronously on this same actor turn.
+        h.player.playbackEngine.removeAllItems()
+        h.player.pause()
+        #expect(h.player.currentPlayerItem == nil)
+        #expect(abs(h.player.position() - held) < 0.01)
+        #expect(h.player.queue.current?.id == occurrence)
+        h.player.persistQueueNow()
+        let data = try Data(contentsOf: h.directory.appending(path: "queue.json"))
+        let snapshot = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let saved = try #require(snapshot["position"] as? Double)
+        #expect(abs(saved - held) < 0.01)
+        h.player.resume()
+        try await waitFor("replacement preserving the sampled position") {
+            h.player.currentPlayerItem?.status == .readyToPlay && h.player.position() >= held
+        }
+        #expect(h.player.queue.current?.id == occurrence)
+    }
+
     @Test(arguments: [false, true])
     func mediaServerResetRebuildsOnePipelineAndPreservesPlaybackIntent(paused: Bool) async throws {
         let h = try Harness(savedPosition: 42)
@@ -260,10 +289,19 @@ struct PlayerLocalPlaybackTests {
         #expect(store.completeStream("short") == nil)
         #expect(store.entry("short")?.isDownload == true)
         if initiallyOffline {
+            #expect(abs(h.player.position() - 42) < 0.01,
+                    "a failed initial seek must not replace the restored position with the rejected item's zero clock")
             #expect(remoteLoads == 0)
             #expect(!h.player.wantsToPlay)
+            // Let late seek/status/currentItem callbacks arrive before the user's retry.
+            for _ in 0..<50 { await Task.yield() }
+            h.player.pause()
+            #expect(abs(h.player.position() - 42) < 0.01)
             h.player.networkSnapshotOverride = NetworkSnapshot(status: .online, interface: .wifi)
             h.player.resume()
+        } else {
+            #expect(h.player.position() >= 42 && h.player.position() < 44,
+                    "an online replacement may already be playing but must never restart at zero")
         }
         try await waitFor("replacement stream at the saved position") {
             remoteLoads >= 1 && h.player.currentPlayerItem?.status == .readyToPlay && h.player.position() >= 42

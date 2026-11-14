@@ -188,6 +188,10 @@ struct SyncedLyrics: View {
                 guard let index, !userScrolled else { return }
                 // While manually reading another row, playback keeps advancing but does
                 // not scroll. Keep that reader's pending layout correction in this case.
+                // Fast consecutive lines can keep the native follow animation active;
+                // publish queued results as part of that intended movement, rather than
+                // waiting indefinitely for an idle phase between lines.
+                applyExtras(desiredExtras)
                 scroll.cancelCorrection()
                 withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: index, anchor: UnitPoint(x: 0, y: 0.32)) }
             }
