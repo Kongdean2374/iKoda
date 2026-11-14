@@ -2,246 +2,203 @@ import KodaCore
 import SwiftUI
 import Translation
 
-/// Text-only input: translated sentences reuse their source row ID, never invented word timings.
+/// Translation input is text-only; source lyric IDs and timing remain unchanged.
 nonisolated struct LyricsTranslationText: Equatable, Sendable {
     let id: Int
     let text: String
 }
 
 nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
-    enum Phase: Equatable, Sendable { case idle, preparing, translating, ready, unavailable, failed }
+    enum Phase: Equatable, Sendable {
+        case idle, preparing, translating, ready, needsLanguage, unavailable, failed, paused
+    }
     var phase: Phase = .idle
     var lines: [Int: String] = [:]
+    var completed = 0
+    var total = 0
 }
 
-/// A zero-size worker shared by synced and plain lyrics. Apple sessions stay inside their
-/// translationTask lifetime. Each new content/request mounts a new host and rejects old replies.
-@MainActor
-struct AutomaticLyricsTranslationTask: View {
-    let songID: String?
-    let lines: [LyricsTranslationText]
-    let enabled: Bool
-    let retry: Int
-    @Binding var result: AutomaticLyricsResult
-    @Environment(Player.self) private var player
-    @State private var activeRequest = UUID()
-    @State private var plan: Plan?
-    @State private var pending: [Plan] = []
-    @State private var textPlan: ChineseLyricTranslationPlan?
-    @State private var translatedFragments: [String: String] = [:]
-    @State private var hasUnsupportedLanguage = false
-    @State private var hasFailure = false
-
-    private struct Request: Equatable {
-        let songID: String?
-        let lines: [LyricsTranslationText]
-        let enabled: Bool
-        let retry: Int
-    }
-    private struct Plan {
-        let id = UUID()
-        let request: UUID
+/// Installed language sessions belong to the work task, not to any lyrics view.
+/// SwiftUI sessions below are used only for the system's foreground download prompt.
+nonisolated enum NativeLyricsTranslationEngine {
+    private struct LanguageChoice: Sendable {
         let source: Locale.Language
         let target: Locale.Language
-        let fragments: [ChineseLyricTranslationPlan.Fragment]
+        let installed: Bool
     }
 
-    var body: some View {
-        // Keep the request task and cancellation boundary on one stable view node while
-        // individual language/session hosts are replaced underneath it.
-        ZStack {
-            if let plan {
-                NativeLyricsTranslationHost(source: plan.source, target: plan.target,
-                    fragments: plan.fragments, token: plan.request) { token, update in
-                    guard isCurrent(token) else { return }
-                    for (id, text) in update.fragments { translatedFragments[id] = text }
-                    result.lines = textPlan?.renderedLines(translations: translatedFragments) ?? [:]
-                    switch update.phase {
-                    case .ready:
-                        startNext(token)
-                    case .unavailable:
-                        hasUnsupportedLanguage = true
-                        startNext(token)
-                    case .failed:
-                        hasFailure = true
-                        startNext(token)
-                    default:
-                        result.phase = update.phase
-                    }
-                }
-                .id(plan.id)
-            } else {
-                Color.clear
-            }
-        }
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
-        .task(id: Request(songID: songID, lines: lines, enabled: enabled, retry: retry)) { await prepare() }
-        .onDisappear { activeRequest = UUID(); plan = nil; pending = [] }
-    }
-
-    private func prepare() async {
-        let token = UUID()
-        activeRequest = token
-        plan = nil
-        pending = []
-        textPlan = nil
-        translatedFragments = [:]
-        hasUnsupportedLanguage = false
-        hasFailure = false
-        result = AutomaticLyricsResult()
-        guard enabled, songID != nil, lines.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else { return }
-        result.phase = .preparing
-        let rows = lines.map { ChineseLyricTranslationPlan.Row(id: $0.id, text: $0.text) }
-        let prepared = await Task.detached(priority: .userInitiated) {
-            ChineseLyricTranslationPlan(rows: rows)
-        }.value
-        guard isCurrent(token) else { return }
-        textPlan = prepared
-        hasUnsupportedLanguage = prepared.hasUnrecognizedText
-        result.lines = prepared.renderedLines(translations: [:])
-        guard !prepared.fragments.isEmpty else {
-            result.phase = prepared.hasUnrecognizedText ? .unavailable : .ready
-            return
-        }
-        var sourceLanguages: [String] = []
-        for fragment in prepared.fragments where !sourceLanguages.contains(fragment.language) { sourceLanguages.append(fragment.language) }
-        let supported = await Self.supportedLanguagePairs(for: sourceLanguages)
-        guard isCurrent(token) else { return }
-        hasUnsupportedLanguage = hasUnsupportedLanguage || supported.count < sourceLanguages.count
-        pending = supported.map { pair in
-            Plan(request: token, source: pair.source, target: pair.target,
-                 fragments: prepared.fragments.filter { $0.language == pair.sourceID })
-        }
-        startNext(token)
-    }
-
-    /// LanguageAvailability is not Sendable. Create it and perform every asynchronous
-    /// query on the generic executor, returning only Sendable locale value types to the UI.
     @concurrent
-    nonisolated private static func supportedLanguagePairs(for sourceLanguages: [String]) async -> [SupportedLyricsLanguage] {
-        guard !Task.isCancelled else { return [] }
+    static func translate(_ fragments: [ChineseLyricTranslationPlan.Fragment],
+                          publish: @escaping @Sendable ([String: String]) async -> Void) async throws -> AutomaticLyricTranslationPipeline.Outcome {
+        var languages: [String] = []
+        for fragment in fragments where !languages.contains(fragment.language) { languages.append(fragment.language) }
+        let choices = await languageChoices(for: languages)
+        try Task.checkCancellation()
+        var unavailable = false
+        var missingLanguage: AutomaticLyricTranslationPipeline.LanguagePair?
+        var translated: [String: String] = [:]
+        for language in languages {
+            try Task.checkCancellation()
+            guard let choice = choices[language] else { unavailable = true; continue }
+            guard choice.installed else {
+                if missingLanguage == nil {
+                    missingLanguage = .init(source: choice.source.minimalIdentifier, target: choice.target.minimalIdentifier)
+                }
+                continue
+            }
+            // Repeated choruses need one translation per unique text, then fan out to all
+            // original IDs. Submit the complete language group; no 24-line barriers.
+            let group = fragments.filter { $0.language == language }
+            var byText: [String: [ChineseLyricTranslationPlan.Fragment]] = [:]
+            var unique: [ChineseLyricTranslationPlan.Fragment] = []
+            for fragment in group {
+                if byText[fragment.text] == nil { unique.append(fragment) }
+                byText[fragment.text, default: []].append(fragment)
+            }
+            let responsesByID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, byText[$0.text]!) })
+            let requests = unique.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
+            let session = TranslationSession(installedSource: choice.source, target: choice.target)
+            defer { session.cancel() }
+            var lastPublished = ContinuousClock.now
+            for try await response in session.translate(batch: requests) {
+                try Task.checkCancellation()
+                guard let id = response.clientIdentifier, let matching = responsesByID[id],
+                      !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                let text = TraditionalChineseLyrics.convert(response.targetText)
+                for fragment in matching { translated[fragment.id] = text }
+                let now = ContinuousClock.now
+                if lastPublished.duration(to: now) >= .milliseconds(100) {
+                    await publish(translated)
+                    lastPublished = now
+                }
+            }
+            try Task.checkCancellation()
+            await publish(translated)
+            if group.contains(where: { translated[$0.id] == nil }) { unavailable = true }
+        }
+        try Task.checkCancellation()
+        if let missingLanguage { return .needsLanguage(missingLanguage) }
+        return unavailable ? .unavailable : .complete
+    }
+
+    /// Keep the non-Sendable availability object entirely on the generic executor.
+    /// An installed Chinese variant is preferred over a supported-but-uninstalled one.
+    @concurrent
+    private static func languageChoices(for sourceLanguages: [String]) async -> [String: LanguageChoice] {
         let availability = LanguageAvailability()
-        let languages = await availability.supportedLanguages
-        guard !Task.isCancelled else { return [] }
-        let chinese = languages.filter { $0.languageCode?.identifier == "zh" }
-        // Choose from Apple's actual supported languages. A supported Simplified target
-        // can be converted locally; an unsupported Traditional target is never assumed.
-        let targets = chinese.filter { $0.script?.identifier == "Hant" }
-            + chinese.filter { $0.script?.identifier != "Hant" }
-        var result: [SupportedLyricsLanguage] = []
-        for language in sourceLanguages {
-            guard !Task.isCancelled else { return [] }
-            let source = Locale.Language(identifier: language)
+        let supported = await availability.supportedLanguages
+        guard !Task.isCancelled else { return [:] }
+        let chinese = supported.filter { $0.languageCode?.identifier == "zh" }
+        let targets = chinese.filter { $0.script?.identifier == "Hant" } + chinese.filter { $0.script?.identifier != "Hant" }
+        var result: [String: LanguageChoice] = [:]
+        for sourceID in sourceLanguages {
+            let source = Locale.Language(identifier: sourceID)
+            var downloadable: Locale.Language?
             for target in targets {
                 let status = await availability.status(from: source, to: target)
-                guard !Task.isCancelled else { return [] }
+                guard !Task.isCancelled else { return [:] }
                 switch status {
-                case .installed, .supported:
-                    result.append(SupportedLyricsLanguage(sourceID: language, source: source, target: target))
-                case .unsupported: continue
-                @unknown default: continue
+                case .installed:
+                    result[sourceID] = LanguageChoice(source: source, target: target, installed: true)
+                case .supported:
+                    if downloadable == nil { downloadable = target }
+                case .unsupported: break
+                @unknown default: break
                 }
-                break
+                if result[sourceID] != nil { break }
+            }
+            if result[sourceID] == nil, let target = downloadable {
+                result[sourceID] = LanguageChoice(source: source, target: target, installed: false)
             }
         }
         return result
     }
 
-    /// Language groups run one at a time, avoiding simultaneous system language-download prompts.
-    private func startNext(_ token: UUID) {
-        guard isCurrent(token) else { return }
-        if pending.isEmpty {
-            plan = nil
-            result.phase = hasFailure ? .failed : hasUnsupportedLanguage ? .unavailable : .ready
-        } else {
-            plan = pending.removeFirst()
-            result.phase = .preparing
-        }
-    }
-
-    private func isCurrent(_ token: UUID) -> Bool {
-        !Task.isCancelled && activeRequest == token && enabled && player.current?.id == songID
+    @concurrent
+    static func isInstalled(source: String, target: String) async -> Bool {
+        let availability = LanguageAvailability()
+        let status = await availability.status(from: Locale.Language(identifier: source), to: Locale.Language(identifier: target))
+        if case .installed = status { return true }
+        return false
     }
 }
 
-nonisolated private struct SupportedLyricsLanguage: Sendable {
-    let sourceID: String
-    let source: Locale.Language
-    let target: Locale.Language
-}
-
-nonisolated private struct NativeLyricsResult: Sendable {
-    let phase: AutomaticLyricsResult.Phase
-    var fragments: [String: String] = [:]
-}
-
-@MainActor
-private struct NativeLyricsTranslationHost: View {
-    let source: Locale.Language
-    let target: Locale.Language
-    let fragments: [ChineseLyricTranslationPlan.Fragment]
-    let token: UUID
-    let publish: @MainActor @Sendable (UUID, NativeLyricsResult) -> Void
+/// Mount once on the currently presented app surface. It never owns translated results
+/// or installed-model work, so dismissing that surface cannot erase cached translations.
+struct LyricsTranslationDownloadHost: View {
+    let coordinator: LyricsTranslationCoordinator
 
     var body: some View {
-        Color.clear
-            .translationTask(TranslationSession.Configuration(source: source, target: target),
-                             action: Self.translate(fragments, token: token, publish: publish))
+        ZStack {
+            if let request = coordinator.downloadRequest {
+                NativeLyricsLanguageDownload(request: request, coordinator: coordinator)
+                    .id(request.id)
+            }
+        }
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct NativeLyricsLanguageDownload: View {
+    let request: LyricsTranslationCoordinator.DownloadRequest
+    let coordinator: LyricsTranslationCoordinator
+
+    var body: some View {
+        Color.clear.translationTask(TranslationSession.Configuration(
+            source: Locale.Language(identifier: request.source), target: Locale.Language(identifier: request.target)),
+            action: Self.prepare(request: request, coordinator: coordinator))
     }
 
-    nonisolated private static func translate(_ fragments: [ChineseLyricTranslationPlan.Fragment], token: UUID,
-        publish: @escaping @MainActor @Sendable (UUID, NativeLyricsResult) -> Void
-    ) -> @concurrent (TranslationSession) async -> Void {
+    nonisolated private static func prepare(request: LyricsTranslationCoordinator.DownloadRequest,
+                                            coordinator: LyricsTranslationCoordinator) -> @concurrent (TranslationSession) async -> Void {
         { @concurrent session in
-            var translated: [String: String] = [:]
+            guard await coordinator.beginLanguageDownload(request) else { return }
             do {
                 try Task.checkCancellation()
-                // Apple asks permission for missing language packs; installed models work offline.
-                // This session receives only one source language, including for mixed-language songs.
                 try await session.prepareTranslation()
                 try Task.checkCancellation()
-                await publish(token, NativeLyricsResult(phase: .translating))
-                for start in stride(from: 0, to: fragments.count, by: 24) {
-                    try Task.checkCancellation()
-                    let batch = fragments[start..<min(start + 24, fragments.count)]
-                    let allowedIDs = Set(batch.map(\.id))
-                    let requests = batch.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
-                    let responses = try await session.translations(from: requests)
-                    try Task.checkCancellation()
-                    for response in responses {
-                        guard let id = response.clientIdentifier, allowedIDs.contains(id),
-                              !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                        translated[id] = TraditionalChineseLyrics.convert(response.targetText)
-                    }
-                    await publish(token, NativeLyricsResult(phase: .translating, fragments: translated))
-                }
-                try Task.checkCancellation()
-                await publish(token, NativeLyricsResult(phase: translated.count == fragments.count ? .ready : .unavailable, fragments: translated))
+                // Preparation may return while a model is downloading. Do not assume an
+                // installed session is usable until the actual language pair says so.
+                let installed = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
+                await coordinator.finishLanguageDownload(request, installed: installed)
             } catch {
-                guard !Task.isCancelled else { return }
-                await publish(token, NativeLyricsResult(phase: .failed, fragments: translated))
+                await coordinator.finishLanguageDownload(request, installed: false)
             }
         }
     }
 }
 
-/// Shared, honest status messages. A failed or unsupported pair never hides original lines.
+/// Progress is an honest count of completed source fragments, not playback position.
 struct AutomaticLyricsNotice: View {
-    let phase: AutomaticLyricsResult.Phase
+    let result: AutomaticLyricsResult
     let retry: () -> Void
 
     var body: some View {
-        switch phase {
+        switch result.phase {
         case .preparing:
             Label("Preparing On-Device Translation…", systemImage: "translate")
         case .translating:
-            Label("Translating on This Device…", systemImage: "translate")
+            if result.total > 0 {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Translating Lyrics: \(result.completed) of \(result.total)")
+                    ProgressView(value: Double(result.completed), total: Double(max(1, result.total)))
+                }
+            } else {
+                Label("Translating on This Device…", systemImage: "translate")
+            }
+        case .needsLanguage:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Download the requested languages to translate on this device. Existing translations are kept.")
+                Button("Retry Translation", action: retry)
+            }
+        case .paused:
+            Text("Translation is paused. Saved translations are kept and remaining lines resume when the app is active.")
         case .unavailable:
             Text("On-device translation is unavailable for some lyric languages. Available translations are shown; unsupported text keeps its original wording.")
         case .failed:
             VStack(alignment: .leading, spacing: 6) {
-                Text("Translation could not finish. Original lyrics are shown for missing lines. Download the requested languages and try again.")
+                Text("Translation could not finish. Completed translations are saved; retry continues with the remaining lines.")
                 Button("Retry Translation", action: retry)
             }
         case .idle, .ready:

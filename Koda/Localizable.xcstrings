@@ -5253,6 +5253,23 @@
         }
       }
     },
+    "Download the requested languages to translate on this device. Existing translations are kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download the requested languages to translate on this device. Existing translations are kept."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請下載系統要求的語言，即可在裝置上翻譯。已有的譯文會保留。"
+          }
+        }
+      }
+    },
     "Downloaded": {
       "extractionState": "manual",
       "localizations": {
@@ -11798,6 +11815,23 @@
         }
       }
     },
+    "Prepare Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepare Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備翻譯"
+          }
+        }
+      }
+    },
     "Preparing On-Device Translation…": {
       "extractionState": "manual",
       "localizations": {
@@ -11811,6 +11845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在準備裝置端翻譯⋯"
+          }
+        }
+      }
+    },
+    "Preparing Translation…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing Translation…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在準備翻譯⋯"
           }
         }
       }
@@ -17017,6 +17068,23 @@
         }
       }
     },
+    "Translated %lld of %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translated %lld of %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已翻譯 %lld／%lld"
+          }
+        }
+      }
+    },
     "Translated sentences follow the original lyric lines without word-by-word animation. Missing translations keep the original text. Changing this setting does not change playback.": {
       "extractionState": "manual",
       "localizations": {
@@ -17030,6 +17098,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "譯文以整句顯示，跟隨對應原文行移動，不使用逐字動畫。缺少翻譯時保留原文，切換設定不會影響播放。"
+          }
+        }
+      }
+    },
+    "Translating Lyrics: %lld of %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translating Lyrics: %lld of %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌詞翻譯中：%lld／%lld"
           }
         }
       }
@@ -17085,6 +17170,23 @@
         }
       }
     },
+    "Translation Details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Details"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯狀態"
+          }
+        }
+      }
+    },
     "Translation File": {
       "extractionState": "manual",
       "localizations": {
@@ -17115,6 +17217,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "譯文不透明度"
+          }
+        }
+      }
+    },
+    "Translation Paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Paused"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯已暫停"
+          }
+        }
+      }
+    },
+    "Translation Ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Ready"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯已完成"
           }
         }
       }
@@ -17153,6 +17289,23 @@
         }
       }
     },
+    "Translation could not finish. Completed translations are saved; retry continues with the remaining lines.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation could not finish. Completed translations are saved; retry continues with the remaining lines."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯未能完成。已完成的譯文已保存，重試時會繼續翻譯其餘內容。"
+          }
+        }
+      }
+    },
     "Translation could not finish. Original lyrics are shown for missing lines. Download the requested languages and try again.": {
       "extractionState": "manual",
       "localizations": {
@@ -17183,6 +17336,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已匯入「%@」的翻譯。"
+          }
+        }
+      }
+    },
+    "Translation is paused. Saved translations are kept and remaining lines resume when the app is active.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation is paused. Saved translations are kept and remaining lines resume when the app is active."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯已暫停，已完成的譯文會保留；回到 App 後會繼續翻譯其餘內容。"
           }
         }
       }

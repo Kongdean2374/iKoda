@@ -50,6 +50,7 @@ public final class Downloads {
     }
     @ObservationIgnored private var collections: [UUID: CollectionWork] = [:]
     @ObservationIgnored private var networkTask: Task<Void, Never>?
+    @ObservationIgnored private var validationTask: Task<Void, Never>?
     @ObservationIgnored private var network = NetworkPath.shared.snapshot
 
     // Deterministic test seams. Production always uses the resolver, URLSession and clock.
@@ -90,6 +91,7 @@ public final class Downloads {
 
     deinit {
         networkTask?.cancel()
+        validationTask?.cancel()
         for job in running.values { job.task.cancel() }
         for job in retrying.values { job.task.cancel() }
         for work in collections.values { work.task?.cancel() }
@@ -102,7 +104,38 @@ public final class Downloads {
     /// download redraws the offline list, even though AudioStore itself is not observable.
     public var readyOfflineSongs: [Song] {
         let tracked = Set(songs.filter { states[$0.id] != nil }.map(\.id))
-        return store.readyOfflineSongs.filter { tracked.contains($0.id) }
+        let ready = store.readyOfflineSongs.filter { tracked.contains($0.id) }
+        let readyIDs = Set(ready.map(\.id))
+        if songs.contains(where: { states[$0.id] == .downloaded && !readyIDs.contains($0.id) }) {
+            scheduleValidationRefresh()
+        }
+        return ready
+    }
+
+    /// Storage may have changed while the app was inactive. A validated missing or
+    /// truncated download keeps its download intent, but must not stay marked Downloaded.
+    /// Reuse the existing scheduler so offline and cellular restrictions still apply.
+    public func refreshStoredDownloads() {
+        for song in songs where states[song.id] == .downloaded {
+            guard let entry = store.entry(song.id), entry.isDownload else {
+                remove([song])
+                continue
+            }
+            if !entry.isComplete { refreshInvalidatedDownload(song.id) }
+        }
+        bytes = store.downloadBytes
+    }
+
+    private func scheduleValidationRefresh() {
+        guard validationTask == nil else { return }
+        // readyOfflineSongs is commonly read by a SwiftUI body. Defer observable
+        // mutations, and recheck current intent so a concurrent Remove cannot revive it.
+        validationTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            validationTask = nil
+            refreshStoredDownloads()
+        }
     }
 
     public func state(of songs: [Song]) -> State {
@@ -162,6 +195,7 @@ public final class Downloads {
     }
 
     public func retry(_ songs: [Song]) {
+        refreshStoredDownloads()
         for song in songs where states[song.id] == .failed {
             failures[song.id] = nil
             refreshedURLs.remove(song.id)

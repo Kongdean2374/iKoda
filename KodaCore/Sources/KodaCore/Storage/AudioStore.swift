@@ -60,6 +60,9 @@ public final class AudioStore: @unchecked Sendable {
     private var cacheLimitBytes: Int64
     private var saveVersion = 0
     private let saveQueue = DispatchQueue(label: "koda.audiostore.save", qos: .utility)
+    /// Test seam: installed before scheduling any write, to hold a stale snapshot exactly
+    /// after its version check. Production leaves this nil.
+    var beforeScheduledIndexWrite: (@Sendable () -> Void)?
 
     public init(directory: URL, cacheLimit: Int64 = 1_000_000_000) {
         self.directory = directory
@@ -391,16 +394,21 @@ public final class AudioStore: @unchecked Sendable {
                 version == self.saveVersion ? Array(self.entries.values) : nil
             }
             guard let snapshot, let data = try? JSONEncoder().encode(snapshot) else { return }
+            self.beforeScheduledIndexWrite?()
             try? data.write(to: self.indexFile, options: .atomic)
         }
     }
 
-    /// Write the index now, on this thread: the app is leaving the screen.
+    /// Finish an index write before returning: the app is leaving the screen. Use the same
+    /// serial writer as delayed saves, otherwise an older snapshot already past its version
+    /// check could land after this flush and restore removed downloads or stale byte ranges.
     public func flush() {
-        let snapshot = lock.withLock {
-            saveVersion += 1
-            return Array(entries.values)
+        saveQueue.sync {
+            let snapshot = lock.withLock {
+                saveVersion += 1
+                return Array(entries.values)
+            }
+            if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: indexFile, options: .atomic) }
         }
-        if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: indexFile, options: .atomic) }
     }
 }

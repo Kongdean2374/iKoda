@@ -1,0 +1,334 @@
+import Foundation
+import Observation
+
+/// App-owned, bounded translation work. Presentation visibility never owns a session or
+/// clears its results. The injected engine handles platform language models; this type
+/// owns cache reuse, cancellation generations and current-song priority.
+@MainActor
+@Observable
+public final class AutomaticLyricTranslationPipeline {
+    nonisolated public struct Input: Equatable, Sendable {
+        public let songID: String
+        public let rows: [ChineseLyricTranslationPlan.Row]
+        public init(songID: String, rows: [ChineseLyricTranslationPlan.Row]) {
+            self.songID = songID
+            self.rows = rows
+        }
+    }
+
+    nonisolated public enum Phase: Equatable, Sendable {
+        case idle, preparing, translating, ready, needsLanguage, unavailable, failed, paused
+    }
+
+    nonisolated public struct LanguagePair: Equatable, Sendable {
+        public let source: String
+        public let target: String
+        public init(source: String, target: String) { self.source = source; self.target = target }
+    }
+
+    nonisolated public struct Snapshot: Equatable, Sendable {
+        public var phase: Phase
+        public var lines: [Int: String]
+        /// Progress counts source fragments, including repeated occurrences.
+        public var completed: Int
+        public var total: Int
+        public var languagePair: LanguagePair?
+        public init(phase: Phase = .idle, lines: [Int: String] = [:], completed: Int = 0,
+                    total: Int = 0, languagePair: LanguagePair? = nil) {
+            self.phase = phase
+            self.lines = lines
+            self.completed = completed
+            self.total = total
+            self.languagePair = languagePair
+        }
+    }
+
+    nonisolated public enum Outcome: Equatable, Sendable {
+        case complete, needsLanguage(LanguagePair), unavailable
+    }
+    public typealias Publish = @Sendable ([String: String]) async -> Void
+    public typealias Engine = @Sendable ([ChineseLyricTranslationPlan.Fragment], @escaping Publish) async throws -> Outcome
+
+    public private(set) var isWorking = false
+    public private(set) var activeSongID: String?
+    private var published: [AutomaticLyricTranslationCache.Key: Snapshot] = [:]
+
+    private typealias Key = AutomaticLyricTranslationCache.Key
+    private struct Record {
+        var input: Input
+        var plan: ChineseLyricTranslationPlan?
+        var fragments: [String: String] = [:]
+        var loadedCache = false
+        var lastUsed: UInt64
+    }
+    private struct Active {
+        let key: Key
+        let token: UUID
+        var cancelled = false
+    }
+
+    @ObservationIgnored private let cache: AutomaticLyricTranslationCache
+    @ObservationIgnored private let engine: Engine
+    @ObservationIgnored private let detectLanguage: @Sendable (String) -> String?
+    @ObservationIgnored private let maximumUpcoming: Int
+    @ObservationIgnored private let maximumSnapshots: Int
+    @ObservationIgnored private var records: [Key: Record] = [:]
+    @ObservationIgnored private var memo: [String: (input: Input, key: Key)] = [:]
+    @ObservationIgnored private var currentKey: Key?
+    @ObservationIgnored private var upcomingKeys: [Key] = []
+    @ObservationIgnored private var enabled = false
+    @ObservationIgnored private var foreground = true
+    @ObservationIgnored private var suspended = false
+    @ObservationIgnored private var sequence: UInt64 = 0
+    @ObservationIgnored private var active: Active?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var dirty: Set<Key> = []
+    @ObservationIgnored private var checkpointDelay: Task<Void, Never>?
+    @ObservationIgnored private var persistence: Task<Void, Never>?
+
+    public init(cache: AutomaticLyricTranslationCache, maximumUpcoming: Int = 5,
+                maximumSnapshots: Int = 200,
+                detectLanguage: @escaping @Sendable (String) -> String? = { LyricsRomanizer.language(of: [$0]) },
+                engine: @escaping Engine) {
+        self.cache = cache
+        self.maximumUpcoming = min(20, max(0, maximumUpcoming))
+        self.maximumSnapshots = max(21, maximumSnapshots)
+        self.detectLanguage = detectLanguage
+        self.engine = engine
+    }
+
+    /// Turning display off stops speculative starts, but a running current-song job may
+    /// finish. Returning to this content reuses its memory/disk result without invalidation.
+    public func setRequests(current: Input?, upcoming: [Input], enabled: Bool, isForeground: Bool) {
+        self.enabled = enabled
+        foreground = isForeground
+        if isForeground { suspended = false }
+        currentKey = current.map(ensureRecord)
+        var seen = Set<Key>()
+        if let currentKey { seen.insert(currentKey) }
+        upcomingKeys = upcoming.prefix(maximumUpcoming).compactMap { input in
+            let key = ensureRecord(input)
+            return seen.insert(key).inserted ? key : nil
+        }
+        if let active {
+            if currentKey == nil || (active.key != currentKey &&
+                (!enabled || !isForeground || !upcomingKeys.contains(active.key) || currentNeedsWork)) {
+                cancelActive()
+            }
+        }
+        trimMemory()
+        schedule()
+    }
+
+    /// O(1) after comparing the already registered rows; no hashing or planning on every
+    /// lyric animation frame. Unknown/mismatched content never sees a previous provider's text.
+    public func snapshot(for input: Input) -> Snapshot {
+        guard let remembered = memo[input.songID], remembered.input == input else { return Snapshot() }
+        return published[remembered.key] ?? Snapshot()
+    }
+
+    public func retry(songID: String?) {
+        guard let songID, let key = memo[songID]?.key, key != active?.key else { return }
+        if var snapshot = published[key], snapshot.phase != .ready {
+            snapshot.phase = .paused
+            snapshot.languagePair = nil
+            published[key] = snapshot
+        }
+        if foreground { suspended = false }
+        if key == currentKey, let active, active.key != key { cancelActive() }
+        schedule()
+    }
+
+    /// A background-time expiration cancels work without deleting partial translations.
+    /// Foreground setRequests resumes only missing fragments after the old engine exits.
+    public func suspend() {
+        suspended = true
+        cancelActive()
+        checkpointNow()
+    }
+
+    /// Wait for all currently pending writes. New progress arriving while this waits is
+    /// included in another pass, so callers can checkpoint before a background deadline.
+    public func flush() async {
+        repeat {
+            checkpointNow()
+            let waiting = persistence
+            await waiting?.value
+        } while !dirty.isEmpty
+    }
+
+    private var currentNeedsWork: Bool {
+        guard let currentKey else { return false }
+        return needsWork(currentKey)
+    }
+
+    private func needsWork(_ key: Key) -> Bool {
+        switch published[key]?.phase ?? .idle {
+        case .idle, .paused: true
+        case .preparing, .translating: active?.key != key
+        case .ready, .needsLanguage, .unavailable, .failed: false
+        }
+    }
+
+    private func ensureRecord(_ input: Input) -> Key {
+        let key: Key
+        if let remembered = memo[input.songID], remembered.input == input {
+            key = remembered.key
+        } else {
+            key = Key(songID: input.songID, rows: input.rows)
+            memo[input.songID] = (input, key)
+        }
+        sequence &+= 1
+        if records[key] == nil { records[key] = Record(input: input, lastUsed: sequence) }
+        else { records[key]?.lastUsed = sequence }
+        return key
+    }
+
+    private func schedule() {
+        // Active work remains the sole engine until cancellation has actually completed.
+        guard active == nil, enabled, !suspended, foreground, let currentKey else { return }
+        let next = needsWork(currentKey) ? currentKey : upcomingKeys.first(where: needsWork)
+        guard let next, records[next] != nil else { return }
+        let token = UUID()
+        active = Active(key: next, token: token)
+        activeSongID = records[next]?.input.songID
+        isWorking = true
+        var value = published[next] ?? Snapshot()
+        value.phase = .preparing
+        value.languagePair = nil
+        published[next] = value
+        task = Task { [weak self] in await self?.run(key: next, token: token) }
+    }
+
+    private func run(key: Key, token: UUID) async {
+        defer { finish(key: key, token: token) }
+        guard var record = records[key] else { return }
+        if record.plan == nil {
+            let rows = record.input.rows
+            let detector = detectLanguage
+            let plan = await Task.detached(priority: .utility) {
+                ChineseLyricTranslationPlan(rows: rows, detectLanguage: detector)
+            }.value
+            guard accepts(key: key, token: token) else { return }
+            record.plan = plan
+            records[key] = record
+        }
+        guard let plan = record.plan else { return }
+        let allowed = Set(plan.fragments.map(\.id))
+        if !record.loadedCache {
+            let saved = await cache.entry(for: key)
+            guard accepts(key: key, token: token) else { return }
+            record.fragments = saved?.fragments.filter { allowed.contains($0.key) && Self.hasText($0.value) } ?? [:]
+            record.loadedCache = true
+            records[key] = record
+        }
+        let missing = plan.fragments.filter { record.fragments[$0.id] == nil }
+        publishSnapshot(key: key, phase: missing.isEmpty ? (plan.hasUnrecognizedText ? .unavailable : .ready) : .translating)
+        guard !missing.isEmpty else {
+            dirty.insert(key)
+            return
+        }
+        do {
+            let outcome = try await engine(missing) { [weak self] fragments in
+                await self?.receive(fragments, key: key, token: token)
+            }
+            guard accepts(key: key, token: token) else { return }
+            switch outcome {
+            case .complete:
+                let complete = records[key]?.fragments.count == plan.fragments.count
+                publishSnapshot(key: key, phase: complete && !plan.hasUnrecognizedText ? .ready : .unavailable)
+            case .needsLanguage(let pair):
+                publishSnapshot(key: key, phase: .needsLanguage, pair: pair)
+            case .unavailable:
+                publishSnapshot(key: key, phase: .unavailable)
+            }
+        } catch {
+            guard accepts(key: key, token: token) else { return }
+            publishSnapshot(key: key, phase: .failed)
+        }
+        dirty.insert(key)
+    }
+
+    private func receive(_ fragments: [String: String], key: Key, token: UUID) {
+        guard accepts(key: key, token: token), var record = records[key], let plan = record.plan else { return }
+        let allowed = Set(plan.fragments.map(\.id))
+        for (id, text) in fragments where allowed.contains(id) && Self.hasText(text) { record.fragments[id] = text }
+        records[key] = record
+        publishSnapshot(key: key, phase: .translating)
+        dirty.insert(key)
+        if checkpointDelay == nil {
+            checkpointDelay = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(750))
+                guard !Task.isCancelled else { return }
+                self?.checkpointNow()
+            }
+        }
+    }
+
+    private func publishSnapshot(key: Key, phase: Phase, pair: LanguagePair? = nil) {
+        guard let record = records[key], let plan = record.plan else { return }
+        let next = Snapshot(phase: phase, lines: plan.renderedLines(translations: record.fragments),
+                            completed: record.fragments.count, total: plan.fragments.count, languagePair: pair)
+        if published[key] != next { published[key] = next }
+    }
+
+    private func accepts(key: Key, token: UUID) -> Bool {
+        !Task.isCancelled && active?.key == key && active?.token == token && active?.cancelled == false
+    }
+
+    private func cancelActive() {
+        guard let running = active, !running.cancelled else { return }
+        active?.cancelled = true
+        task?.cancel()
+        if var snapshot = published[running.key] {
+            snapshot.phase = .paused
+            snapshot.languagePair = nil
+            published[running.key] = snapshot
+        }
+        checkpointNow()
+    }
+
+    private func finish(key: Key, token: UUID) {
+        guard active?.token == token else { return }
+        active = nil
+        task = nil
+        isWorking = false
+        activeSongID = nil
+        checkpointNow()
+        schedule()
+    }
+
+    private func checkpointNow() {
+        checkpointDelay?.cancel()
+        checkpointDelay = nil
+        guard !dirty.isEmpty else { return }
+        let entries = dirty.compactMap { key -> (Key, AutomaticLyricTranslationCache.Entry)? in
+            guard let record = records[key], let plan = record.plan else { return nil }
+            return (key, .init(fragments: record.fragments,
+                              isComplete: record.fragments.count == plan.fragments.count && !plan.hasUnrecognizedText))
+        }
+        dirty.removeAll()
+        let previous = persistence
+        let cache = cache
+        persistence = Task {
+            await previous?.value
+            for (key, entry) in entries { await cache.store(entry, for: key) }
+        }
+    }
+
+    private func trimMemory() {
+        guard records.count > maximumSnapshots else { return }
+        let protected = Set(upcomingKeys + [currentKey, active?.key].compactMap { $0 })
+        let candidates = records.filter { !protected.contains($0.key) }.sorted { $0.value.lastUsed < $1.value.lastUsed }
+        checkpointNow()
+        for (key, record) in candidates.prefix(records.count - maximumSnapshots) {
+            records.removeValue(forKey: key)
+            published.removeValue(forKey: key)
+            if memo[record.input.songID]?.key == key { memo.removeValue(forKey: record.input.songID) }
+        }
+    }
+
+    private static func hasText(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}

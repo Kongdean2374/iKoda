@@ -21,6 +21,11 @@ struct KodaApp: App {
         WindowGroup {
             RootView()
                 .appEnvironment(model)
+                .background {
+                    if !model.isNowPlayingPresented {
+                        LyricsTranslationDownloadHost(coordinator: model.lyricsTranslation)
+                    }
+                }
                 // Pausing listening history pauses scrobbling with it.
                 .onChange(of: model.settings.savesListeningHistory) { _, saves in
                     model.lastFM.isPaused = !saves
@@ -40,6 +45,7 @@ struct KodaApp: App {
         .windowResizability(.contentMinSize)
         .commands { KodaCommands(model: model) }
         .onChange(of: scenePhase, initial: true) { _, phase in
+            model.lyricsPreparation.setScenePhase(phase)
             // The queue and position survive the app being closed from the switcher.
             if phase != .active {
                 model.player.applicationBecameInactive()
@@ -47,6 +53,7 @@ struct KodaApp: App {
             }
             if phase == .active {
                 model.player.applicationBecameActive()
+                model.downloads.refreshStoredDownloads()
                 model.lastFM.syncSoon()
                 model.accountsBecameActive()
             }

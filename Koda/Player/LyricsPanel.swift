@@ -32,8 +32,8 @@ struct LyricsPanel: View {
             activeRequest = pending
             guard let song = pending.song else { state = .loaded(nil); return }
             state = .loading
-            let found = await app.lyrics.lyrics(for: song, sources: pending.sources,
-                                              customSources: pending.customSources, refresh: pending.refresh > 0)
+            let found = await app.lyricsTranslation.lyrics(for: song, sources: pending.sources,
+                customSources: pending.customSources, refresh: pending.refresh > 0)
             guard !Task.isCancelled, request == pending else { return }
             state = .loaded(found)
         }

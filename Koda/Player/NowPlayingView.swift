@@ -58,6 +58,11 @@ struct NowPlayingView: View {
                 .keyboardShortcut(.cancelAction)
                 .hidden()
         }
+        .background {
+            if app.isNowPlayingPresented {
+                LyricsTranslationDownloadHost(coordinator: app.lyricsTranslation)
+            }
+        }
         .onGeometryChange(for: Bool.self) { $0.size.width >= 900 && $0.size.height >= 560 } action: { isWide = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .foregroundStyle(.white)

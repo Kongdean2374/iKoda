@@ -2,6 +2,14 @@ import Foundation
 import Testing
 @testable import KodaCore
 
+private func onAudioStoreWorker<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+    try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global(qos: .utility).async {
+            continuation.resume(with: Result { try work() })
+        }
+    }
+}
+
 struct ByteRangesTests {
     @Test func mergesOverlappingAndTouchingRanges() {
         var ranges = ByteRanges()
@@ -67,6 +75,54 @@ struct AudioStoreTests {
         store.flush()
         let reopened = AudioStore(directory: directory)
         #expect(reopened.completeStream("a") != nil)
+    }
+
+    @Test func aLateScheduledIndexCannotRestoreADownloadRemovedBeforeBackgroundFlush() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldWriteEntered = DispatchSemaphore(value: 0)
+        let releaseOldWrite = DispatchSemaphore(value: 0)
+        let flushStarted = DispatchSemaphore(value: 0)
+        let flushFinished = DispatchSemaphore(value: 0)
+        defer { releaseOldWrite.signal() }
+        store.beforeScheduledIndexWrite = {
+            oldWriteEntered.signal()
+            _ = releaseOldWrite.wait(timeout: .now() + 10)
+        }
+        let track = Song(id: "playing-download", title: "Playing", artistLine: "Artist")
+        store.markDownloaded([track])
+        store.prepare(stream(track.id, length: 4), song: track)
+        try store.write(Data([1, 2, 3, 4]), at: 0, for: track.id)
+        let oldReachedWrite = try await onAudioStoreWorker { oldWriteEntered.wait(timeout: .now() + 5) == .success }
+        #expect(oldReachedWrite)
+        guard oldReachedWrite else { return }
+
+        // Removing the currently playing download preserves its file as playback cache.
+        // An old index must not turn that same valid file back into a user download.
+        store.beginUse(track.id)
+        defer { store.endUse(track.id) }
+        store.removeDownloads([track.id])
+        let flushed = Task {
+            try await onAudioStoreWorker {
+                flushStarted.signal()
+                store.flush()
+                flushFinished.signal()
+            }
+        }
+        let started = try await onAudioStoreWorker { flushStarted.wait(timeout: .now() + 5) == .success }
+        #expect(started)
+        let finishedBeforeOldWriter = try await onAudioStoreWorker {
+            flushFinished.wait(timeout: .now() + .milliseconds(200)) == .success
+        }
+        #expect(!finishedBeforeOldWriter, "flush must serialize after a snapshot already writing")
+        releaseOldWrite.signal()
+        try await flushed.value
+
+        let reopened = AudioStore(directory: directory)
+        #expect(reopened.entry(track.id)?.isDownload == false)
+        #expect(reopened.readyOfflineSongs.isEmpty)
+        #expect(reopened.completeStream(track.id) != nil)
+        #expect(try Data(contentsOf: store.fileURL(track.id)) == Data([1, 2, 3, 4]))
     }
 
     @Test func offlineLibraryContainsOnlyExplicitCompleteDownloadsWithoutDeletingPlaybackCache() throws {
