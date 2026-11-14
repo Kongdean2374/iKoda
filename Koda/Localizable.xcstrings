@@ -5758,7 +5758,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "播放記錄"
+            "value": "播放紀錄"
           }
         }
       }
@@ -10467,7 +10467,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "精選推薦"
+            "value": "快速推薦"
           }
         }
       }
@@ -11691,7 +11691,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "自 %@ 年開始記錄聆聽紀錄"
+            "value": "自 %@ 開始累積聆聽紀錄"
           }
         }
       }
@@ -16213,7 +16213,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "專屬混合播放清單"
+            "value": "專屬合輯"
           }
         }
       }

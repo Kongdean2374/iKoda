@@ -18,6 +18,8 @@ including `zh-Hant-TW`; no custom language switch or playback/login changes are 
 The Xcode project uses filesystem-synchronized groups: resources under `Koda` belong
 to the app, resources under `KodaWidgets` belong to the extension, and `Shared` Swift
 sources belong to both. `knownRegions` includes `zh-Hant`; developmentRegion is `en`.
+Generated string symbols are disabled: the original English labels include case and
+punctuation variants that normalize to the same Swift symbol; lookups use literal keys.
 KodaCore declares `defaultLocalization: "en"` and processes its Resources directory.
 
 Dynamic strings are localized at creation; custom SwiftUI labels that accept static
