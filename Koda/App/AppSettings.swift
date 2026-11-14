@@ -116,9 +116,20 @@ final class AppSettings {
 
     private let defaults = UserDefaults.standard
 
+    /// Automatic translation stays on-device; imports override matching lines when enabled.
+    var automaticLyricsTranslation: Bool { didSet { defaults.set(automaticLyricsTranslation, forKey: "koda.lyrics.automatic.enabled") } }
     /// Imported translations are opt-in; the original lyric presentation stays the default.
     var importedLyricsEnabled: Bool { didSet { defaults.set(importedLyricsEnabled, forKey: "koda.lyrics.imported.enabled") } }
     var lyricsDisplayMode: LyricsDisplayMode { didSet { defaults.set(lyricsDisplayMode.rawValue, forKey: "koda.lyrics.imported.mode") } }
+    /// The player offers a single switch. Retain the old persisted mode key for compatibility,
+    /// but new presentation always keeps the original sentence above its translation.
+    var showsLyricsTranslation: Bool {
+        get { lyricsDisplayMode != .original }
+        set {
+            lyricsDisplayMode = newValue ? .bilingual : .original
+            if newValue, !automaticLyricsTranslation, !importedLyricsEnabled { automaticLyricsTranslation = true }
+        }
+    }
     var translationFontSize: Double { didSet { defaults.set(translationFontSize, forKey: "koda.lyrics.imported.fontSize") } }
     var translationOpacity: Double { didSet { defaults.set(translationOpacity, forKey: "koda.lyrics.imported.opacity") } }
     var translationSpacing: Double { didSet { defaults.set(translationSpacing, forKey: "koda.lyrics.imported.spacing") } }
@@ -134,6 +145,11 @@ final class AppSettings {
     /// Every lyrics service, best first; the order decides which answer wins.
     var lyricsSourceOrder: [LyricsSource] { didSet { defaults.set(lyricsSourceOrder.map(\.rawValue), forKey: Keys.lyricsOrder) } }
     var disabledLyricsSources: Set<LyricsSource> { didSet { defaults.set(disabledLyricsSources.map(\.rawValue), forKey: Keys.lyricsDisabled) } }
+    var customLyricsSources: [CustomLyricsSource] {
+        didSet {
+            if let data = try? JSONEncoder().encode(customLyricsSources) { defaults.set(data, forKey: "koda.lyrics.customSources") }
+        }
+    }
     /// Words rise as they start and held notes swell.
     var lyricsMotion: Bool { didSet { defaults.set(lyricsMotion, forKey: Keys.lyricsMotion) } }
     var lyricsSize: LyricsSize { didSet { defaults.set(lyricsSize.rawValue, forKey: Keys.lyricsSize) } }
@@ -206,8 +222,13 @@ final class AppSettings {
 
     init() {
         let d = UserDefaults.standard
+        let previousNativeTranslation = d.string(forKey: Keys.lyricsExtra) == LyricsExtra.translation.rawValue
+        let savedAutomatic = d.object(forKey: "koda.lyrics.automatic.enabled") as? Bool
+        automaticLyricsTranslation = savedAutomatic ?? true
         importedLyricsEnabled = d.bool(forKey: "koda.lyrics.imported.enabled")
         lyricsDisplayMode = d.string(forKey: "koda.lyrics.imported.mode").flatMap(LyricsDisplayMode.init(rawValue:)) ?? .original
+        if savedAutomatic == nil, previousNativeTranslation, lyricsDisplayMode == .original { lyricsDisplayMode = .bilingual }
+        if lyricsDisplayMode == .translation { lyricsDisplayMode = .bilingual }
         translationFontSize = min(32, max(12, d.object(forKey: "koda.lyrics.imported.fontSize") as? Double ?? 18))
         translationOpacity = min(1, max(0.3, d.object(forKey: "koda.lyrics.imported.opacity") as? Double ?? 0.75))
         translationSpacing = min(20, max(2, d.object(forKey: "koda.lyrics.imported.spacing") as? Double ?? 6))
@@ -220,9 +241,17 @@ final class AppSettings {
         let saved = (d.stringArray(forKey: Keys.lyricsOrder) ?? []).compactMap(LyricsSource.init(rawValue:))
         lyricsSourceOrder = saved + LyricsSource.allCases.filter { !saved.contains($0) }
         disabledLyricsSources = Set((d.stringArray(forKey: Keys.lyricsDisabled) ?? []).compactMap(LyricsSource.init(rawValue:)))
+        customLyricsSources = d.data(forKey: "koda.lyrics.customSources")
+            .flatMap { try? JSONDecoder().decode([CustomLyricsSource].self, from: $0) }
+            .map { sources in
+                var seen = Set<UUID>()
+                return Array(sources.compactMap { try? $0.validated() }
+                    .filter { seen.insert($0.id).inserted }.prefix(CustomLyricsSource.maximumCount))
+            } ?? []
         lyricsMotion = d.object(forKey: Keys.lyricsMotion) as? Bool ?? true
         lyricsSize = d.string(forKey: Keys.lyricsSize).flatMap(LyricsSize.init(rawValue:)) ?? .standard
-        lyricsExtra = d.string(forKey: Keys.lyricsExtra).flatMap(LyricsExtra.init(rawValue:)) ?? .off
+        let previousExtra = d.string(forKey: Keys.lyricsExtra).flatMap(LyricsExtra.init(rawValue:)) ?? .off
+        lyricsExtra = previousExtra == .translation ? .off : previousExtra
         showsBackingVocals = d.object(forKey: Keys.backingVocals) as? Bool ?? true
         duetSides = d.object(forKey: Keys.duetSides) as? Bool ?? true
         savesListeningHistory = d.object(forKey: Keys.listeningHistory) as? Bool ?? true
@@ -241,10 +270,12 @@ final class AppSettings {
         videoTheater = d.bool(forKey: Keys.videoTheater)
         holdsToSpeedUp = d.object(forKey: Keys.videoHoldSpeed) as? Bool ?? true
         swipesForBrightness = d.object(forKey: Keys.videoBrightness) as? Bool ?? true
+        if enabledLyricsSourceCount == 0, let fallback = lyricsSourceOrder.first { disabledLyricsSources.remove(fallback) }
     }
 
     /// The services to ask, best first.
     var lyricsSources: [LyricsSource] { lyricsSourceOrder.filter { !disabledLyricsSources.contains($0) } }
+    var enabledLyricsSourceCount: Int { lyricsSources.count + customLyricsSources.filter(\.isEnabled).count }
 
     func isEnabled(_ source: LyricsSource) -> Bool { !disabledLyricsSources.contains(source) }
 
@@ -252,7 +283,7 @@ final class AppSettings {
     func setEnabled(_ source: LyricsSource, _ on: Bool) {
         if on {
             disabledLyricsSources.remove(source)
-        } else if lyricsSources.count > 1 {
+        } else if enabledLyricsSourceCount > 1 {
             disabledLyricsSources.insert(source)
         }
     }

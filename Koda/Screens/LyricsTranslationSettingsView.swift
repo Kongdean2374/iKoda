@@ -2,7 +2,7 @@ import KodaCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// User-controlled, local translation imports. The original lyric provider and timeline remain untouched.
+/// On-device translation and optional imports share the same presentation without editing source lyrics.
 struct LyricsTranslationSettingsView: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
@@ -16,15 +16,22 @@ struct LyricsTranslationSettingsView: View {
         @Bindable var settings = app.settings
         Form {
             Section {
-                Toggle("Imported Chinese Translations", isOn: $settings.importedLyricsEnabled)
-                Picker("Lyrics Display", selection: $settings.lyricsDisplayMode) {
-                    ForEach(LyricsDisplayMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .disabled(!settings.importedLyricsEnabled)
+                Toggle("Show Chinese Translation", isOn: $settings.showsLyricsTranslation)
+                Toggle("Automatically Translate to Traditional Chinese", isOn: $settings.automaticLyricsTranslation)
+                Toggle("Use Imported Translations", isOn: $settings.importedLyricsEnabled)
             } footer: {
-                Text("Original lyrics keep their word timing. Missing translations fall back to the original line. Changing this setting does not change playback.")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Automatic translation uses Apple's on-device languages. The system may ask to download a language first; installed languages work offline. Chinese lyrics use local Simplified-to-Traditional conversion. Available imported lines take priority.")
+                    Text("Translated sentences follow the original lyric lines without word-by-word animation. Missing translations keep the original text. Changing this setting does not change playback.")
+                }
+            }
+            Section {
+                Picker("Under Each Line", selection: $settings.lyricsExtra) {
+                    Label(AppSettings.LyricsExtra.off.title, systemImage: AppSettings.LyricsExtra.off.systemImage).tag(AppSettings.LyricsExtra.off)
+                    Label(AppSettings.LyricsExtra.pronunciation.title, systemImage: AppSettings.LyricsExtra.pronunciation.systemImage).tag(AppSettings.LyricsExtra.pronunciation)
+                }
+            } footer: {
+                Text("Pronunciation appears when translation is off, for lyrics in supported scripts.")
             }
             Section("Translation Appearance") {
                 valueSlider("Translation Text Size", value: $settings.translationFontSize, range: 12...32, step: 1,

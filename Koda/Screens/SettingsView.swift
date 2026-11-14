@@ -275,6 +275,11 @@ struct LyricsSettingsView: View {
                 } label: {
                     Label("Chinese Lyrics", systemImage: "translate")
                 }
+                NavigationLink {
+                    CustomLyricsSourcesView()
+                } label: {
+                    Label("Custom Lyrics Sources", systemImage: "link")
+                }
             }
             Section {
                 ForEach(settings.lyricsSourceOrder) { source in
@@ -284,7 +289,7 @@ struct LyricsSettingsView: View {
                             Text(source.detail).font(.footnote).foregroundStyle(.secondary)
                         }
                     }
-                    .disabled(settings.isEnabled(source) && settings.lyricsSources.count == 1)
+                    .disabled(settings.isEnabled(source) && settings.enabledLyricsSourceCount == 1)
                 }
                 .onMove { settings.lyricsSourceOrder.move(fromOffsets: $0, toOffset: $1) }
             } header: {

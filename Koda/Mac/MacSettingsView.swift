@@ -531,6 +531,7 @@ private struct MacPlaybackPane: View {
 
 private struct MacLyricsPane: View {
     @Environment(AppModel.self) private var app
+    @State private var showsCustomSources = false
 
     var body: some View {
         @Bindable var settings = app.settings
@@ -554,12 +555,27 @@ private struct MacLyricsPane: View {
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .controlSize(.small)
-                            .disabled(settings.isEnabled(source) && settings.lyricsSources.count == 1)
+                            .disabled(settings.isEnabled(source) && settings.enabledLyricsSourceCount == 1)
                             .padding(.leading, 6)
                     }
                     .buttonStyle(.borderless)
                 }
             }
+            MacSettingsRow(title: String(localized: "Custom Lyrics Sources")) {
+                Button("Manage") { showsCustomSources = true }
+            }
+        }
+        .sheet(isPresented: $showsCustomSources) {
+            NavigationStack {
+                CustomLyricsSourcesView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsCustomSources = false }
+                        }
+                    }
+            }
+            .appEnvironment(app)
+            .frame(minWidth: 440, minHeight: 480)
         }
         MacSettingsGroup(title: String(localized: "Display")) {
             MacSettingsRow(title: String(localized: "Text size")) {

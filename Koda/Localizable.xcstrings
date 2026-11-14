@@ -2465,6 +2465,40 @@
         }
       }
     },
+    "Automatic translation uses Apple's on-device languages. The system may ask to download a language first; installed languages work offline. Chinese lyrics use local Simplified-to-Traditional conversion. Available imported lines take priority.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic translation uses Apple's on-device languages. The system may ask to download a language first; installed languages work offline. Chinese lyrics use local Simplified-to-Traditional conversion. Available imported lines take priority."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動翻譯使用 Apple 裝置端語言模型。系統可能先要求下載語言，安裝後即可離線使用。中文歌詞會在裝置上進行簡轉繁；已有匯入譯文的行會優先使用匯入內容。"
+          }
+        }
+      }
+    },
+    "Automatically Translate to Traditional Chinese": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically Translate to Traditional Chinese"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動翻譯為繁體中文"
+          }
+        }
+      }
+    },
     "Autoplay": {
       "extractionState": "manual",
       "localizations": {
@@ -9316,6 +9350,23 @@
         }
       }
     },
+    "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前沒有可用的中文譯文。請啟用自動翻譯，或在「中文歌詞」設定中匯入翻譯。"
+          }
+        }
+      }
+    },
     "No Comments Yet": {
       "extractionState": "manual",
       "localizations": {
@@ -10230,6 +10281,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已顯示於你的個人檔案"
+          }
+        }
+      }
+    },
+    "On-device translation is unavailable for some lyric languages. Available translations are shown; unsupported text keeps its original wording.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-device translation is unavailable for some lyric languages. Available translations are shown; unsupported text keeps its original wording."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分歌詞語言尚不支援裝置端翻譯。可翻譯的內容會照常顯示，其餘文字保留原文。"
           }
         }
       }
@@ -11730,6 +11798,23 @@
         }
       }
     },
+    "Preparing On-Device Translation…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing On-Device Translation…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在準備裝置端翻譯⋯"
+          }
+        }
+      }
+    },
     "Previous": {
       "extractionState": "manual",
       "localizations": {
@@ -11862,6 +11947,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "發音"
+          }
+        }
+      }
+    },
+    "Pronunciation appears when translation is off, for lyrics in supported scripts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronunciation appears when translation is off, for lyrics in supported scripts."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉翻譯時，可在支援的文字下方顯示拼音。"
           }
         }
       }
@@ -13277,6 +13379,23 @@
         }
       }
     },
+    "Retry Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新翻譯"
+          }
+        }
+      }
+    },
     "Right-click any song, or open its ••• menu, and choose Add to Playlist.": {
       "extractionState": "manual",
       "localizations": {
@@ -14093,6 +14212,23 @@
         }
       }
     },
+    "Show Chinese Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Chinese Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示中文翻譯"
+          }
+        }
+      }
+    },
     "Show Less": {
       "extractionState": "manual",
       "localizations": {
@@ -14174,6 +14310,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "顯示正在播放"
+          }
+        }
+      }
+    },
+    "Show or hide Traditional Chinese under the original lyrics.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or hide Traditional Chinese under the original lyrics."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示或隱藏原文下方的繁體中文翻譯。"
           }
         }
       }
@@ -16864,6 +17017,40 @@
         }
       }
     },
+    "Translated sentences follow the original lyric lines without word-by-word animation. Missing translations keep the original text. Changing this setting does not change playback.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translated sentences follow the original lyric lines without word-by-word animation. Missing translations keep the original text. Changing this setting does not change playback."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "譯文以整句顯示，跟隨對應原文行移動，不使用逐字動畫。缺少翻譯時保留原文，切換設定不會影響播放。"
+          }
+        }
+      }
+    },
+    "Translating on This Device…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translating on This Device…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在裝置上翻譯⋯"
+          }
+        }
+      }
+    },
     "Translation": {
       "extractionState": "manual",
       "localizations": {
@@ -16962,6 +17149,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "翻譯與發音"
+          }
+        }
+      }
+    },
+    "Translation could not finish. Original lyrics are shown for missing lines. Download the requested languages and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation could not finish. Original lyrics are shown for missing lines. Download the requested languages and try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯未能完成，缺少譯文的行會顯示原文。請下載系統要求的語言後重試。"
           }
         }
       }
@@ -17489,6 +17693,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用自訂等化器"
+          }
+        }
+      }
+    },
+    "Use Imported Translations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Imported Translations"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用匯入的翻譯"
           }
         }
       }

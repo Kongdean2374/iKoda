@@ -51,6 +51,15 @@ struct CustomLyricsSourceTests {
                                          URLQueryItem(name: "artist", value: "南征北战 NZBZ")])
     }
 
+    @Test func literalPercentEscapesAreNotDoubledWhenTheTemplateAlsoContainsUnicode() throws {
+        let server = source("https://lyrics.example/歌詞/{title}?來源=A%26B&artist={artist}")
+        let url = try server.requestURL(title: "100% Love", artist: "歌手 & Band", album: nil, duration: nil)
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.path == "/歌詞/100% Love")
+        #expect(components.queryItems == [URLQueryItem(name: "來源", value: "A&B"),
+                                         URLQueryItem(name: "artist", value: "歌手 & Band")])
+    }
+
     @Test(arguments: [Double.nan, Double.infinity, -1, 0])
     func absentOrInvalidDurationIsEmptyInsteadOfInventingAValue(duration: Double) throws {
         let server = source("https://lyrics.example/?title={title}&album={album}&duration={duration}")
@@ -69,7 +78,10 @@ struct CustomLyricsSourceTests {
         "https://{artist}.example/?title={title}",
         "https://lyrics.example:{duration}/?title={title}",
         "https:///lyrics/{title}",
-        "https://lyrics.example/\n?title={title}"
+        "https://lyrics.example/\n?title={title}",
+        "https://lyrics.example/%?title={title}",
+        "https://lyrics.example/%2?title={title}",
+        "https://lyrics.example/%GG?title={title}"
     ])
     func rejectsUnsafeOrNonHTTPSDestinations(template: String) {
         #expect(throws: (any Error).self) { try source(template).validated() }

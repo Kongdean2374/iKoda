@@ -13,6 +13,7 @@ public struct CustomLyricsSource: Codable, Identifiable, Equatable, Sendable {
     private static let maximumRequestLength = 16_384
     private static let placeholders: Set<String> = ["title", "artist", "album", "duration"]
     private static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+    private static let urlSyntax = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%")
 
     public init(id: UUID = UUID(), name: String, urlTemplate: String, isEnabled: Bool = true) {
         self.id = id
@@ -91,8 +92,16 @@ public struct CustomLyricsSource: Codable, Identifiable, Equatable, Sendable {
         }
         guard !remainder.contains("{"), !remainder.contains("}") else { throw ValidationError.invalidPlaceholder }
         guard names.contains("title") || names.contains("artist") else { throw ValidationError.missingMetadataPlaceholder }
-        guard resolved.count <= maximumRequestLength else { throw ValidationError.urlTooLong }
-        guard let components = URLComponents(string: resolved), components.scheme?.lowercased() == "https",
+        // A component mixing literal Unicode with already encoded substitutions makes
+        // Foundation re-encode those '%' signs on some SDKs. Encode the template's remaining
+        // non-URL characters first, retaining valid escapes and URL delimiters. Components
+        // then receives one consistently encoded URL and does not change the metadata.
+        guard let encodedURL = resolved.addingPercentEncoding(withAllowedCharacters: urlSyntax),
+              encodedURL.range(of: #"%(?![0-9A-Fa-f]{2})"#, options: .regularExpression) == nil else {
+            throw ValidationError.invalidURL
+        }
+        guard encodedURL.count <= maximumRequestLength else { throw ValidationError.urlTooLong }
+        guard let components = URLComponents(string: encodedURL), components.scheme?.lowercased() == "https",
               let host = components.host, !host.isEmpty,
               components.user == nil, components.password == nil, components.fragment == nil,
               let url = components.url else { throw ValidationError.invalidURL }
