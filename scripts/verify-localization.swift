@@ -1,12 +1,15 @@
 import Foundation
 
-// Run against the unpacked IPA, in a fresh process with -AppleLanguages '(zh-Hant-TW)'.
+// Run by verify-localization.sh against the unpacked IPA in a bilingual probe app.
 // This exercises Apple's locale fallback and compiled .strings/.stringsdict, not source catalogs.
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else { fatalError(message) }
 }
+require(UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first == "zh-Hant-TW", "Probe language preference was not applied")
+require(Bundle.main.preferredLocalizations.first == "zh-Hant", "Probe host does not support the requested language")
 let path = CommandLine.arguments[1]
 guard let app = Bundle(path: path) else { fatalError("Cannot open packaged app: \(path)") }
+print("Preferred languages: \(Locale.preferredLanguages); host: \(Bundle.main.preferredLocalizations); app resources: \(app.localizations); app selection: \(app.preferredLocalizations)")
 require(app.localizations.contains("zh-Hant"), "App lacks zh-Hant")
 require(app.developmentLocalization == "en", "English must remain the development language")
 require(app.preferredLocalizations.first == "zh-Hant", "zh-Hant-TW did not resolve to zh-Hant: \(app.preferredLocalizations)")

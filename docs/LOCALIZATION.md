@@ -48,10 +48,12 @@ The existing `.github/workflows/build.yml` keeps the Xcode 27 Release build and 
 `Payload/Koda.app` IPA packaging. After packaging it extracts `Koda.ipa` and runs:
 
 ```sh
-swift scripts/verify-localization.swift localization-check/Payload/Koda.app -AppleLanguages '(zh-Hant-TW)'
+bash scripts/verify-localization.sh localization-check/Payload/Koda.app
 ```
 
-This checks compiled app/widget/Core resources, Foundation locale selection, actual
+The script compiles a bilingual macOS probe app and launches it with `-AppleLanguages
+'(zh-Hant-TW)'`. This avoids the English-only Swift interpreter host influencing bundle
+selection. It checks compiled app/widget/Core resources, Foundation locale selection, actual
 translated strings and permission strings. It does not substitute for launching the app
 on an iPhone. The IPA artifact is uploaded only after these checks succeed, as
 `Koda-<commit SHA>` containing `Koda.ipa`, suitable for signing with AltStore/Sideloadly.

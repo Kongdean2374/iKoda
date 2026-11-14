@@ -52,7 +52,7 @@ jobs:
       - name: Verify packaged Traditional Chinese resources
         run: |
           unzip -q Koda.ipa -d localization-check
-          swift scripts/verify-localization.swift localization-check/Payload/Koda.app -AppleLanguages '(zh-Hant-TW)'
+          bash scripts/verify-localization.sh localization-check/Payload/Koda.app
 
       - name: Upload build log
         if: always()
