@@ -38,7 +38,10 @@ struct KodaApp: App {
         .commands { KodaCommands(model: model) }
         .onChange(of: scenePhase, initial: true) { _, phase in
             // The queue and position survive the app being closed from the switcher.
-            if phase != .active { model.saveState() }
+            if phase != .active {
+                model.player.applicationBecameInactive()
+                model.saveState()
+            }
             if phase == .active {
                 model.player.applicationBecameActive()
                 model.lastFM.syncSoon()

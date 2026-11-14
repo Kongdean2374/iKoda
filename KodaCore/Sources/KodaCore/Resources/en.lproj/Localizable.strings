@@ -92,3 +92,11 @@
 "This translation file is too large. Use a file under 1 MB with at most 5,000 lines." = "This translation file is too large. Use a file under 1 MB with at most 5,000 lines.";
 "This translation file uses an unsupported version." = "This translation file uses an unsupported version.";
 "Use a UTF-8 translation LRC or a valid translation JSON file." = "Use a UTF-8 translation LRC or a valid translation JSON file.";
+
+/* Koda 0.4 enhancements. */
+"The complete playlist could not be loaded. Your current queue was kept. Retry to continue loading." = "The complete playlist could not be loaded. Your current queue was kept. Retry to continue loading.";
+"The playlist preparation state is invalid. Start loading the playlist again." = "The playlist preparation state is invalid. Start loading the playlist again.";
+"This playlist exceeds the safe limit of %lld pages. No partial queue was started." = "This playlist exceeds the safe limit of %lld pages. No partial queue was started.";
+"This playlist exceeds the safe limit of %lld songs. No partial queue was started." = "This playlist exceeds the safe limit of %lld songs. No partial queue was started.";
+"This playlist has no playable songs." = "This playlist has no playable songs.";
+"YouTube returned a repeated playlist page. The complete playlist could not be prepared." = "YouTube returned a repeated playlist page. The complete playlist could not be prepared.";

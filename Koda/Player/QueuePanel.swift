@@ -27,6 +27,7 @@ struct QueuePanel: View {
     var body: some View {
         VStack(spacing: 12) {
             modeToggles
+            PlaylistQueueLoadingView()
             // Above the list rather than a sticky section header: iOS draws those on a band
             // of their own, which showed as an outline over the songs scrolling under it.
             HStack {

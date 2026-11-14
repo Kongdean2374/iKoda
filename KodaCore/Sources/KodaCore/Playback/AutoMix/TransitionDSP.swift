@@ -240,7 +240,9 @@ final class TransitionDSP: @unchecked Sendable {
                             if lowPassOn { x = lowPassStage[channel].run(x) }
                             let g = gainFrom + (gainTo - gainFrom) * Float(i) / Float(count)
                             x *= g
-                            if protectsSound { x = SoundSafety.limit(x, ceiling: 1) }
+                            // AutoMix's gain and filters are processing too, even with EQ off.
+                            // Bound the post-automation source before Player budgets the mix.
+                            if protectsSound || active { x = SoundSafety.limit(x, ceiling: 1) }
                             data[index] = x
                             let m: Float = Swift.abs(x)
                             if m > peak { peak = m }

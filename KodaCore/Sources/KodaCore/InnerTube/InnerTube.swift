@@ -300,9 +300,31 @@ public final class YouTubeMusic: Sendable {
 
     /// The next page of a playlist's tracks.
     public func playlistMore(_ continuation: String) async throws -> (songs: [Song], continuation: String?) {
+        let page = try await playlistMoreForPlayback(continuation)
+        return (page.songs, page.continuation == continuation ? nil : page.continuation)
+    }
+
+    /// Playback preparation must distinguish a repeated token from a completed collection.
+    /// Keep the server cursor intact so the queue loader can reject a pagination cycle.
+    public func playlistMoreForPlayback(_ continuation: String) async throws -> (songs: [Song], continuation: String?) {
         let root = try await api.music("browse", ["continuation": continuation])
-        let next = Pages.playlistContinuation(root)
-        return (Pages.playlistSongs(root), next == continuation ? nil : next)
+        return (Pages.playlistSongs(root), Pages.playlistContinuation(root))
+    }
+
+    /// Complete metadata for commands that append or insert an online playlist. This shares
+    /// the queue loader's cancellation and cycle/size checks; it never downloads song audio.
+    public func playlistForPlayback(_ id: String) async throws -> [Song] {
+        let loaded = try await PlaylistQueueLoader.load(
+            fetchFirst: { [self] in
+                let page = try await playlist(id)
+                return .init(songs: page.songs, continuation: page.continuation)
+            },
+            fetchMore: { [self] token in
+                let page = try await playlistMoreForPlayback(token)
+                return .init(songs: page.songs, continuation: page.continuation)
+            }
+        )
+        return loaded.songs
     }
 
     /// Every track of a playlist, following continuations.

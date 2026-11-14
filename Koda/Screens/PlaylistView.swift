@@ -10,6 +10,7 @@ struct PlaylistView: View {
     @State private var state: LoadState<PlaylistPage> = .loading
     @State private var songs: [Song] = []
     @State private var continuation: String?
+    @State private var loadedContinuations: Set<String> = []
     @State private var loadingMore = false
     @State private var palette = PaletteModel()
 
@@ -29,7 +30,7 @@ struct PlaylistView: View {
                 detail: state.value?.detailLine,
                 description: state.value?.description,
                 accent: palette.palette.accent,
-                canPlay: !songs.isEmpty,
+                canPlay: !songs.isEmpty || continuation != nil,
                 play: { play(shuffled: false) },
                 shuffle: { play(shuffled: true) }
             ) { side in
@@ -37,10 +38,11 @@ struct PlaylistView: View {
             } actions: {
                 macActions
             }
+            PlaylistQueueLoadingView(sourceID: summary.id)
             AsyncContent(state: state, retry: load, placeholder: .placeholder(summary)) { page in
                 let rows = state.value == nil ? page.songs : songs
                 VStack(spacing: 12) {
-                    MacTrackList(songs: rows, play: { player.play(songs, startAt: $0) },
+                    MacTrackList(songs: rows, play: { play(startAt: $0) },
                                  onRowAppear: { index in if index >= songs.count - 10 { Task { await loadMore() } } })
                     if loadingMore { ProgressView().controlSize(.small) }
                 }
@@ -66,8 +68,8 @@ struct PlaylistView: View {
         }
         MacMoreMenu {
             if !songs.isEmpty {
-                Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
-                Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(playNext: true) }
+                Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(playNext: false) }
                 AddToPlaylistMenu(songs: songs)
             }
             PinMenuItem(pin: .playlist(summary))
@@ -90,12 +92,15 @@ struct PlaylistView: View {
                     play: { play(shuffled: false) },
                     shuffle: { play(shuffled: true) })
 
+                PlaylistQueueLoadingView(sourceID: summary.id)
+                    .padding(.horizontal, 20)
+
                 AsyncContent(state: state, retry: load, placeholder: .placeholder(summary)) { page in
                     // `songs` grows past the first page as the list scrolls; while loading it is empty.
                     let rows = state.value == nil ? page.songs : songs
                     LazyVStack(spacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.offset) { index, song in
-                            SongRow(song: song) { player.play(songs, startAt: index) }
+                            SongRow(song: song) { play(startAt: index) }
                                 .onAppear { if index >= songs.count - 10 { Task { await loadMore() } } }
                         }
                         if loadingMore {
@@ -126,8 +131,8 @@ struct PlaylistView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu(String(localized: "More"), systemImage: "ellipsis") {
                     if !songs.isEmpty {
-                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(songs) }
-                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(songs) }
+                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(playNext: true) }
+                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(playNext: false) }
                         AddToPlaylistMenu(songs: songs)
                     }
                     PinMenuItem(pin: .playlist(summary))
@@ -142,8 +147,23 @@ struct PlaylistView: View {
     }
 
     private func play(shuffled: Bool) {
-        guard !songs.isEmpty else { return }
-        player.play(songs, startAt: shuffled ? Int.random(in: 0..<songs.count) : 0, shuffled: shuffled)
+        guard state.value != nil else { return }
+        // The player owns the remaining pages. Scrolling and this view's lifetime do not
+        // determine the candidate pool; shuffle chooses its first song after all pages load.
+        player.playPlaylist(songs, continuation: continuation, shuffled: shuffled, sourceID: summary.id,
+                            completedPageTokens: loadedContinuations)
+    }
+
+    private func play(startAt index: Int) {
+        guard state.value != nil else { return }
+        player.playPlaylist(songs, continuation: continuation, startAt: index, sourceID: summary.id,
+                            completedPageTokens: loadedContinuations)
+    }
+
+    private func enqueue(playNext: Bool) {
+        guard state.value != nil else { return }
+        player.enqueuePlaylist(songs, continuation: continuation, playNext: playNext, sourceID: summary.id,
+                               completedPageTokens: loadedContinuations)
     }
 
     private func load() async {
@@ -152,6 +172,7 @@ struct PlaylistView: View {
             let page = try await app.music.playlist(summary.id)
             songs = page.songs
             continuation = page.continuation
+            loadedContinuations = []
             state = .loaded(page)
             if summary.artwork == nil { await palette.load(page.playlist.artwork) }
         } catch {
@@ -175,11 +196,16 @@ struct PlaylistView: View {
     }
 
     private func loadMore() async {
-        guard !loadingMore, let token = continuation else { return }
+        guard !loadingMore, let token = continuation, !loadedContinuations.contains(token) else { return }
         loadingMore = true
         defer { loadingMore = false }
-        guard let page = try? await app.music.playlistMore(token) else { return }
+        guard let page = try? await app.music.playlistMoreForPlayback(token), !Task.isCancelled,
+              continuation == token else { return }
+        // A repeated cursor is a failed page, never proof of a complete playlist. Keep the
+        // valid prefix/cursor so playback preparation can report the failure without truncation.
+        if let next = page.continuation, next == token || loadedContinuations.contains(next) { return }
         songs += page.songs
+        loadedContinuations.insert(token)
         continuation = page.continuation
     }
 }

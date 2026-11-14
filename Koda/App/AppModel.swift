@@ -305,16 +305,20 @@ final class AppModel {
 
     /// Play an album or playlist from its card, without opening its page.
     func playCollection(_ collection: Collection) {
-        Task {
-            do {
-                let songs = switch collection {
-                case .album(let album): try await music.album(album.id).songs
-                case .playlist(let playlist): try await music.playlist(playlist.id).songs
+        switch collection {
+        case .playlist(let playlist):
+            // Player owns the first request and every continuation, so a later selection
+            // can cancel preparation before this collection replaces the current queue.
+            player.playPlaylist(id: playlist.id)
+        case .album(let album):
+            Task {
+                do {
+                    let songs = try await music.album(album.id).songs
+                    guard !songs.isEmpty else { return }
+                    player.play(songs)
+                } catch {
+                    linkError = error.friendlyMessage
                 }
-                guard !songs.isEmpty else { return }
-                player.play(songs)
-            } catch {
-                linkError = error.friendlyMessage
             }
         }
     }

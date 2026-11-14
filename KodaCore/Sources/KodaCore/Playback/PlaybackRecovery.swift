@@ -83,6 +83,7 @@ public struct PlaybackRecovery: Sendable {
     public enum Decision: Equatable, Sendable {
         case retry(RecoveryTicket), waitForNetwork, stop(PlaybackFailureReason), ignore
     }
+    /// Reloads actually begun, not timers scheduled or cancelled before a network return.
     public private(set) var attempts = 0
     public private(set) var pending: RecoveryTicket?
     public private(set) var waitingForNetwork = false
@@ -117,13 +118,19 @@ public struct PlaybackRecovery: Sendable {
                                  wantsToPlay: Bool, network: NetworkSnapshot) -> Decision {
         guard wantsToPlay else { return .ignore }
         begin(for: id)
-        guard pending == nil, !waitingForNetwork else { return .ignore }
         let reason = PlaybackFailureReason.classify(error)
-        lastFailure = reason
         guard reason != .cancelled else { return .ignore }
-        guard reason.isRetryable else { return .stop(reason) }
+        // A permanent access verdict wins even if an earlier transient failure was
+        // already waiting to retry. Its old ticket can no longer start a reload.
+        guard reason.isRetryable else {
+            lastFailure = reason
+            cancel()
+            return .stop(reason)
+        }
+        guard pending == nil, !waitingForNetwork else { return .ignore }
+        lastFailure = reason
         guard attempts < maximumAttempts else { return .stop(reason) }
-        if network.status == .offline {
+        if network.status != .online {
             waitingForNetwork = true
             return .waitForNetwork
         }
@@ -138,10 +145,10 @@ public struct PlaybackRecovery: Sendable {
     }
 
     private mutating func schedule(for id: UUID, position: TimeInterval) -> Decision {
-        attempts += 1
+        let nextAttempt = attempts + 1
         generation &+= 1
-        let ticket = RecoveryTicket(occurrenceID: id, generation: generation, attempt: attempts,
-                                    delay: min(maximumDelay, baseDelay * pow(2, Double(attempts - 1))),
+        let ticket = RecoveryTicket(occurrenceID: id, generation: generation, attempt: nextAttempt,
+                                    delay: min(maximumDelay, baseDelay * pow(2, Double(nextAttempt - 1))),
                                     position: position.isFinite ? max(0, position) : 0)
         pending = ticket
         return .retry(ticket)
@@ -151,11 +158,24 @@ public struct PlaybackRecovery: Sendable {
         ticket == pending && ticket.occurrenceID == occurrenceID && ticket.generation == generation
     }
 
-    /// Called when the delayed task begins reloading, so a new failure can schedule
-    /// the next attempt. Its owner must additionally check the player's load generation.
+    /// Reserve no attempt when connectivity disappears during the delay. Invalidating
+    /// the ticket also makes a late timer callback harmless after another restoration.
+    @discardableResult
+    public mutating func suspendForNetwork(_ ticket: RecoveryTicket) -> Bool {
+        guard isCurrent(ticket) else { return false }
+        pending = nil
+        waitingForNetwork = true
+        generation &+= 1
+        return true
+    }
+
+    /// Commit immediately before the actual reload, after every suspension point and
+    /// after the owner checks current intent, online connectivity and load generation.
+    /// Scheduling, going offline and stale/cancelled callbacks spend no retry budget.
     @discardableResult
     public mutating func consume(_ ticket: RecoveryTicket) -> Bool {
-        guard isCurrent(ticket) else { return false }
+        guard isCurrent(ticket), attempts < maximumAttempts, ticket.attempt == attempts + 1 else { return false }
+        attempts = ticket.attempt
         pending = nil
         return true
     }
