@@ -14,7 +14,7 @@ struct DeviceSoundSettingsView: View {
             } footer: {
                 Text("Applies sound profiles to Koda music when the audio output changes. Other apps and music video audio are unaffected.")
             }
-            Section("Current Audio Output") {
+            Section {
                 if player.audioOutputRoute.outputs.isEmpty {
                     Text("Audio output information is unavailable.").foregroundStyle(.secondary)
                 }
@@ -36,11 +36,13 @@ struct DeviceSoundSettingsView: View {
                 } else {
                     Text("Keeping your current sound.").foregroundStyle(.secondary)
                 }
+            } header: {
+                Text("Current Audio Output")
             } footer: {
                 Text("Manual changes in Sound Center take priority until the output changes or you choose Use Assigned Sound.")
             }
             if let output = player.audioOutputRoute.singleOutput, output.kind != .unknown {
-                Section("Assign Sound") {
+                Section {
                     if let identifier = output.identifier {
                         NavigationLink {
                             DeviceSoundBindingEditor(scope: .device(kind: output.kind, identifier: identifier), name: output.name)
@@ -53,6 +55,8 @@ struct DeviceSoundSettingsView: View {
                     } label: {
                         LabeledContent("This Output Type", value: output.kind.title)
                     }
+                } header: {
+                    Text("Assign Sound")
                 } footer: {
                     Text("Device matching uses the identifier iOS currently provides, which may change. Names do not prove a device's model or identity. If matching is unreliable, assign an output type or use manual sound settings.")
                 }
