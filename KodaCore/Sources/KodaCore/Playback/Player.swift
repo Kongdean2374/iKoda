@@ -47,6 +47,7 @@ public final class Player {
     public private(set) var upcoming: [QueueItem] = []
     public private(set) var isShuffled = false
     public private(set) var repeatMode: RepeatMode = .off
+    public private(set) var flowSourceID: String?
     public private(set) var phase: Phase = .idle
     /// Whether the listener wants sound: true while loading or buffering a song they pressed play on.
     public private(set) var wantsToPlay = false
@@ -105,7 +106,7 @@ public final class Player {
     @ObservationIgnored private var playlistRequest: PlaylistRequest?
     @ObservationIgnored private var playlistLoadingTask: Task<Bool, Never>?
     @ObservationIgnored private var playlistRequestGeneration = 0
-    @ObservationIgnored public private(set) var playbackIntentRevision: UInt64 = 0
+    public private(set) var playbackIntentRevision: UInt64 = 0
     /// Metadata-only test seams; no audio URLs are resolved while preparing the source.
     @ObservationIgnored var playlistFirstPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?
     @ObservationIgnored var playlistPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?
@@ -511,6 +512,7 @@ public final class Player {
         if isShuffled != queue.isShuffled { isShuffled = queue.isShuffled }
         if isSmartShuffled != queue.isSmartShuffled { isSmartShuffled = queue.isSmartShuffled }
         if repeatMode != queue.repeatMode { repeatMode = queue.repeatMode }
+        if flowSourceID != queue.flowContext?.sourceID { flowSourceID = queue.flowContext?.sourceID }
         let next = queue.upcoming
         if !upcoming.elementsEqual(next) { upcoming = Array(next) }
     }
@@ -782,6 +784,24 @@ public final class Player {
 
     /// Replace the queue and play from `index`.
     public func play(_ songs: [Song], startAt index: Int = 0, shuffled: Bool = false) {
+        replacePlaybackQueue(songs, startAt: index, shuffled: shuffled, flowSourceID: nil)
+    }
+
+    /// Flow is an explicitly prepared queue, never a history-weighted shuffle or radio.
+    /// A preparation token is rejected if transport, queue edits or a sleep deadline won.
+    @discardableResult
+    public func playFlow(_ songs: [Song], sourceID: String, expectedIntentRevision: UInt64? = nil) -> Bool {
+        guard !songs.isEmpty, !sourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !Task.isCancelled else { return false }
+        if let expectedIntentRevision {
+            guard playbackIntentRevision == expectedIntentRevision else { return false }
+            guard !evaluateSleepTimer(), playbackIntentRevision == expectedIntentRevision else { return false }
+        }
+        replacePlaybackQueue(songs, startAt: 0, shuffled: false, flowSourceID: sourceID)
+        return true
+    }
+
+    private func replacePlaybackQueue(_ songs: [Song], startAt index: Int, shuffled: Bool, flowSourceID: String?) {
         cancelPlaylistLoading()
         guard !songs.isEmpty else { return }
         acceptExplicitPlayback()
@@ -791,7 +811,8 @@ public final class Player {
         mayResumeRestoredQueue = false
         cancelRecovery()
         let smart = shuffled && smartShuffleSettings.enabled
-        if smart { queue.replaceSmart(with: songs, startAt: index, settings: smartShuffleSettings, context: shuffleContext()) }
+        if let flowSourceID { queue.replaceFlow(with: songs, sourceID: flowSourceID) }
+        else if smart { queue.replaceSmart(with: songs, startAt: index, settings: smartShuffleSettings, context: shuffleContext()) }
         else { queue.replace(with: songs, startAt: index, shuffled: shuffled) }
         queue.retainCurrentCollection()
         wantsToPlay = true
@@ -918,7 +939,7 @@ public final class Player {
                     fetchFirst: {
                         guard let id = request.sourceID else { throw PlaylistQueueLoader.LoadingError.invalidCheckpoint }
                         if let firstLoader { return try await firstLoader(id) }
-                        let page = try await music.playlist(id)
+                        let page = try await music.playlistFreshForPlayback(id)
                         return .init(songs: page.songs, continuation: page.continuation)
                     }, fetchMore: { cursor in
                         if let moreLoader { return try await moreLoader(cursor) }
@@ -2192,6 +2213,10 @@ public final class Player {
     /// demand to advance; a pause or a newer explicit queue intent invalidates both callbacks.
     func extendWithRadio(thenAdvance: Bool, explicitlyRequested: Bool = false) {
         guard !isPlaybackSessionFinished, !evaluateSleepTimer() else { return }
+        guard queue.flowContext == nil else {
+            if thenAdvance { pauseCurrentPlayback(from: "the end of Koda Flow") }
+            return
+        }
         guard autoplay || explicitlyRequested, let last = queue.items.last,
               let anchor = queue.current?.id else {
             if thenAdvance, queue.repeatMode == .off { seekCurrentPlayback(to: 0); pauseCurrentPlayback(from: "the queue ending") }

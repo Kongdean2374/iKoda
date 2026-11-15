@@ -1,316 +1,190 @@
 import KodaCore
 import SwiftUI
 
-/// Merge reads existing playlists and writes one local playlist. No account mutation API
-/// participates; online checkpoints survive a failed attempt within this presentation.
+/// A merge prepares complete cloud snapshots and creates one new remote playlist.
+/// Source playlists are never rewritten, removed or used as local look-alikes.
 struct PlaylistMergeView: View {
     @Environment(AppModel.self) private var app
-    @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var selectedIDs: [String] = []
     @State private var name = ""
     @State private var excludesExact = true
-    @State private var checkpoints: [String: PlaylistQueueLoader.Checkpoint] = [:]
-    @State private var localSnapshots: [PlaylistSnapshot] = []
+    @State private var sources: [CloudPlaylistSnapshot] = []
     @State private var mergedSongs: [Song]?
     @State private var sourceSongCount = 0
+    @State private var unavailableCount = 0
     @State private var busy = false
-    @State private var operationLabel: LocalizedStringKey = "Preparing Merge…"
     @State private var processedSources = 0
-    @State private var loadedSongs = 0
     @State private var errorMessage: String?
     @State private var resultMessage: String?
-    @State private var operation: Task<Void, Never>?
-    @State private var undoToken: PlaylistUndoToken?
-    @State private var successes = 0
+    @State private var preparation: Task<Void, Never>?
+    @State private var confirmsCreate = false
     @State private var profileID: UUID?
-
-    private struct Choice: Identifiable {
-        enum Source { case local(UUID), online(PlaylistSummary) }
-        let id: String
-        let title: String
-        let count: Int?
-        let source: Source
-    }
-
-    private var choices: [Choice] {
-        library.userPlaylists.map { Choice(id: "local:\($0.id)", title: $0.name, count: $0.songs.count, source: .local($0.id)) }
-            + library.playlists.map { Choice(id: "online:\($0.id)", title: $0.title, count: nil, source: .online($0)) }
-    }
+    @State private var successes = 0
 
     var body: some View {
         NavigationStack {
             Form {
-                if busy {
-                    Section {
-                        HStack {
-                            ProgressView()
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(operationLabel)
-                                Text("\(processedSources) of \(selectedIDs.count) playlists prepared")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Text("\(loadedSongs) songs loaded").font(.caption).foregroundStyle(.secondary)
+                Section { CloudPlaylistSessionNotice(); CloudPlaylistOperationView() }
+                Section("New Cloud Playlist") {
+                    TextField("Name", text: $name).accessibilityIdentifier("playlist.merge.name")
+                    Toggle("Exclude Exact Duplicates", isOn: $excludesExact)
+                        .disabled(busy)
+                        .accessibilityIdentifier("playlist.merge.excludeExact")
+                    Text("Source order is preserved. Only identical song IDs may be excluded; different versions remain separate.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Choose Source Playlists") {
+                    if app.cloudPlaylists.isRefreshing { ProgressView("Loading Playlists…") }
+                    ForEach(app.cloudPlaylists.catalog) { playlist in
+                        Button { toggle(playlist.id) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: selectedIDs.contains(playlist.id) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedIDs.contains(playlist.id) ? Color.accentColor : .secondary)
+                                Text(playlist.title).lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                        .accessibilityAddTraits(selectedIDs.contains(playlist.id) ? .isSelected : [])
+                        .accessibilityIdentifier("playlist.merge.choice.\(playlist.id)")
+                    }
+                    if let error = app.cloudPlaylists.refreshError { Text(error).foregroundStyle(.secondary) }
+                    Button("Refresh Cloud Playlists") { Task { await app.cloudPlaylists.refresh(force: true) } }
+                        .disabled(busy)
+                }
+                if !selectedIDs.isEmpty {
+                    Section("Source Order") {
+                        ForEach(Array(selectedIDs.enumerated()), id: \.element) { index, id in
+                            HStack {
+                                Text(app.cloudPlaylists.catalog.first { $0.id == id }?.title ?? id).lineLimit(2)
+                                Spacer()
+                                Button("Move Earlier", systemImage: "arrow.up") { move(id, by: -1) }
+                                    .labelStyle(.iconOnly).disabled(index == 0 || busy)
+                                Button("Move Later", systemImage: "arrow.down") { move(id, by: 1) }
+                                    .labelStyle(.iconOnly).disabled(index == selectedIDs.count - 1 || busy)
                             }
                         }
-                        Button("Cancel") { operation?.cancel() }
                     }
                 }
-                if let errorMessage {
-                    Section {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle")
-                            .font(.footnote).foregroundStyle(.secondary)
+                Section {
+                    if busy {
+                        ProgressView("Preparing Merge…")
+                        Text("\(processedSources) of \(selectedIDs.count) playlists prepared")
+                            .font(.footnote).monospacedDigit()
+                        Button("Cancel") { preparation?.cancel(); if app.cloudPlaylists.isBusy { app.cloudPlaylists.cancel() } }
+                    } else {
+                        Button("Preview Merge", action: prepare)
+                            .disabled(selectedIDs.count < 2 || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                      || !app.cloudPlaylists.hasSession || app.cloudPlaylists.isBusy)
+                            .accessibilityIdentifier("playlist.merge.prepare")
                     }
-                }
-                if let resultMessage {
-                    Section {
-                        Text(resultMessage)
-                        if undoToken != nil { Button("Undo", action: undo).disabled(busy) }
+                    if let mergedSongs {
+                        Text("\(sourceSongCount) source songs → \(mergedSongs.count) songs")
+                            .accessibilityIdentifier("playlist.merge.preview")
+                        if unavailableCount > 0 {
+                            Text("\(unavailableCount) unavailable entries cannot be copied. They remain in the source playlists.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Button("Create Cloud Playlist") { confirmsCreate = true }
+                            .disabled(busy || app.cloudPlaylists.isBusy)
+                            .accessibilityIdentifier("playlist.merge.create")
                     }
+                } footer: {
+                    Text("The merge creates a private YouTube Music playlist. All source playlists and their order are kept.")
                 }
-                settingsSection.disabled(busy)
-                sourceSection.disabled(busy)
-                if !selectedIDs.isEmpty { orderSection.disabled(busy) }
-                previewSection.disabled(busy)
+                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.secondary) } }
+                if let resultMessage { Section { Text(resultMessage).accessibilityIdentifier("playlist.merge.result") } }
             }
             .navigationTitle("Merge Playlists")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { operation?.cancel(); dismiss() }
-                }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { if !app.cloudPlaylists.isBusy { preparation?.cancel() }; dismiss() } } }
+            .task { profileID = app.roster.activeID; await app.cloudPlaylists.refresh(force: true) }
+            .onChange(of: excludesExact) { _, _ in invalidatePreview() }
+            .onChange(of: app.roster.activeID) { _, _ in preparation?.cancel(); dismiss() }
+            .onDisappear { if !app.cloudPlaylists.isBusy { preparation?.cancel() } }
+            .confirmationDialog("Create Merged Cloud Playlist?", isPresented: $confirmsCreate, titleVisibility: .visible) {
+                Button("Create Cloud Playlist", action: create).accessibilityIdentifier("playlist.merge.confirm")
+            } message: {
+                Text("The preview will be saved to your YouTube Music account after the sources are checked again.")
             }
         }
         .sensoryFeedback(.success, trigger: successes)
-        .onAppear { profileID = app.roster.activeID }
-        .onChange(of: excludesExact) { _, _ in invalidatePreview() }
-        .onDisappear { operation?.cancel() }
-        .onChange(of: app.roster.activeID) { _, _ in operation?.cancel(); dismiss() }
     }
 
-    private var settingsSection: some View {
-        Section {
-            TextField("New Playlist Name", text: $name)
-                .accessibilityIdentifier("playlist.merge.name")
-            Toggle("Exclude Exact Duplicates", isOn: $excludesExact)
-        } header: {
-            Text("New Local Playlist")
-        } footer: {
-            Text("Only matching song IDs are excluded. Live, remix, cover and other recordings are preserved. Source playlists are not changed.")
-        }
+    private func toggle(_ id: String) {
+        if let index = selectedIDs.firstIndex(of: id) { selectedIDs.remove(at: index) }
+        else { selectedIDs.append(id) }
+        invalidatePreview()
     }
-
-    private var sourceSection: some View {
-        Section {
-            ForEach(choices) { choice in
-                Button {
-                    if let index = selectedIDs.firstIndex(of: choice.id) { selectedIDs.remove(at: index) }
-                    else { selectedIDs.append(choice.id) }
-                    invalidatePreview()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: selectedIDs.contains(choice.id) ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(selectedIDs.contains(choice.id) ? Color.accentColor : .secondary)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(choice.title).foregroundStyle(.primary).lineLimit(2)
-                            if let count = choice.count {
-                                Text("\(count) songs").font(.caption).foregroundStyle(.secondary)
-                            } else {
-                                Text("YouTube Music · Read Only").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selectedIDs.contains(choice.id) ? .isSelected : [])
-                .accessibilityIdentifier("playlist.merge.choice.\(choice.id)")
-            }
-            if choices.count < 2 {
-                Text("Save or create at least two playlists to merge them.").foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Choose Two or More Playlists")
-        } footer: {
-            Text("Online playlists are loaded completely and copied locally. Nothing is written to YouTube Music.")
-        }
+    private func move(_ id: String, by offset: Int) {
+        guard let index = selectedIDs.firstIndex(of: id), selectedIDs.indices.contains(index + offset) else { return }
+        selectedIDs.swapAt(index, index + offset); invalidatePreview()
     }
-
-    private var orderSection: some View {
-        let byID = Dictionary(uniqueKeysWithValues: choices.map { ($0.id, $0) })
-        return Section {
-            ForEach(Array(selectedIDs.enumerated()), id: \.element) { index, id in
-                HStack {
-                    Text("\(index + 1)").monospacedDigit().foregroundStyle(.secondary)
-                    Text(byID[id]?.title ?? String(localized: "Playlist Deleted")).lineLimit(2)
-                    Spacer(minLength: 6)
-                    Button {
-                        selectedIDs.swapAt(index, index - 1)
-                        invalidatePreview()
-                    } label: { Image(systemName: "arrow.up") }
-                    .buttonStyle(.borderless)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .accessibilityLabel("Move Earlier")
-                    .disabled(index == 0)
-                    Button {
-                        selectedIDs.swapAt(index, index + 1)
-                        invalidatePreview()
-                    } label: { Image(systemName: "arrow.down") }
-                    .buttonStyle(.borderless)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .accessibilityLabel("Move Later")
-                    .disabled(index + 1 == selectedIDs.count)
-                }
-            }
-        } header: {
-            Text("Merge Order")
-        } footer: {
-            Text("Songs keep their original order inside each source playlist.")
-        }
-    }
-
-    private var previewSection: some View {
-        Section("Preview") {
-            Button("Prepare Merge", action: prepare)
-                .disabled(selectedIDs.count < 2)
-                .accessibilityIdentifier("playlist.merge.prepare")
-            if let mergedSongs {
-                LabeledContent("Source Song Entries") { Text("\(sourceSongCount)").monospacedDigit() }
-                LabeledContent("Resulting Songs") { Text("\(mergedSongs.count)").monospacedDigit() }
-                if excludesExact {
-                    LabeledContent("Exact Duplicates Excluded") {
-                        Text("\(sourceSongCount - mergedSongs.count)").monospacedDigit()
-                    }
-                }
-                Button("Create Playlist", action: create)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("playlist.merge.create")
-            } else {
-                Text("Prepare all sources to preview the final song count before saving.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func invalidatePreview() { mergedSongs = nil; errorMessage = nil }
+    private func invalidatePreview() { mergedSongs = nil; sources = []; resultMessage = nil }
 
     private func prepare() {
-        guard !busy, selectedIDs.count >= 2 else { return }
-        guard profileID == app.roster.activeID else { dismiss(); return }
-        let expectedProfile = profileID
-        let byID = Dictionary(uniqueKeysWithValues: choices.map { ($0.id, $0) })
-        let selected = selectedIDs.compactMap { byID[$0] }
-        guard selected.count == selectedIDs.count else {
-            errorMessage = String(localized: "A source playlist changed. Choose the playlists again.")
-            return
-        }
-        busy = true
-        operationLabel = "Preparing Merge…"
-        mergedSongs = nil
-        errorMessage = nil
-        processedSources = 0
-        loadedSongs = 0
-        operation = Task {
+        guard !busy, selectedIDs.count >= 2, profileID == app.roster.activeID else { return }
+        guard let scope = app.cloudPlaylists.captureScope() else { return }
+        let ids = selectedIDs, expected = profileID, exclude = excludesExact
+        busy = true; errorMessage = nil; resultMessage = nil; mergedSongs = nil; sources = []; processedSources = 0
+        preparation = Task {
             defer { busy = false }
             do {
-                try Task.checkCancellation()
-                guard expectedProfile == app.roster.activeID else { throw PlaylistEditError.wrongProfile }
-                let music = app.music
-                var sources: [[Song]] = []
-                var snapshots: [PlaylistSnapshot] = []
-                for choice in selected {
+                var snapshots: [CloudPlaylistSnapshot] = []
+                for id in ids {
                     try Task.checkCancellation()
-                    guard expectedProfile == app.roster.activeID else { throw PlaylistEditError.wrongProfile }
-                    switch choice.source {
-                    case .local(let id):
-                        guard let snapshot = library.playlistSnapshot(id) else {
-                            throw MergeError.sourceChanged
-                        }
-                        snapshots.append(snapshot)
-                        sources.append(snapshot.songs)
-                    case .online(let summary):
-                        let choiceID = choice.id
-                        let countBefore = sources.reduce(0) { $0 + $1.count }
-                        let result = try await PlaylistQueueLoader.load(from: checkpoints[choiceID] ?? .init(),
-                            fetchFirst: {
-                                let page = try await music.playlist(summary.id)
-                                return .init(songs: page.songs, continuation: page.continuation)
-                            }, fetchMore: { token in
-                                let page = try await music.playlistMoreForPlayback(token)
-                                return .init(songs: page.songs, continuation: page.continuation)
-                            }, didLoadPage: { page in
-                                await MainActor.run {
-                                    guard !Task.isCancelled, expectedProfile == app.roster.activeID else { return }
-                                    checkpoints[choiceID] = page
-                                    loadedSongs = countBefore + page.songs.count
-                                }
-                            })
-                        guard expectedProfile == app.roster.activeID else { throw PlaylistEditError.wrongProfile }
-                        sources.append(result.songs)
-                    }
-                    processedSources += 1
-                    loadedSongs = sources.reduce(0) { $0 + $1.count }
+                    let snapshot = try await app.cloudPlaylists.loadSnapshot(id: id, expectedScope: scope)
+                    try Task.checkCancellation()
+                    guard expected == app.roster.activeID else { throw CloudAccountAccessError.changed }
+                    snapshots.append(snapshot); processedSources += 1
                 }
-                sourceSongCount = loadedSongs
-                let result = try await PlaylistTools.merge(sources, excludingExactDuplicates: excludesExact)
+                let result = try await PlaylistTools.merge(snapshots.map(\.songs), excludingExactDuplicates: exclude)
                 try Task.checkCancellation()
-                guard expectedProfile == app.roster.activeID else { throw PlaylistEditError.wrongProfile }
-                localSnapshots = snapshots
+                guard expected == app.roster.activeID, selectedIDs == ids else { throw CloudPlaylistError.externalChange }
+                sources = snapshots
+                sourceSongCount = snapshots.reduce(0) { $0 + $1.songs.count }
+                unavailableCount = snapshots.reduce(0) { $0 + $1.unavailableCount }
                 mergedSongs = result
-            } catch is CancellationError {
-                resultMessage = String(localized: "Operation Cancelled")
-            } catch { errorMessage = playlistToolboxErrorMessage(error) }
+            } catch is CancellationError { resultMessage = String(localized: "Operation Cancelled") }
+            catch { errorMessage = playlistToolboxErrorMessage(error) }
         }
     }
 
     private func create() {
-        guard !busy, let mergedSongs else { return }
-        guard profileID == app.roster.activeID else { dismiss(); return }
-        let expectedProfile = profileID
+        guard !busy, let mergedSongs, profileID == app.roster.activeID else { return }
+        guard let scope = app.cloudPlaylists.captureScope() else { return }
+        let expected = profileID, snapshots = sources
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        busy = true
-        operationLabel = "Saving Changes…"
-        errorMessage = nil
-        operation = Task {
+        busy = true; errorMessage = nil; processedSources = 0
+        // The preflight is cancellable. Once a write starts, its durable coordinator owns completion.
+        preparation = Task {
             defer { busy = false }
             do {
                 try Task.checkCancellation()
-                guard expectedProfile == app.roster.activeID else { throw PlaylistEditError.wrongProfile }
-                let receipt = try await library.applyPlaylistEdit(
-                    .create(name: trimmed, songs: mergedSongs, excludingExactDuplicates: false),
-                    validating: localSnapshots)
-                undoToken = receipt.undo
-                let count = String(localized: "\(mergedSongs.count) songs")
-                resultMessage = String(localized: "Created “\(trimmed)” with \(count).")
-                self.mergedSongs = nil
-                successes += 1
-            } catch is CancellationError {
-                resultMessage = String(localized: "Operation Cancelled")
-            } catch { errorMessage = playlistToolboxErrorMessage(error) }
+                guard expected == app.roster.activeID else { throw CloudAccountAccessError.changed }
+                for previous in snapshots {
+                    try Task.checkCancellation()
+                    let current = try await app.cloudPlaylists.loadSnapshot(id: previous.id, expectedScope: scope)
+                    try Task.checkCancellation()
+                    guard expected == app.roster.activeID else { throw CloudAccountAccessError.changed }
+                    guard current.rows == previous.rows, current.unavailableCount == previous.unavailableCount else {
+                        self.mergedSongs = nil
+                        throw CloudPlaylistError.externalChange
+                    }
+                    processedSources += 1
+                }
+                guard expected == app.roster.activeID else { throw CloudAccountAccessError.changed }
+                try Task.checkCancellation()
+                let result = try await app.cloudPlaylists.create(title: trimmed, songs: mergedSongs, expectedScope: scope)
+                guard expected == app.roster.activeID else { return }
+                let count = String(localized: "\(result.songs.count) songs")
+                resultMessage = String(localized: "Created “\(result.title)” with \(count).")
+                self.mergedSongs = nil; successes += 1
+            } catch is CancellationError { resultMessage = String(localized: "Operation Cancelled") }
+            catch { errorMessage = playlistToolboxErrorMessage(error) }
         }
     }
-
-    private func undo() {
-        guard !busy, let token = undoToken else { return }
-        busy = true
-        operationLabel = "Restoring Changes…"
-        errorMessage = nil
-        operation = Task {
-            defer { busy = false }
-            do {
-                try await library.undoPlaylistEdit(token)
-                undoToken = nil
-                resultMessage = String(localized: "Changes Undone")
-                successes += 1
-            } catch is CancellationError {
-                resultMessage = String(localized: "Operation Cancelled")
-            } catch { errorMessage = playlistToolboxErrorMessage(error) }
-        }
-    }
-}
-
-private nonisolated enum MergeError: LocalizedError {
-    case sourceChanged
-    var errorDescription: String? { String(localized: "A source playlist changed. Choose the playlists again.") }
 }

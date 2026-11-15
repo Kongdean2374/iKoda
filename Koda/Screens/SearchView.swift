@@ -78,6 +78,7 @@ struct SearchView: View {
     @Environment(Player.self) private var player
     @State private var model = SearchModel()
     @State private var listening = false
+    @State private var recognizingMusic = false
     /// Music playing when voice search began, to pick up again after it.
     @State private var resumeAfterVoice = false
 
@@ -106,12 +107,24 @@ struct SearchView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Button("Recognize Song", systemImage: "shazam.logo") { recognizingMusic = true }
+                    .accessibilityIdentifier("search.musicCatcher")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button(String(localized: "Search by Voice"), systemImage: "mic") {
+                    MusicCatcher.cancelActiveRecognition()
                     resumeAfterVoice = player.wantsToPlay
                     if resumeAfterVoice { player.pause(from: "voice search") }
                     listening = true
                 }
             }
+        }
+        .sheet(isPresented: $recognizingMusic) {
+            MusicCatcherView { text in
+                model.query = text
+                submit(text)
+            }
+            .appEnvironment(app)
         }
         .sheet(isPresented: $listening, onDismiss: {
             if resumeAfterVoice { player.resume() }

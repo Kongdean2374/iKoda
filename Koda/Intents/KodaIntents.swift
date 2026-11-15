@@ -63,24 +63,32 @@ struct SongEntityQuery: EntityStringQuery {
     }
 }
 
-/// A playlist the listener made in Koda.
+/// Cloud IDs are the normal identity. UUID strings only resolve existing legacy
+/// shortcuts; legacy playlists are never suggested or indexed as new destinations.
 struct PlaylistEntity: AppEntity, IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Playlist", numericFormat: "\(placeholder: .int) playlists")
     static let defaultQuery = PlaylistEntityQuery()
 
-    let id: UUID
+    let id: String
     var name: String
-    var count: Int
+    var count: Int?
 
     init(_ playlist: UserPlaylist) {
-        id = playlist.id
+        id = playlist.id.uuidString
         name = playlist.name
         count = playlist.songs.count
     }
 
+    init(_ playlist: PlaylistSummary, count: Int? = nil) {
+        id = playlist.id
+        name = playlist.title
+        self.count = count
+    }
+
     var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(name)", subtitle: "\(count) songs", image: .init(systemName: "music.note.list"),
-                              synonyms: ["\(name) playlist"])
+        let subtitle: LocalizedStringResource? = count.map { "\($0) songs" }
+        return DisplayRepresentation(title: "\(name)", subtitle: subtitle, image: .init(systemName: "music.note.list"),
+                                     synonyms: ["\(name) playlist"])
     }
 }
 
@@ -88,18 +96,57 @@ struct PlaylistEntityQuery: EntityStringQuery {
     @Dependency private var app: AppModel
 
     @MainActor
-    func entities(for identifiers: [UUID]) async throws -> [PlaylistEntity] {
-        identifiers.compactMap { app.library.userPlaylist($0) }.map(PlaylistEntity.init)
+    func entities(for identifiers: [String]) async throws -> [PlaylistEntity] {
+        // Older Shortcuts stored the UUID as their entity identifier. Keep that
+        // identity resolvable without putting legacy data back in suggestions.
+        if identifiers.allSatisfy({ UUID(uuidString: $0) != nil }) {
+            return identifiers.compactMap { UUID(uuidString: $0).flatMap(app.library.userPlaylist).map(PlaylistEntity.init) }
+        }
+        let profileID = app.roster.activeID
+        let scope = app.cloudPlaylists.captureScope()
+        let catalog = try await IntentPlaylists.catalog(app)
+        var result: [PlaylistEntity] = []
+        for id in identifiers {
+            try IntentPlaylists.validateProfile(profileID, app: app)
+            if let uuid = UUID(uuidString: id) {
+                if let legacy = app.library.userPlaylist(uuid) { result.append(PlaylistEntity(legacy)) }
+            } else if let playlist = catalog.first(where: { $0.id == id }) {
+                result.append(PlaylistEntity(playlist, count: app.cloudPlaylists.snapshots[id]?.rows.count))
+            } else if app.cloudPlaylists.hasSession {
+                let snapshot = try await app.cloudPlaylists.loadSnapshot(id: id, expectedScope: scope)
+                try IntentPlaylists.validateProfile(profileID, app: app)
+                result.append(PlaylistEntity(snapshot.playlist, count: snapshot.rows.count))
+            }
+        }
+        return result
     }
 
     @MainActor
     func entities(matching string: String) async throws -> [PlaylistEntity] {
-        app.library.userPlaylists.filter { $0.name.localizedStandardContains(string) }.map(PlaylistEntity.init)
+        try await IntentPlaylists.catalog(app).filter { $0.title.localizedStandardContains(string) }
+            .map { PlaylistEntity($0, count: app.cloudPlaylists.snapshots[$0.id]?.rows.count) }
     }
 
     @MainActor
     func suggestedEntities() async throws -> [PlaylistEntity] {
-        app.library.userPlaylists.map(PlaylistEntity.init)
+        try await IntentPlaylists.catalog(app).map { PlaylistEntity($0, count: app.cloudPlaylists.snapshots[$0.id]?.rows.count) }
+    }
+}
+
+@MainActor
+enum IntentPlaylists {
+    static func catalog(_ app: AppModel) async throws -> [PlaylistSummary] {
+        let profileID = app.roster.activeID
+        guard let scope = app.cloudPlaylists.captureScope() else { return [] }
+        await app.cloudPlaylists.refresh(force: false, expectedScope: scope)
+        try validateProfile(profileID, app: app)
+        guard app.cloudPlaylists.captureScope() == scope else { throw CloudAccountAccessError.changed }
+        return app.cloudPlaylists.catalog
+    }
+
+    static func validateProfile(_ profileID: UUID, app: AppModel) throws {
+        try Task.checkCancellation()
+        guard app.roster.activeID == profileID else { throw CloudAccountAccessError.changed }
     }
 }
 
@@ -137,9 +184,13 @@ private extension Song {
 
 enum PlaylistIntentError: Error, LocalizedError, CustomLocalizedStringResourceConvertible {
     case preparationFailed
+    case legacyRequiresMigration
 
     var localizedStringResource: LocalizedStringResource {
-        "Koda couldn't prepare the complete playlist. Open Koda to retry."
+        switch self {
+        case .preparationFailed: "Koda couldn't prepare the complete playlist. Open Koda to retry."
+        case .legacyRequiresMigration: "Open Koda and copy this legacy playlist to YouTube Music before adding songs."
+        }
     }
 
     var errorDescription: String? { String(localized: localizedStringResource) }
@@ -198,7 +249,7 @@ struct PlaySongIntent: AudioPlaybackIntent {
 
 struct PlayPlaylistIntent: AudioPlaybackIntent {
     static let title: LocalizedStringResource = "Play Playlist"
-    static let description = IntentDescription("Plays one of the playlists you made in Koda.", categoryName: "Playback")
+    static let description = IntentDescription("Plays a playlist from your YouTube Music library.", categoryName: "Playback")
 
     @Parameter(title: "Playlist", requestValueDialog: "Which playlist?")
     var playlist: PlaylistEntity
@@ -214,11 +265,15 @@ struct PlayPlaylistIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let saved = app.library.userPlaylist(playlist.id), !saved.songs.isEmpty else {
-            return .result(dialog: "That playlist is empty.")
+        if let uuid = UUID(uuidString: playlist.id) {
+            guard let saved = app.library.userPlaylist(uuid), !saved.songs.isEmpty else {
+                return .result(dialog: "That playlist is empty.")
+            }
+            app.player.play(saved.songs, startAt: shuffle ? Int.random(in: 0..<saved.songs.count) : 0, shuffled: shuffle)
+            return .result(dialog: "Playing \(saved.name).")
         }
-        app.player.play(saved.songs, startAt: shuffle ? Int.random(in: 0..<saved.songs.count) : 0, shuffled: shuffle)
-        return .result(dialog: "Playing \(saved.name).")
+        try await IntentPlaylistPlayback.start(id: playlist.id, app: app, shuffled: shuffle)
+        return .result(dialog: "Playing \(playlist.name).")
     }
 }
 
@@ -337,14 +392,26 @@ struct KodaShortcuts: AppShortcutsProvider {
 /// playlist names it can expect, whenever they change.
 @MainActor
 enum IntentsIndex {
+    private static var indexingTask: Task<Void, Never>?
+
     static func update(_ app: AppModel) {
         let songs = app.library.liked.prefix(500).map(SongEntity.init)
-        let playlists = app.library.userPlaylists.map(PlaylistEntity.init)
+        let playlists = app.cloudPlaylists.hasSession ? app.cloudPlaylists.catalog.map { PlaylistEntity($0) } : []
         KodaShortcuts.updateAppShortcutParameters()
-        Task.detached(priority: .utility) {
+        let previous = indexingTask
+        previous?.cancel()
+        // A previous account's in-flight indexing must finish before its successor
+        // clears the index. Cancelling alone does not cancel a Spotlight write.
+        indexingTask = Task(priority: .utility) {
+            await previous?.value
+            guard !Task.isCancelled else { return }
             let index = CSSearchableIndex.default()
+            try? await index.deleteAppEntities(ofType: PlaylistEntity.self)
+            guard !Task.isCancelled else { return }
             try? await index.deleteAppEntities(ofType: SongEntity.self)
+            guard !Task.isCancelled else { return }
             try? await index.indexAppEntities(Array(songs))
+            guard !Task.isCancelled else { return }
             try? await index.indexAppEntities(playlists)
         }
         #if canImport(MediaIntents) && !targetEnvironment(macCatalyst)

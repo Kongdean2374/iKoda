@@ -1,302 +1,180 @@
 import KodaCore
-import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
-/// A playlist made on this phone: play it, find in it, reorder it, give it a photo, name and
-/// description, or delete it.
+/// Older on-device playlists remain readable and exportable. They never become a
+/// second destination for new playlist writes in 0.6.0.
 struct UserPlaylistView: View {
     let id: UUID
-
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @Environment(Library.self) private var library
     @Environment(\.dismiss) private var dismiss
-    @State private var editingDetails = false
-    @State private var draftName = ""
-    @State private var draftSummary = ""
-    @State private var photo: PhotosPickerItem?
-    @State private var confirmDelete = false
-    @State private var editMode: EditMode = .inactive
-    @State private var query = ""
-    @State private var toolbox: PlaylistToolboxRequest?
+    @State private var profileID: UUID?
+    @State private var migrating = false
+    @State private var migrated: CloudPlaylistSnapshot?
+    @State private var confirmHide = false
+    @State private var exporting = false
+    @State private var preparingBackup = false
+    @State private var backup: LegacyPlaylistBackupDocument?
+    @State private var errorMessage: String?
+    @State private var remoteID: String?
 
     var body: some View {
         Group {
             if let playlist = library.userPlaylist(id) {
-                if Platform.isMac { macContent(playlist) } else { content(playlist) }
+                List {
+                    Section {
+                        HStack(spacing: 14) {
+                            PlaylistCover(playlist: playlist, size: 72)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(playlist.name).font(.headline)
+                                Text("\(playlist.songs.count) songs").foregroundStyle(.secondary)
+                            }
+                        }
+                        Text("Legacy On-Device Playlist").font(.subheadline.weight(.semibold))
+                        Text("This is preserved data from an older Koda version. New playlists are stored on YouTube Music. Export a backup or choose to upload this playlist; nothing is migrated or deleted automatically.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button("Export Playlist Backup", systemImage: "square.and.arrow.up") { export(playlist) }
+                            .disabled(preparingBackup)
+                            .accessibilityIdentifier("legacy.playlist.export")
+                        if let remoteID {
+                            Button("Open Cloud Playlist", systemImage: "icloud") {
+                                app.open(.playlist(PlaylistSummary(id: remoteID, title: playlist.name)))
+                            }
+                            Button("Hide Legacy Copy") { confirmHide = true }
+                        } else {
+                            Button("Upload to YouTube Music", systemImage: "icloud.and.arrow.up") { migrating = true }
+                                .accessibilityIdentifier("legacy.playlist.upload")
+                        }
+                    }
+                    if let errorMessage { Section { Text(errorMessage).foregroundStyle(.secondary) } }
+                    Section("Songs") {
+                        ForEach(Array(playlist.songs.enumerated()), id: \.offset) { index, song in
+                            SongRow(song: song) { player.play(playlist.songs, startAt: index) }
+                        }
+                    }
+                }
+                .navigationTitle(playlist.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .sheet(isPresented: $migrating, onDismiss: { if migrated != nil { confirmHide = true } }) {
+                    CloudPlaylistCreateView(songs: playlist.songs, suggestedTitle: playlist.name, onCreated: { confirmed in
+                        guard let profileID, profileID == app.roster.activeID else { return }
+                        LegacyPlaylistVisibility.recordMigration(id, remoteID: confirmed.id, profileID: profileID)
+                        remoteID = confirmed.id
+                        migrated = confirmed
+                        migrating = false
+                    }).appEnvironment(app)
+                }
+                .confirmationDialog("Hide the Legacy Copy?", isPresented: $confirmHide, titleVisibility: .visible) {
+                    Button("Hide Legacy Copy") {
+                        guard let profileID, profileID == app.roster.activeID else { return }
+                        LegacyPlaylistVisibility.setHidden(id, true, profileID: profileID)
+                    }
+                } message: {
+                    Text("The cloud playlist has been confirmed. Hiding only changes this device's archive display; the original backup data is kept and can be shown again.")
+                }
             } else {
-                ContentUnavailableView(String(localized: "Playlist Deleted"), systemImage: "music.note.list")
+                ContentUnavailableView("Playlist Unavailable", systemImage: "music.note.list")
             }
         }
-        .sheet(item: $toolbox) { PlaylistToolboxView(request: $0).appEnvironment(app) }
+        .onAppear { profileID = app.roster.activeID; remoteID = LegacyPlaylistVisibility.remoteID(id, profileID: app.roster.activeID) }
+        .onChange(of: app.roster.activeID) { _, _ in migrating = false; confirmHide = false; dismiss() }
+        .fileExporter(isPresented: $exporting, document: backup, contentType: .json,
+                      defaultFilename: "Koda-legacy-\(id.uuidString).json") { result in
+            if case .failure(let error) = result { errorMessage = error.localizedDescription }
+        }
     }
 
-    private func content(_ playlist: UserPlaylist) -> some View {
+    private func export(_ playlist: UserPlaylist) {
+        let cover = playlist.hasCover ? library.playlistCoverFile(id) : nil
+        let profile = app.roster.activeID
+        preparingBackup = true; errorMessage = nil
+        Task {
+            defer { preparingBackup = false }
+            do {
+                let document = try await Task.detached(priority: .userInitiated) {
+                    try LegacyPlaylistBackupDocument(playlist: playlist, cover: cover)
+                }.value
+                guard profile == app.roster.activeID else { return }
+                backup = document; exporting = true
+            } catch { errorMessage = error.localizedDescription }
+        }
+    }
+}
+
+struct LegacyPlaylistArchiveView: View {
+    @Environment(AppModel.self) private var app
+    @Environment(Library.self) private var library
+    @State private var showsHidden = false
+    @State private var hidden: Set<String> = []
+
+    var body: some View {
         List {
-            Group {
-                if editMode.isEditing { editableHeader(playlist) } else { header(playlist) }
+            Section {
+                Text("Older on-device playlists are kept for backup and optional upload. They are not used as destinations for new playlists.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Toggle("Show Hidden Legacy Copies", isOn: $showsHidden)
             }
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 12, trailing: 20))
-
-            // While finding, rows are the matches: offsets no longer point into the playlist, so
-            // moving and deleting wait until the search is cleared.
-            let finding = !query.isEmpty
-            let matches = finding ? Set(LibrarySearch.songs(playlist.songs, matching: query)) : []
-            let shown = playlist.songs.enumerated().filter { !finding || matches.contains($0.element) }
-            ForEach(shown, id: \.offset) { index, song in
-                SongRow(song: song) {
-                    player.play(playlist.songs, startAt: index)
-                }
-                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
-                .listRowSeparator(.hidden)
-                .swipeActions(edge: .leading) {
-                    Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
-                        .tint(.indigo)
-                }
-            }
-            .onDelete(perform: finding ? nil : { library.removeSongs(atOffsets: $0, fromPlaylist: id) })
-            .onMove(perform: finding ? nil : { library.moveSongs(fromOffsets: $0, toOffset: $1, inPlaylist: id) })
-
-            if finding, shown.isEmpty {
-                ContentUnavailableView.search(text: query)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-
-            if playlist.songs.isEmpty {
-                ContentUnavailableView {
-                    Label(String(localized: "No Songs Yet"), systemImage: "music.note.list")
-                } description: {
-                    Text(String(localized: "Long-press any song, or open its ••• menu, and choose Add to Playlist."))
-                } actions: {
-                    Button(String(localized: "Find Music")) {
-                        app.selectedTab = .search
-                    }
-                    .buttonStyle(.glass)
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-        }
-        .listStyle(.plain)
-        .environment(\.editMode, $editMode)
-        .searchable(text: $query, placement: .navigationBarDrawer, prompt: String(localized: "Find in Playlist"))
-        .background { PlaylistGlow(songs: playlist.songs) }
-        .navigationBarTitleDisplayMode(.inline)
-        .revealsTitle(playlist.name, after: 300)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(editMode.isEditing ? String(localized: "Done") : String(localized: "Edit")) {
-                    if editMode.isEditing {
-                        saveDetails()
-                    } else {
-                        draftName = playlist.name
-                        draftSummary = playlist.summary ?? ""
-                        query = ""
-                    }
-                    withAnimation { editMode = editMode.isEditing ? .inactive : .active }
-                }
-                .fontWeight(editMode.isEditing ? .semibold : .regular)
-            }
-            if !playlist.songs.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    DownloadButton(songs: playlist.songs)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu(String(localized: "More"), systemImage: "ellipsis") {
-                    if !playlist.songs.isEmpty {
-                        toolboxActions
-                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
-                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
-                    }
-                    PinMenuItem(pin: .userPlaylist(playlist.id))
-                    Button(String(localized: "Delete Playlist"), systemImage: "trash", role: .destructive) { confirmDelete = true }
-                }
-            }
-        }
-        .onChange(of: photo) { _, item in
-            guard let item else { return }
-            Task { await setPhoto(from: item) }
-        }
-        // Leaving mid-edit keeps what was typed, as Done would.
-        .onDisappear { if editMode.isEditing { saveDetails() } }
-        .confirmationDialog(String(localized: "Delete “\(playlist.name)”?"), isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button(String(localized: "Delete Playlist"), role: .destructive) {
-                dismiss()
-                library.deletePlaylist(id)
-            }
-        } message: {
-            Text(String(localized: "The songs stay wherever else you saved them."))
-        }
-    }
-
-    /// The Mac's playlist page: the mosaic beside the name, songs in columns, and each song's
-    /// menu able to move it or take it out, where the phone drags and swipes.
-    private func macContent(_ playlist: UserPlaylist) -> some View {
-        MacPage(spacing: 28) {
-            MacCollectionHeader(
-                kind: String(localized: "Your Playlist"),
-                title: playlist.name,
-                byline: nil,
-                detail: detail(playlist),
-                description: playlist.summary,
-                canPlay: !playlist.songs.isEmpty,
-                play: { player.play(playlist.songs) },
-                shuffle: { player.play(playlist.songs, startAt: Int.random(in: 0..<max(playlist.songs.count, 1)), shuffled: true) }
-            ) { side in
-                PlaylistCover(playlist: playlist, size: side, cornerRadius: 12)
-            } actions: {
-                if !playlist.songs.isEmpty {
-                    DownloadButton(songs: playlist.songs)
-                        .buttonStyle(MacIconButtonStyle())
-                }
-                MacMoreMenu {
-                    if !playlist.songs.isEmpty {
-                        toolboxActions
-                        Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
-                        Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
-                        Divider()
-                    }
-                    PinMenuItem(pin: .userPlaylist(playlist.id))
-                    Button(String(localized: "Edit Details…"), systemImage: "pencil") { editingDetails = true }
-                    Button(String(localized: "Delete Playlist…"), systemImage: "trash", role: .destructive) { confirmDelete = true }
-                }
-            }
-            if playlist.songs.isEmpty {
-                ContentUnavailableView {
-                    Label(String(localized: "No Songs Yet"), systemImage: "music.note.list")
-                } description: {
-                    Text(String(localized: "Right-click any song, or open its ••• menu, and choose Add to Playlist."))
-                }
-                .frame(maxWidth: .infinity, minHeight: 280)
-            } else {
-                MacTrackList(songs: playlist.songs, play: { player.play(playlist.songs, startAt: $0) }, rowMenu: { index in
-                    AnyView(Section {
-                        Button(String(localized: "Move Up"), systemImage: "arrow.up") {
-                            library.moveSongs(fromOffsets: IndexSet(integer: index), toOffset: index - 1, inPlaylist: id)
+            ForEach(library.userPlaylists.filter { showsHidden || !hidden.contains($0.id.uuidString) }) { playlist in
+                NavigationLink { UserPlaylistView(id: playlist.id) } label: {
+                    HStack(spacing: 12) {
+                        PlaylistCover(playlist: playlist, size: 44)
+                        VStack(alignment: .leading) {
+                            Text(playlist.name).lineLimit(2)
+                            Text("\(playlist.songs.count) songs").font(.caption).foregroundStyle(.secondary)
                         }
-                        .disabled(index == 0)
-                        Button(String(localized: "Move Down"), systemImage: "arrow.down") {
-                            library.moveSongs(fromOffsets: IndexSet(integer: index), toOffset: index + 2, inPlaylist: id)
-                        }
-                        .disabled(index >= playlist.songs.count - 1)
-                        Button(String(localized: "Remove from Playlist"), systemImage: "minus.circle", role: .destructive) {
-                            library.removeSongs(atOffsets: IndexSet(integer: index), fromPlaylist: id)
-                        }
-                    })
-                })
-            }
-        }
-        .background { PlaylistGlow(songs: playlist.songs) }
-        .navigationTitle(playlist.name)
-        .sheet(isPresented: $editingDetails) {
-            MacPlaylistDetailsSheet(playlist: playlist).appEnvironment(app)
-        }
-        .confirmationDialog(String(localized: "Delete “\(playlist.name)”?"), isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button(String(localized: "Delete Playlist"), role: .destructive) { library.deletePlaylist(id) }
-        } message: {
-            Text(String(localized: "The songs stay wherever else you saved them."))
-        }
-    }
-
-    private func header(_ playlist: UserPlaylist) -> some View {
-        VStack(spacing: 14) {
-            PlaylistCover(playlist: playlist, size: 232, cornerRadius: 16)
-                .shadow(color: .black.opacity(0.25), radius: 24, y: 12)
-            VStack(spacing: 4) {
-                Text(playlist.name)
-                    .font(.title2.bold())
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                Text(detail(playlist))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                if let summary = playlist.summary {
-                    Text(summary)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 4)
-                }
-            }
-            if !playlist.songs.isEmpty {
-                PlayShuffleButtons(play: { player.play(playlist.songs) }, shuffle: {
-                    player.play(playlist.songs, startAt: Int.random(in: 0..<playlist.songs.count), shuffled: true)
-                })
-                .padding(.top, 6)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var toolboxActions: some View {
-        Group {
-            Button("Select Songs", systemImage: "checklist") {
-                toolbox = PlaylistToolboxRequest(source: .local(id))
-            }
-            Button("Check Duplicate Songs", systemImage: "square.on.square") {
-                toolbox = PlaylistToolboxRequest(source: .local(id), checksDuplicates: true)
-            }
-            Divider()
-        }
-    }
-
-    /// The header while editing, as Music's: the cover opens a menu to choose or remove a photo,
-    /// and the name and description become fields. Saved with Done.
-    private func editableHeader(_ playlist: UserPlaylist) -> some View {
-        VStack(spacing: 14) {
-            Menu {
-                PhotosPicker(playlist.hasCover ? String(localized: "Choose Another Photo") : String(localized: "Choose Photo"), selection: $photo, matching: .images)
-                if playlist.hasCover {
-                    Button(String(localized: "Remove Photo"), systemImage: "trash", role: .destructive) { library.setPlaylistCover(nil, for: id) }
-                }
-            } label: {
-                PlaylistCover(playlist: playlist, size: 232, cornerRadius: 16)
-                    .overlay {
-                        Image(systemName: "camera.fill")
-                            .font(.title2)
-                            .foregroundStyle(.white)
-                            .frame(width: 64, height: 64)
-                            .glassEffect(.regular.interactive(), in: .circle)
                     }
-                    .shadow(color: .black.opacity(0.25), radius: 24, y: 12)
+                }
+                .contextMenu {
+                    if hidden.contains(playlist.id.uuidString) {
+                        Button("Show Legacy Copy") {
+                            LegacyPlaylistVisibility.setHidden(playlist.id, false, profileID: app.roster.activeID)
+                            reload()
+                        }
+                    }
+                }
             }
-            .accessibilityLabel(String(localized: "Playlist Photo"))
-            TextField(String(localized: "Playlist Name"), text: $draftName)
-                .font(.title2.bold())
-                .multilineTextAlignment(.center)
-                .submitLabel(.done)
-            TextField(String(localized: "Description"), text: $draftSummary, axis: .vertical)
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-                .lineLimit(1...5)
         }
-        .frame(maxWidth: .infinity)
+        .navigationTitle("Legacy Playlist Archive")
+        .onAppear(perform: reload)
+        .onChange(of: app.roster.activeID) { _, _ in reload() }
     }
+    private func reload() { hidden = LegacyPlaylistVisibility.hidden(profileID: app.roster.activeID) }
+}
 
-    private func saveDetails() {
-        library.renamePlaylist(id, to: draftName)
-        library.setPlaylistSummary(id, to: draftSummary)
+@MainActor
+enum LegacyPlaylistVisibility {
+    static func hidden(profileID: UUID) -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: "koda.legacyPlaylists.hidden.\(profileID.uuidString)") ?? [])
     }
+    static func setHidden(_ id: UUID, _ hidden: Bool, profileID: UUID) {
+        var values = Self.hidden(profileID: profileID)
+        if hidden { values.insert(id.uuidString) } else { values.remove(id.uuidString) }
+        UserDefaults.standard.set(values.sorted(), forKey: "koda.legacyPlaylists.hidden.\(profileID.uuidString)")
+    }
+    static func remoteID(_ id: UUID, profileID: UUID) -> String? {
+        UserDefaults.standard.string(forKey: "koda.legacyPlaylists.upload.\(profileID.uuidString).\(id.uuidString)")
+    }
+    static func recordMigration(_ id: UUID, remoteID: String, profileID: UUID) {
+        UserDefaults.standard.set(remoteID, forKey: "koda.legacyPlaylists.upload.\(profileID.uuidString).\(id.uuidString)")
+    }
+}
 
-    private func setPhoto(from item: PhotosPickerItem) async {
-        defer { photo = nil }
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-        let jpeg = await Task.detached { PlaylistCoverImages.squareJPEG(data) }.value
-        if let jpeg { library.setPlaylistCover(jpeg, for: id) }
+private nonisolated struct LegacyPlaylistBackupDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json] }
+    let data: Data
+    private struct Backup: Encodable { let version = 1; let playlist: UserPlaylist; let coverJPEG: Data? }
+    init(playlist: UserPlaylist, cover: URL?) throws {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        data = try encoder.encode(Backup(playlist: playlist, coverJPEG: try cover.map { try Data(contentsOf: $0) }))
     }
-
-    private func detail(_ playlist: UserPlaylist) -> String {
-        var parts = [String(localized: "Made by \(app.roster.active.displayName)")]
-        parts.append(playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"))
-        let minutes = Int(playlist.duration / 60)
-        if minutes > 0 { parts.append(minutes >= 60 ? String(localized: "\(minutes / 60) hr \(minutes % 60) min") : String(localized: "\(minutes) min")) }
-        return parts.joined(separator: " · ")
+    init(configuration: ReadConfiguration) throws {
+        guard let contents = configuration.file.regularFileContents else { throw CocoaError(.fileReadCorruptFile) }
+        data = contents
     }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
 
 /// A playlist's cover: the first four distinct covers in a grid, one when there are fewer, a gradient when there are none.
@@ -404,257 +282,37 @@ private struct PlaylistGlow: View {
     }
 }
 
-/// Pick one of the listener's playlists, or make a new one, for some songs.
+
+/// The existing song/album/queue entry now always opens the same verified cloud picker.
 struct AddToPlaylistSheet: View {
     let target: AppModel.PlaylistTarget
-
-    @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
-    @State private var naming = false
-    @State private var draftName = ""
-    @State private var added = 0
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button {
-                        draftName = ""
-                        naming = true
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "plus")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 52, height: 52)
-                                .background(.quaternary, in: .rect(cornerRadius: 8, style: .continuous))
-                            Text(String(localized: "New Playlist")).font(.body.weight(.medium))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-                if !library.userPlaylists.isEmpty {
-                    Section(String(localized: "Your Playlists")) {
-                        ForEach(library.userPlaylists) { playlist in
-                            let inside = Set(playlist.songs.map(\.id))
-                            let already = Set(target.songs.map(\.id)).intersection(inside).count
-                            let containsAll = already == Set(target.songs.map(\.id)).count
-                            Button {
-                                added += 1
-                                library.add(target.songs, toPlaylist: playlist.id)
-                                dismiss()
-                            } label: {
-                                HStack(spacing: 14) {
-                                    PlaylistCover(playlist: playlist, size: 52, cornerRadius: 8)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(playlist.name).font(.body.weight(.medium)).lineLimit(1)
-                                        // Songs already in it are skipped, never added twice; said before the tap.
-                                        Text([playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"),
-                                              containsAll ? (target.songs.count == 1 ? String(localized: "Already added") : String(localized: "All already added"))
-                                                  : already > 0 ? String(localized: "\(already) already in it") : nil]
-                                            .compactMap { $0 }.joined(separator: " · "))
-                                            .font(.subheadline).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if containsAll {
-                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
-                                            .accessibilityLabel(String(localized: "Already added"))
-                                    }
-                                }
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(containsAll)
-                        }
-                    }
-                }
-            }
-            .navigationTitle(target.songs.count == 1 ? String(localized: "Add to Playlist") : String(localized: "Add \(target.songs.count) Songs"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "Cancel"), systemImage: "xmark") { dismiss() }
-                }
-            }
-            .alert(String(localized: "New Playlist"), isPresented: $naming) {
-                TextField(String(localized: "Name"), text: $draftName)
-                Button(String(localized: "Cancel"), role: .cancel) {}
-                Button(String(localized: "Create")) {
-                    added += 1
-                    library.createPlaylist(named: draftName, songs: target.songs)
-                    dismiss()
-                }
-            } message: {
-                Text(target.songs.count == 1 ? String(localized: "“\(target.songs[0].title)” will be its first song.") : String(localized: "These \(target.songs.count) songs will be its first."))
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .sensoryFeedback(.success, trigger: added)
-    }
+    var body: some View { CloudAddToPlaylistView(songs: target.songs) }
 }
 
 extension View {
-    /// Shows the playlist picker when `AppModel.playlistTarget` is set and this screen is the one on top.
-    func playlistPicker(whenOnTop isOnTop: Bool) -> some View {
-        modifier(PlaylistPickerModifier(isOnTop: isOnTop))
-    }
+    func playlistPicker(whenOnTop isOnTop: Bool) -> some View { modifier(PlaylistPickerModifier(isOnTop: isOnTop)) }
 }
 
 private struct PlaylistPickerModifier: ViewModifier {
     let isOnTop: Bool
     @Environment(AppModel.self) private var app
-
     func body(content: Content) -> some View {
-        content.sheet(item: Binding(
-            get: { isOnTop ? app.playlistTarget : nil },
-            set: { if isOnTop { app.playlistTarget = $0 } })) { target in
-            Group {
-                if Platform.isMac { MacNewPlaylistSheet(target: target) } else { AddToPlaylistSheet(target: target) }
-            }
-            .appEnvironment(app)
+        content.sheet(item: Binding(get: { isOnTop ? app.playlistTarget : nil },
+                                   set: { if isOnTop { app.playlistTarget = $0 } })) { target in
+            AddToPlaylistSheet(target: target).appEnvironment(app)
         }
     }
 }
 
-
-/// "Add to Playlist" in a song's or a collection's menu. On the Mac it is a submenu of the
-/// listener's playlists, as Music's is, with New Playlist… first; on the iPhone it opens the sheet.
 struct AddToPlaylistMenu: View {
     let songs: [Song]
     @Environment(AppModel.self) private var app
-    @Environment(Library.self) private var library
-
     var body: some View {
-        if Platform.isMac {
-            Menu(String(localized: "Add to Playlist"), systemImage: "text.badge.plus") {
-                Button(String(localized: "New Playlist…"), systemImage: "plus") { app.addToPlaylist(songs) }
-                if !library.userPlaylists.isEmpty {
-                    Divider()
-                    ForEach(library.userPlaylists) { playlist in
-                        let containsAll = Set(songs.map(\.id)).isSubset(of: Set(playlist.songs.map(\.id)))
-                        Button(playlist.name, systemImage: containsAll ? "checkmark" : "music.note.list") {
-                            library.add(songs, toPlaylist: playlist.id)
-                        }
-                        .disabled(containsAll)
-                    }
-                }
-            }
-        } else {
-            Button(String(localized: "Add to Playlist…"), systemImage: "text.badge.plus") { app.addToPlaylist(songs) }
-        }
+        Button("Add to Playlist…", systemImage: "text.badge.plus") { app.addToPlaylist(songs) }
     }
 }
 
-/// A new playlist from songs on the Mac: a small sheet asking only for its name.
 struct MacNewPlaylistSheet: View {
     let target: AppModel.PlaylistTarget
-    @Environment(AppModel.self) private var app
-    @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
-                PlaylistMosaic(songs: target.songs, size: 64, cornerRadius: 8)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "New Playlist")).font(.headline)
-                    Text(target.songs.count == 1 ? String(localized: "With “\(target.songs[0].title)”") : String(localized: "With these \(target.songs.count) songs"))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            TextField(String(localized: "Name"), text: $name)
-                .textFieldStyle(.roundedBorder)
-                .focused($focused)
-                .onSubmit(create)
-            HStack {
-                Spacer()
-                Button(String(localized: "Cancel"), role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button(String(localized: "Create Playlist"), action: create)
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 400)
-        .onAppear {
-            name = String(localized: "Playlist \(library.userPlaylists.count + 1)")
-            focused = true
-        }
-    }
-
-    private func create() {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let playlist = library.createPlaylist(named: trimmed, songs: target.songs)
-        dismiss()
-        app.requestedMacSection = .userPlaylist(playlist.id)
-    }
-}
-
-/// The Mac's Edit Details sheet: the photo with Choose and Remove beside it, then the name and
-/// description, saved with Done.
-struct MacPlaylistDetailsSheet: View {
-    let playlist: UserPlaylist
-    @Environment(Library.self) private var library
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var summary = ""
-    @State private var photo: PhotosPickerItem?
-
-    private var current: UserPlaylist { library.userPlaylist(playlist.id) ?? playlist }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 18) {
-                PlaylistCover(playlist: current, size: 120, cornerRadius: 10)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(String(localized: "Edit Details")).font(.headline)
-                    PhotosPicker(current.hasCover ? String(localized: "Choose Another Photo…") : String(localized: "Choose Photo…"), selection: $photo, matching: .images)
-                    if current.hasCover {
-                        Button(String(localized: "Remove Photo"), role: .destructive) { library.setPlaylistCover(nil, for: playlist.id) }
-                    }
-                }
-            }
-            Form {
-                TextField(String(localized: "Name"), text: $name)
-                TextField(String(localized: "Description"), text: $summary, axis: .vertical)
-                    .lineLimit(3...6)
-            }
-            .formStyle(.columns)
-            HStack {
-                Spacer()
-                Button(String(localized: "Cancel"), role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button(String(localized: "Done")) {
-                    library.renamePlaylist(playlist.id, to: name)
-                    library.setPlaylistSummary(playlist.id, to: summary)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 440)
-        .onAppear {
-            name = playlist.name
-            summary = playlist.summary ?? ""
-        }
-        .onChange(of: photo) { _, item in
-            guard let item else { return }
-            Task {
-                defer { photo = nil }
-                guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-                let jpeg = await Task.detached { PlaylistCoverImages.squareJPEG(data) }.value
-                if let jpeg { library.setPlaylistCover(jpeg, for: playlist.id) }
-            }
-        }
-    }
+    var body: some View { CloudPlaylistCreateView(songs: target.songs) }
 }

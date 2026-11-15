@@ -27,7 +27,7 @@ extension YouTubeMusic {
     /// Playlists in the library: the account's own and ones it saved. Liked Music and
     /// Episodes for Later are left out; liked songs come from `likedSongs`.
     public func libraryPlaylists() async throws -> [PlaylistSummary] {
-        try await library("FEmusic_liked_playlists").compactMap {
+        try await library("FEmusic_liked_playlists", requireComplete: true).compactMap {
             if case .playlist(let p) = $0, p.id != "LM", p.id != "SE" { return p }
             return nil
         }
@@ -43,17 +43,22 @@ extension YouTubeMusic {
     }
 
     /// A library page and its continuations.
-    private func library(_ browseId: String, limit: Int = 5000) async throws -> [MusicItem] {
+    private func library(_ browseId: String, limit: Int = 5000, requireComplete: Bool = false) async throws -> [MusicItem] {
         var root = try await api.music("browse", ["browseId": browseId], signing: .required)
-        var items = AccountPages.libraryItems(root)
+        var items = if requireComplete { try AccountPages.completeLibraryItems(root) } else { AccountPages.libraryItems(root) }
         var seen = Set<String>()
         // 100 rows a page: 80 pages is past any library, so a chain that long isn't ending.
         while items.count < limit, seen.count < 80, let token = AccountPages.libraryContinuation(root), seen.insert(token).inserted {
             try Task.checkCancellation()
             root = try await api.music("browse", ["continuation": token], signing: .required)
-            items += AccountPages.libraryItems(root)
+            let pageItems = if requireComplete { try AccountPages.completeLibraryItems(root) } else { AccountPages.libraryItems(root) }
+            items += pageItems
         }
-        return Array(Pages.dedupe(items).prefix(limit))
+        let completeItems = Pages.dedupe(items)
+        if requireComplete, AccountPages.libraryContinuation(root) != nil || completeItems.count > limit {
+            throw CloudPlaylistError.incompleteResponse
+        }
+        return Array(completeItems.prefix(limit))
     }
 
     // MARK: Writes
@@ -94,13 +99,39 @@ extension YouTubeMusic {
     }
 
     /// Add songs to one of the account's playlists, 50 per edit.
-    public func addToPlaylist(playlistId: String, videoIds: [String]) async throws {
+    public func addToPlaylist(playlistId: String, videoIds: [String], allowDuplicates: Bool = false) async throws {
         let id = String(playlistId.trimmingPrefix("VL"))
         for start in stride(from: 0, to: videoIds.count, by: 50) {
             if start > 0 { try await Task.sleep(for: .milliseconds(400)) }
-            let actions = videoIds[start..<min(start + 50, videoIds.count)].map { ["action": "ACTION_ADD_VIDEO", "addedVideoId": $0] }
+            let actions = videoIds[start..<min(start + 50, videoIds.count)].map { videoID -> [String: String] in
+                var action = ["action": "ACTION_ADD_VIDEO", "addedVideoId": videoID]
+                // Explicit merge previews may retain duplicate occurrences. Skip only
+                // the service's duplicate warning, never authorization or access checks.
+                if allowDuplicates { action["dedupeOption"] = "DEDUPE_OPTION_SKIP" }
+                return action
+            }
             try await editPlaylist(id, actions: actions)
         }
+    }
+
+    /// Only the selected remote occurrences; never the broad remove-by-video-id action.
+    public func removePlaylistOccurrences(playlistId: String, rows: [CloudPlaylistRow]) async throws {
+        guard !rows.isEmpty, rows.count <= 50,
+              rows.allSatisfy({ $0.setVideoID?.isEmpty == false }) else {
+            throw CloudPlaylistError.missingOccurrenceID
+        }
+        let actions = rows.map {
+            ["action": "ACTION_REMOVE_VIDEO", "setVideoId": $0.setVideoID!, "removedVideoId": $0.song.id]
+        }
+        try await editPlaylist(String(playlistId.trimmingPrefix("VL")), actions: actions)
+    }
+
+    public func renamePlaylist(playlistId: String, title: String) async throws {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CloudPlaylistError.invalidOperation
+        }
+        try await editPlaylist(String(playlistId.trimmingPrefix("VL")),
+                               actions: [["action": "ACTION_SET_PLAYLIST_NAME", "playlistName": title]])
     }
 
     /// Remove a song from one of the account's playlists. With its `setVideoId` (the row's

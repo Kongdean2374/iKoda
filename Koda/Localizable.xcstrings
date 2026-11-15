@@ -22112,6 +22112,2233 @@
           }
         }
       }
+    },
+    "Music Catcher": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Music Catcher"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Music Catcher"
+          }
+        }
+      }
+    },
+    "Recognize Song": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognize Song"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辨識歌曲"
+          }
+        }
+      }
+    },
+    "Recognize nearby music with Apple's Shazam service, then choose the matching YouTube Music song. Koda does not save microphone recordings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognize nearby music with Apple's Shazam service, then choose the matching YouTube Music song. Koda does not save microphone recordings."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Apple 的 Shazam 服務辨識附近播放的音樂，再選擇對應的 YouTube Music 歌曲。Koda 不會儲存麥克風錄音。"
+          }
+        }
+      }
+    },
+    "Cancel Recognition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Recognition"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消辨識"
+          }
+        }
+      }
+    },
+    "Koda may pause its music while listening for up to 20 seconds. An unavailable recognition service does not prevent manual search.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda may pause its music while listening for up to 20 seconds. An unavailable recognition service does not prevent manual search."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 辨識時可能會暫停自己的音樂，聆聽時間最長為 20 秒。辨識服務無法使用時，仍可手動搜尋。"
+          }
+        }
+      }
+    },
+    "Recognized Music": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognized Music"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辨識結果"
+          }
+        }
+      }
+    },
+    "Search in YouTube Music": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search in YouTube Music"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 YouTube Music 搜尋"
+          }
+        }
+      }
+    },
+    "No matching YouTube Music songs were found. Try searching by title or artist.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching YouTube Music songs were found. Try searching by title or artist."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到對應的 YouTube Music 歌曲，請嘗試搜尋歌名或藝人。"
+          }
+        }
+      }
+    },
+    "Choose the YouTube Music Version": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the YouTube Music Version"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇 YouTube Music 歌曲版本"
+          }
+        }
+      }
+    },
+    "Check the artist and version before saving. Live, Remix and Cover recordings may be different songs.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the artist and version before saving. Live, Remix and Cover recordings may be different songs."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存前請確認藝人與版本。現場演出、混音與翻唱可能是不同的錄音版本。"
+          }
+        }
+      }
+    },
+    "Selected Song": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Song"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已選取的歌曲"
+          }
+        }
+      }
+    },
+    "Play Selected Song": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Selected Song"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放所選歌曲"
+          }
+        }
+      }
+    },
+    "Like on YouTube Music": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Like on YouTube Music"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 YouTube Music 標示為喜歡"
+          }
+        }
+      }
+    },
+    "Confirming with YouTube Music…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirming with YouTube Music…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在向 YouTube Music 確認…"
+          }
+        }
+      }
+    },
+    "Saved to YouTube Music": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to YouTube Music"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存至 YouTube Music"
+          }
+        }
+      }
+    },
+    "Waiting for Microphone Permission…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Microphone Permission…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待麥克風授權…"
+          }
+        }
+      }
+    },
+    "Listening for Music…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening for Music…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在聆聽音樂…"
+          }
+        }
+      }
+    },
+    "Finding YouTube Music Matches…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finding YouTube Music Matches…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在尋找對應的 YouTube Music 歌曲…"
+          }
+        }
+      }
+    },
+    "Duration Unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration Unavailable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法取得曲長"
+          }
+        }
+      }
+    },
+    "Different Version": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Different Version"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不同版本"
+          }
+        }
+      }
+    },
+    "Check This Match": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check This Match"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請確認此歌曲"
+          }
+        }
+      }
+    },
+    "Allow microphone access in Settings to recognize nearby music.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow microphone access in Settings to recognize nearby music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在設定中允許使用麥克風，以辨識附近播放的音樂。"
+          }
+        }
+      }
+    },
+    "Stop video or voice recording before recognizing music.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop video or voice recording before recognizing music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辨識音樂前，請先停止影片播放或語音錄音。"
+          }
+        }
+      }
+    },
+    "Recognition was interrupted. Start again when audio is available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognition was interrupted. Start again when audio is available."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辨識已中斷，請在音訊恢復可用後重新開始。"
+          }
+        }
+      }
+    },
+    "No song was recognized. Move closer to the music or try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No song was recognized. Move closer to the music or try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未辨識出歌曲，請靠近音樂來源或再試一次。"
+          }
+        }
+      }
+    },
+    "The music was recognized, but YouTube Music search failed. Try searching with the recognized title.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The music was recognized, but YouTube Music search failed. Try searching with the recognized title."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已辨識出音樂，但 YouTube Music 搜尋失敗。請嘗試使用辨識出的歌名搜尋。"
+          }
+        }
+      }
+    },
+    "Apple's music recognition service is unavailable for this app or device. Check your connection or use manual search. Some signing profiles do not support this service.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple's music recognition service is unavailable for this app or device. Check your connection or use manual search. Some signing profiles do not support this service."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 或裝置目前無法使用 Apple 音樂辨識服務。請檢查網路連線或改用手動搜尋。部分簽署描述檔不支援此服務。"
+          }
+        }
+      }
+    },
+    "Recognition Cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recognition Cancelled"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消辨識"
+          }
+        }
+      }
+    },
+    "Sign in to YouTube Music to manage cloud playlists.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to YouTube Music to manage cloud playlists."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 YouTube Music 即可管理雲端播放清單。"
+          }
+        }
+      }
+    },
+    "Your YouTube Music sign-in has expired. Sign in again to continue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your YouTube Music sign-in has expired. Sign in again to continue."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Music 登入已過期，請重新登入以繼續。"
+          }
+        }
+      }
+    },
+    "The account changed. Open the playlist again before continuing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The account changed. Open the playlist again before continuing."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳號已變更，請重新開啟播放清單再繼續。"
+          }
+        }
+      }
+    },
+    "A cloud operation is already in progress.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cloud operation is already in progress."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有雲端操作正在進行。"
+          }
+        }
+      }
+    },
+    "Check the unfinished cloud operation before making another change.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the unfinished cloud operation before making another change."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行其他修改前，請先確認尚未完成的雲端操作。"
+          }
+        }
+      }
+    },
+    "The saved cloud operation could not be read. Your cloud playlists have not been changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved cloud operation could not be read. Your cloud playlists have not been changed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取已儲存的雲端操作紀錄。你的雲端播放清單並未變更。"
+          }
+        }
+      }
+    },
+    "Create Cloud Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立雲端播放清單"
+          }
+        }
+      }
+    },
+    "Add to Cloud Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入雲端播放清單"
+          }
+        }
+      }
+    },
+    "Remove from Cloud Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從雲端播放清單移除"
+          }
+        }
+      }
+    },
+    "Rename Cloud Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名雲端播放清單"
+          }
+        }
+      }
+    },
+    "Koda could not save the cloud operation safely. Free some storage and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda could not save the cloud operation safely. Free some storage and try again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 無法安全儲存雲端操作紀錄。請釋出部分儲存空間後再試一次。"
+          }
+        }
+      }
+    },
+    "Cancelled. Changes already sent to YouTube Music may still be present.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelled. Changes already sent to YouTube Music may still be present."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消。已送出至 YouTube Music 的變更可能仍然存在。"
+          }
+        }
+      }
+    },
+    "Check Cloud Status Again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Cloud Status Again"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次確認雲端狀態"
+          }
+        }
+      }
+    },
+    "Find the Created Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find the Created Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找已建立的播放清單"
+          }
+        }
+      }
+    },
+    "Dismiss Status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Status"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉狀態訊息"
+          }
+        }
+      }
+    },
+    "Confirmed on YouTube Music": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmed on YouTube Music"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 YouTube Music 確認"
+          }
+        }
+      }
+    },
+    "Open Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟播放清單"
+          }
+        }
+      }
+    },
+    "A private playlist will be created in your YouTube Music account. It is complete only after the cloud result is confirmed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A private playlist will be created in your YouTube Music account. It is complete only after the cloud result is confirmed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將在你的 YouTube Music 帳號中建立私人播放清單。只有確認雲端結果後，才算建立完成。"
+          }
+        }
+      }
+    },
+    "New Cloud Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增雲端播放清單"
+          }
+        }
+      }
+    },
+    "Loading Playlists…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading Playlists…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入播放清單…"
+          }
+        }
+      }
+    },
+    "No editable cloud playlists were returned. Create one or refresh your account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No editable cloud playlists were returned. Create one or refresh your account."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前沒有可編輯的雲端播放清單，請建立一份或重新整理帳號資料。"
+          }
+        }
+      }
+    },
+    "Editable YouTube Music Playlists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editable YouTube Music Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可編輯的 YouTube Music 播放清單"
+          }
+        }
+      }
+    },
+    "YouTube Music determines which playlists you can edit. Existing entries are preserved; new entries are verified before completion.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Music determines which playlists you can edit. Existing entries are preserved; new entries are verified before completion."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可編輯的播放清單由 YouTube Music 決定。原有項目會保留，新增項目須經確認後才算完成。"
+          }
+        }
+      }
+    },
+    "Add Songs to This Cloud Playlist?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Songs to This Cloud Playlist?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將歌曲加入此雲端播放清單？"
+          }
+        }
+      }
+    },
+    "Add Songs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Songs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入歌曲"
+          }
+        }
+      }
+    },
+    "The earlier creation response was lost. Choose the playlist you verified on YouTube Music. Koda will keep its existing songs and continue the unfinished addition; it will not create another playlist.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The earlier creation response was lost. Choose the playlist you verified on YouTube Music. Koda will keep its existing songs and continue the unfinished addition; it will not create another playlist."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先前未收到建立結果，請選擇你已在 YouTube Music 確認的播放清單。Koda 會保留其中的歌曲，繼續尚未完成的加入操作，不會另外建立一份播放清單。"
+          }
+        }
+      }
+    },
+    "Refresh Cloud Playlists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Cloud Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理雲端播放清單"
+          }
+        }
+      }
+    },
+    "Matching Cloud Playlists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matching Cloud Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "符合的雲端播放清單"
+          }
+        }
+      }
+    },
+    "No matching playlist is visible yet. Check YouTube Music, then refresh again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching playlist is visible yet. Check YouTube Music, then refresh again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前尚未看到符合的播放清單，請先在 YouTube Music 確認，再重新整理。"
+          }
+        }
+      }
+    },
+    "Confirm Created Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Created Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認已建立的播放清單"
+          }
+        }
+      }
+    },
+    "Continue with This Playlist?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with This Playlist?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用此播放清單繼續？"
+          }
+        }
+      }
+    },
+    "Keep Existing Songs and Continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Existing Songs and Continue"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留原有歌曲並繼續"
+          }
+        }
+      }
+    },
+    "Confirmed in YouTube Music.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmed in YouTube Music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 YouTube Music 確認。"
+          }
+        }
+      }
+    },
+    "An unfinished cloud change was restored. Check its status before continuing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unfinished cloud change was restored. Check its status before continuing."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已還原尚未完成的雲端變更，請先確認狀態再繼續。"
+          }
+        }
+      }
+    },
+    "My YouTube Music Playlists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My YouTube Music Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的 YouTube Music 播放清單"
+          }
+        }
+      }
+    },
+    "Legacy Local Playlists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy Local Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊有本機播放清單"
+          }
+        }
+      }
+    },
+    "Open Koda and copy this legacy playlist to YouTube Music before adding songs.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Koda and copy this legacy playlist to YouTube Music before adding songs."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先開啟 Koda，將這份舊有本機播放清單複製到 YouTube Music，再加入歌曲。"
+          }
+        }
+      }
+    },
+    "Plays a playlist from your YouTube Music library.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plays a playlist from your YouTube Music library."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放 YouTube Music 音樂庫中的播放清單。"
+          }
+        }
+      }
+    },
+    "Add %lld songs to “%@” on YouTube Music.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %lld songs to “%@” on YouTube Music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將 %lld 首歌曲加入 YouTube Music 的「%@」。"
+          }
+        }
+      }
+    },
+    "Create a playlist in your YouTube Music account to see it here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a playlist in your YouTube Music account to see it here."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 YouTube Music 帳號中建立播放清單，就會顯示在這裡。"
+          }
+        }
+      }
+    },
+    "No Cloud Playlists Yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud Playlists Yet"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無雲端播放清單"
+          }
+        }
+      }
+    },
+    "Pin on Home": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin on Home"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘選至首頁"
+          }
+        }
+      }
+    },
+    "Unpin from Home": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin from Home"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從首頁取消釘選"
+          }
+        }
+      }
+    },
+    "Recommendations": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommendations"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推薦內容"
+          }
+        }
+      }
+    },
+    "Refreshing Cloud Playlists…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refreshing Cloud Playlists…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新整理雲端播放清單…"
+          }
+        }
+      }
+    },
+    "Showing Cached Cloud Playlists": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing Cached Cloud Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前顯示雲端播放清單的快取資料"
+          }
+        }
+      }
+    },
+    "Shuffle %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shuffle %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨機播放 %@"
+          }
+        }
+      }
+    },
+    "Touch and hold a playlist to pin it or change its Home order. This does not change YouTube Music.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touch and hold a playlist to pin it or change its Home order. This does not change YouTube Music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長按播放清單即可釘選或調整首頁順序，不會變更 YouTube Music 的內容。"
+          }
+        }
+      }
+    },
+    "Loading…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "載入中…"
+          }
+        }
+      }
+    },
+    "Arrange Flow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrange Flow"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安排 Flow"
+          }
+        }
+      }
+    },
+    "Cancel Preparation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Preparation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消準備"
+          }
+        }
+      }
+    },
+    "Choose a cloud playlist before arranging Koda Flow.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a cloud playlist before arranging Koda Flow."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先選擇雲端播放清單，再安排 Koda Flow。"
+          }
+        }
+      }
+    },
+    "Custom Duration": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Duration"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂時間"
+          }
+        }
+      }
+    },
+    "Duration": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間長度"
+          }
+        }
+      }
+    },
+    "Durations come from the song information. AutoMix and crossfade can shorten playback. Flow ends without starting a recommendation radio; use the Sleep Timer if you need a fixed stopping time.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durations come from the song information. AutoMix and crossfade can shorten playback. Flow ends without starting a recommendation radio; use the Sleep Timer if you need a fixed stopping time."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放時間依歌曲資訊估算。自動混音與交叉淡入淡出可能縮短實際時間。Flow 播完後會結束，不會接著播放推薦電台；若需固定時間停止，請使用睡眠計時器。"
+          }
+        }
+      }
+    },
+    "Enter a listening time from 1 to 720 minutes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a listening time from 1 to 720 minutes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入 1 至 720 分鐘的聆聽時間。"
+          }
+        }
+      }
+    },
+    "Estimated Duration": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimated Duration"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預計播放時間"
+          }
+        }
+      }
+    },
+    "Flow Preview": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flow Preview"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flow 預覽"
+          }
+        }
+      }
+    },
+    "Flow preparation was cancelled. Your current queue is unchanged.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flow preparation was cancelled. Your current queue is unchanged."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flow 準備已取消，目前的播放佇列保持不變。"
+          }
+        }
+      }
+    },
+    "Koda Flow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Flow"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Flow"
+          }
+        }
+      }
+    },
+    "Koda Flow uses only this cloud playlist. It does not change the playlist on YouTube Music.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Flow uses only this cloud playlist. It does not change the playlist on YouTube Music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Flow 只使用這份雲端播放清單，不會變更 YouTube Music 上的清單內容。"
+          }
+        }
+      }
+    },
+    "Listening Time": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening Time"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聆聽時間"
+          }
+        }
+      }
+    },
+    "Matches the Requested Time": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matches the Requested Time"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "符合設定時間"
+          }
+        }
+      }
+    },
+    "Minutes (1–720)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes (1–720)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分鐘（1–720）"
+          }
+        }
+      }
+    },
+    "Over Target": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Over Target"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比目標多"
+          }
+        }
+      }
+    },
+    "Under Target": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Under Target"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比目標少"
+          }
+        }
+      }
+    },
+    "Playback changed. Arrange Flow again before starting it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback changed. Arrange Flow again before starting it."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放狀態已變更，請重新安排 Flow 後再開始播放。"
+          }
+        }
+      }
+    },
+    "Preparing Koda Flow…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing Koda Flow…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在準備 Koda Flow…"
+          }
+        }
+      }
+    },
+    "Rearrange Flow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rearrange Flow"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新安排 Flow"
+          }
+        }
+      }
+    },
+    "Refresh Source Playlist": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Source Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理來源播放清單"
+          }
+        }
+      }
+    },
+    "Start Flow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Flow"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始播放 Flow"
+          }
+        }
+      }
+    },
+    "The source playlist changed. Open Koda Flow again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The source playlist changed. Open Koda Flow again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源播放清單已變更，請重新開啟 Koda Flow。"
+          }
+        }
+      }
+    },
+    "This playlist has no playable songs with a known duration. Try refreshing the source playlist.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This playlist has no playable songs with a known duration. Try refreshing the source playlist."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這份播放清單沒有可播放且已知長度的歌曲，請嘗試重新整理來源播放清單。"
+          }
+        }
+      }
+    },
+    "This playlist is shorter than the requested time. All eligible songs are included; no songs are added from elsewhere.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This playlist is shorter than the requested time. All eligible songs are included; no songs are added from elsewhere."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這份播放清單的總長度不足設定時間。已納入所有可用歌曲，不會加入其他來源的歌曲。"
+          }
+        }
+      }
+    },
+    "Upcoming Songs": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upcoming Songs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即將播放的歌曲"
+          }
+        }
+      }
+    },
+    "%lld repeated song entries are excluded from this Flow only.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld repeated song entries are excluded from this Flow only."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已從這次 Flow 排除 %lld 個重複歌曲項目，來源播放清單保持不變。"
+          }
+        }
+      }
+    },
+    "%lld songs without a usable duration are excluded.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld songs without a usable duration are excluded."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除 %lld 首無法取得有效長度的歌曲。"
+          }
+        }
+      }
+    },
+    "%lld unavailable songs are excluded.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unavailable songs are excluded."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已排除 %lld 首無法播放的歌曲。"
+          }
+        }
+      }
+    },
+    "Cached cloud playlists. Pull to refresh.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cached cloud playlists. Pull to refresh."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前顯示雲端播放清單的快取資料，下拉即可重新整理。"
+          }
+        }
+      }
+    },
+    "Legacy Playlist Archive": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy Playlist Archive"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊有播放清單封存"
+          }
+        }
+      }
+    },
+    "Your YouTube Music playlists will appear here. Create a cloud playlist to get started.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your YouTube Music playlists will appear here. Create a cloud playlist to get started."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 YouTube Music 播放清單會顯示在這裡，先建立一份雲端播放清單吧。"
+          }
+        }
+      }
+    },
+    "Choose Source Playlists": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Source Playlists"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇來源播放清單"
+          }
+        }
+      }
+    },
+    "Create Merged Cloud Playlist?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Merged Cloud Playlist?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立合併後的雲端播放清單？"
+          }
+        }
+      }
+    },
+    "Preview Merge": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Merge"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預覽合併結果"
+          }
+        }
+      }
+    },
+    "Source Order": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source Order"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源順序"
+          }
+        }
+      }
+    },
+    "Source order is preserved. Only identical song IDs may be excluded; different versions remain separate.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source order is preserved. Only identical song IDs may be excluded; different versions remain separate."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留來源的原有順序，只排除識別碼完全相同的歌曲，不同版本仍會保留。"
+          }
+        }
+      }
+    },
+    "The merge creates a private YouTube Music playlist. All source playlists and their order are kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The merge creates a private YouTube Music playlist. All source playlists and their order are kept."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合併會建立一份不公開的 YouTube Music 播放清單，所有來源播放清單及歌曲順序都會保留。"
+          }
+        }
+      }
+    },
+    "The preview will be saved to your YouTube Music account after the sources are checked again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The preview will be saved to your YouTube Music account after the sources are checked again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次確認來源後，就會將預覽結果儲存至你的 YouTube Music 帳號。"
+          }
+        }
+      }
+    },
+    "Copy to Cloud Playlist": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy to Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製到雲端播放清單"
+          }
+        }
+      }
+    },
+    "Only the selected cloud entries will be removed. Downloads and other playlists are kept. Cloud removal cannot be undone here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the selected cloud entries will be removed. Downloads and other playlists are kept. Cloud removal cannot be undone here."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只會移除選取的雲端歌曲項目，下載及其他播放清單都會保留。無法在此復原雲端移除操作。"
+          }
+        }
+      }
+    },
+    "Remove Selected Songs from YouTube Music?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Selected Songs from YouTube Music?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 YouTube Music 移除選取的歌曲？"
+          }
+        }
+      }
+    },
+    "This account cannot safely remove entries from this playlist. You can copy selected songs to an editable cloud playlist.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account cannot safely remove entries from this playlist. You can copy selected songs to an editable cloud playlist."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個帳號無法安全移除這份播放清單的歌曲項目。你可以將選取的歌曲複製到可編輯的雲端播放清單。"
+          }
+        }
+      }
+    },
+    "This source is read-only. Selected songs can be copied to an editable cloud playlist.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This source is read-only. Selected songs can be copied to an editable cloud playlist."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此來源僅供讀取。你可以將選取的歌曲複製到可編輯的雲端播放清單。"
+          }
+        }
+      }
+    },
+    "Export Playlist Backup": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Playlist Backup"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出播放清單備份"
+          }
+        }
+      }
+    },
+    "Hide Legacy Copy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Legacy Copy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏舊有副本"
+          }
+        }
+      }
+    },
+    "Hide the Legacy Copy?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the Legacy Copy?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏舊有副本？"
+          }
+        }
+      }
+    },
+    "Legacy On-Device Playlist": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy On-Device Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊有本機播放清單"
+          }
+        }
+      }
+    },
+    "Older on-device playlists are kept for backup and optional upload. They are not used as destinations for new playlists.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older on-device playlists are kept for backup and optional upload. They are not used as destinations for new playlists."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊有的本機播放清單會保留供備份或自行上傳，不會作為新建播放清單的儲存位置。"
+          }
+        }
+      }
+    },
+    "Open Cloud Playlist": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Cloud Playlist"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟雲端播放清單"
+          }
+        }
+      }
+    },
+    "Show Legacy Copy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Legacy Copy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示舊有副本"
+          }
+        }
+      }
+    },
+    "The cloud playlist has been confirmed. Hiding only changes this device's archive display; the original backup data is kept and can be shown again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud playlist has been confirmed. Hiding only changes this device's archive display; the original backup data is kept and can be shown again."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已確認雲端播放清單。隱藏只會變更此裝置的封存顯示，原始備份資料仍會保留，之後可以再次顯示。"
+          }
+        }
+      }
+    },
+    "This is preserved data from an older Koda version. New playlists are stored on YouTube Music. Export a backup or choose to upload this playlist; nothing is migrated or deleted automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is preserved data from an older Koda version. New playlists are stored on YouTube Music. Export a backup or choose to upload this playlist; nothing is migrated or deleted automatically."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是舊版 Koda 保留下來的資料，新播放清單會儲存至 YouTube Music。你可以匯出備份或選擇上傳這份播放清單，資料不會自動移轉或刪除。"
+          }
+        }
+      }
+    },
+    "Upload to YouTube Music": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload to YouTube Music"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上傳至 YouTube Music"
+          }
+        }
+      }
+    },
+    "%lld unavailable entries cannot be copied. They remain in the source playlists.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unavailable entries cannot be copied. They remain in the source playlists."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個無法使用的項目無法複製，仍會保留在來源播放清單中。"
+          }
+        }
+      }
+    },
+    "Copied to “%@”. Source entries were kept. To move them, separately confirm Remove Selected Songs.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to “%@”. Source entries were kept. To move them, separately confirm Remove Selected Songs."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製到「%@」，來源歌曲項目仍會保留。若要移動歌曲，請另外確認「移除選取的歌曲」。"
+          }
+        }
+      }
+    },
+    "%lld unavailable entries were omitted from this view. They remain unchanged on YouTube Music.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unavailable entries were omitted from this view. They remain unchanged on YouTube Music."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此畫面未顯示 %lld 個無法使用的項目，YouTube Music 上的資料保持不變。"
+          }
+        }
+      }
+    },
+    "%lld source songs → %lld songs": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld source songs → %lld songs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 首來源歌曲 → %lld 首歌曲"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

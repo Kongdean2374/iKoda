@@ -34,14 +34,14 @@ struct LibraryView: View {
     @State private var showsMerge = false
 
     private var isEmpty: Bool {
-        library.liked.isEmpty && library.albums.isEmpty && library.playlists.isEmpty && library.artists.isEmpty
+        library.liked.isEmpty && library.albums.isEmpty && app.cloudPlaylists.catalog.isEmpty && library.artists.isEmpty
             && library.recent.isEmpty && library.userPlaylists.isEmpty
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                if !library.pins.isEmpty {
+                if library.pins.contains(where: { if case .userPlaylist = $0 { return false }; return true }) {
                     PinnedGrid()
                 }
                 VStack(spacing: 0) {
@@ -66,8 +66,13 @@ struct LibraryView: View {
 
                 yourPlaylists
 
-                if !library.playlists.isEmpty {
-                    grid(String(localized: "Saved Playlists"), items: sorted(library.playlists).map(MusicItem.playlist))
+                if !library.userPlaylists.isEmpty {
+                    NavigationLink { LegacyPlaylistArchiveView().appEnvironment(app) } label: {
+                        Label("Legacy Playlist Archive", systemImage: "archivebox")
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }
+                    .padding(.horizontal, 20)
+                    .accessibilityIdentifier("library.legacy.archive")
                 }
                 if !library.albums.isEmpty {
                     grid(String(localized: "Albums"), items: sorted(library.albums).map(MusicItem.album))
@@ -91,7 +96,11 @@ struct LibraryView: View {
         }
         .navigationTitle(String(localized: "Library"))
         // A signed-in profile's pull brings in what changed on the account elsewhere.
-        .refreshable { if app.roster.active.isSignedIn { await app.refreshAccount() } }
+        .refreshable {
+            if app.roster.active.isSignedIn { await app.refreshAccount() }
+            else { await app.cloudPlaylists.refresh(force: true) }
+        }
+        .task(id: app.roster.activeID) { await app.cloudPlaylists.refresh(force: true) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("Playlist Tools", systemImage: "ellipsis") {
@@ -120,38 +129,55 @@ struct LibraryView: View {
 
     private var yourPlaylists: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: String(localized: "Your Playlists"))
+            SectionHeader(title: String(localized: "My YouTube Music Playlists"))
                 .padding(.horizontal, 20)
+            VStack(alignment: .leading, spacing: 12) {
+                CloudPlaylistSessionNotice()
+                CloudPlaylistOperationView()
+                if let error = app.cloudPlaylists.refreshError {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                    Button("Refresh Cloud Playlists") { Task { await app.cloudPlaylists.refresh(force: true) } }
+                }
+                if app.cloudPlaylists.isFromCache {
+                    Text("Cached cloud playlists. Pull to refresh.").font(.footnote).foregroundStyle(.secondary)
+                }
+                if app.cloudPlaylists.isRefreshing { ProgressView("Loading Playlists…") }
+            }.padding(.horizontal, 20)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     NewPlaylistTile()
-                    ForEach(sortedUserPlaylists) { playlist in
-                        NavigationLink(value: Route.userPlaylist(playlist.id)) {
+                    ForEach(sortedCloudPlaylists) { playlist in
+                        NavigationLink(value: Route.playlist(playlist)) {
                             VStack(alignment: .leading, spacing: 6) {
-                                PlaylistCover(playlist: playlist, size: 140, cornerRadius: 10)
-                                Text(playlist.name).font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text(playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"))
-                                    .font(.footnote).foregroundStyle(.secondary)
+                                ArtworkView(artwork: playlist.artwork, size: 140, cornerRadius: 10)
+                                Text(playlist.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                                if let subtitle = playlist.subtitle {
+                                    Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                                }
                             }
                             .frame(width: 140, alignment: .leading)
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
-                        .contextMenu { PinMenuItem(pin: .userPlaylist(playlist.id)) }
+                        .contextMenu { PinMenuItem(pin: .playlist(playlist)) }
                     }
                 }
             }
             .scrollIndicators(.hidden)
             .contentMargins(.horizontal, 20, for: .scrollContent)
+            if app.cloudPlaylists.hasSession, app.cloudPlaylists.catalog.isEmpty, !app.cloudPlaylists.isRefreshing,
+               app.cloudPlaylists.refreshError == nil {
+                Text("Your YouTube Music playlists will appear here. Create a cloud playlist to get started.")
+                    .font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 20)
+            }
         }
     }
 
-    // MARK: Sorting
-
-    private var sortedUserPlaylists: [UserPlaylist] {
+    private var sortedCloudPlaylists: [PlaylistSummary] {
         switch sort {
-        case .recent: library.userPlaylists
-        case .title, .artist: library.userPlaylists.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .recent: app.cloudPlaylists.catalog
+        case .title: app.cloudPlaylists.catalog.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .artist: app.cloudPlaylists.catalog.sorted { localizedLess(($0.subtitle ?? "", $0.title), ($1.subtitle ?? "", $1.title)) }
         }
     }
 
@@ -215,7 +241,7 @@ private struct PinnedGrid: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: String(localized: "Pinned"))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 3), spacing: 16) {
-                ForEach(library.pins) { pin in
+                ForEach(library.pins.filter { if case .userPlaylist = $0 { return false }; return true }) { pin in
                     tile(pin)
                         .contextMenu {
                             PinMenuItem(pin: pin)
@@ -292,43 +318,21 @@ private func localizedLess(_ a: (String, String), _ b: (String, String)) -> Bool
 /// The first tile among the listener's playlists: makes a new one.
 private struct NewPlaylistTile: View {
     @Environment(AppModel.self) private var app
-    @Environment(Library.self) private var library
-    @State private var naming = false
-    @State private var draftName = ""
-    @State private var created = 0
+    @State private var creating = false
 
     var body: some View {
-        Button {
-            draftName = ""
-            naming = true
-        } label: {
+        Button { creating = true } label: {
             VStack(alignment: .leading, spacing: 6) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(.quaternary)
-                    .frame(width: 140, height: 140)
-                    .overlay {
-                        Image(systemName: "plus")
-                            .font(.system(size: 34, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                Text(String(localized: "New Playlist")).font(.subheadline.weight(.medium))
-                Text(" ").font(.footnote)
+                    .fill(.quaternary).frame(width: 140, height: 140)
+                    .overlay { Image(systemName: "plus").font(.system(size: 34, weight: .medium)).foregroundStyle(Color.accentColor) }
+                Text("New Cloud Playlist").font(.subheadline.weight(.medium)).lineLimit(2)
             }
-            .frame(width: 140, alignment: .leading)
-            .contentShape(.rect)
+            .frame(width: 140, alignment: .leading).contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .sensoryFeedback(.success, trigger: created)
-        .alert(String(localized: "New Playlist"), isPresented: $naming) {
-            TextField(String(localized: "Name"), text: $draftName)
-            Button(String(localized: "Cancel"), role: .cancel) {}
-            Button(String(localized: "Create")) {
-                created += 1
-                app.open(.userPlaylist(library.createPlaylist(named: draftName).id))
-            }
-        } message: {
-            Text(String(localized: "Add songs to it from any song's menu."))
-        }
+        .accessibilityIdentifier("library.cloud.create")
+        .sheet(isPresented: $creating) { CloudPlaylistCreateView().appEnvironment(app) }
     }
 }
 

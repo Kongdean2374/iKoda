@@ -31,6 +31,13 @@ public enum RepeatMode: String, Codable, Sendable, CaseIterable {
 /// as is. Shuffle reorders `items` and remembers the order it replaced; turning
 /// shuffle off puts that order back with the current song still current.
 public struct PlayQueue: Codable, Sendable, Equatable {
+    /// Flow changes this listening queue only. A later ordinary queue restores the
+    /// previous repeat preference; the source guard survives cold queue restoration.
+    public struct FlowContext: Codable, Sendable, Equatable {
+        public var sourceID: String
+        public var previousRepeatMode: RepeatMode
+    }
+
     public private(set) var items: [QueueItem] = []
     public private(set) var currentIndex: Int?
     public private(set) var isShuffled = false
@@ -38,6 +45,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     /// Occurrences explicitly placed by the listener are never moved by smart shuffle.
     private var protectedUpcoming: Set<UUID> = []
     public var repeatMode: RepeatMode = .off
+    public private(set) var flowContext: FlowContext?
     /// The order before shuffle, by occurrence. Empty while not shuffled.
     private var unshuffledOrder: [UUID] = []
     /// A finite collection remains available for repeat/shuffle after its songs have played.
@@ -62,6 +70,8 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         isSmartShuffled = try c.decodeIfPresent(Bool.self, forKey: .isSmartShuffled) ?? false
         if isSmartShuffled { isShuffled = true }
         repeatMode = (try c.decodeIfPresent(String.self, forKey: .repeatMode)).flatMap(RepeatMode.init(rawValue:)) ?? .off
+        flowContext = try c.decodeIfPresent(FlowContext.self, forKey: .flowContext)
+        if items.isEmpty { flowContext = nil }
         unshuffledOrder = try c.decodeIfPresent([UUID].self, forKey: .unshuffledOrder) ?? []
         let available = Set(items.map(\.id))
         var restored: Set<UUID> = []
@@ -104,6 +114,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     }
 
     public mutating func replace<R: RandomNumberGenerator>(with songs: [Song], startAt startIndex: Int, shuffled: Bool, using rng: inout R) {
+        restoreRepeatAfterFlow()
         let fresh = songs.map { QueueItem(song: $0) }
         guard !fresh.isEmpty else {
             self = PlayQueue(repeatMode: repeatMode)
@@ -118,6 +129,23 @@ public struct PlayQueue: Codable, Sendable, Equatable {
         unshuffledOrder = []
         retainedCollectionOccurrenceIDs = []
         if shuffled { setShuffle(true, using: &rng) }
+    }
+
+    /// Start a once-through queue from an already prepared, explicitly selected source.
+    /// Manual queue edits remain available; automatic radio extension is never allowed.
+    @discardableResult
+    public mutating func replaceFlow(with songs: [Song], sourceID: String) -> Bool {
+        guard !songs.isEmpty, !sourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        replace(with: songs)
+        flowContext = FlowContext(sourceID: sourceID, previousRepeatMode: repeatMode)
+        repeatMode = .off
+        retainCurrentCollection()
+        return true
+    }
+
+    private mutating func restoreRepeatAfterFlow() {
+        if let flowContext { repeatMode = flowContext.previousRepeatMode }
+        flowContext = nil
     }
 
     /// Mark a complete, explicitly selected collection before playback trims its history.
@@ -152,6 +180,7 @@ public struct PlayQueue: Codable, Sendable, Equatable {
     }
 
     public mutating func clear() {
+        restoreRepeatAfterFlow()
         self = PlayQueue(repeatMode: repeatMode)
     }
 

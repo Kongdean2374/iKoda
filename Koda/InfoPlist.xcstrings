@@ -7,13 +7,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koda listens only while you search by voice."
+            "value": "Koda uses the microphone only for voice search or when you choose to identify nearby music."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koda 只會在你使用語音搜尋時聆聽。"
+            "value": "Koda 只會在你使用語音搜尋或主動辨識附近播放的音樂時使用麥克風。"
           }
         }
       }

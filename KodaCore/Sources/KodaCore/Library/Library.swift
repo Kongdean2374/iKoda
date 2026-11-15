@@ -301,6 +301,28 @@ public final class Library {
         save()
     }
 
+    /// A fresh cloud catalog updates names/artwork by remote ID. Only entries known
+    /// to belong to the previous cloud catalog may disappear; local bookmarks and
+    /// legacy userPlaylists are never converted or removed by this cache refresh.
+    /// Unsent save/unsave choices retain the same protection as `reconcile`.
+    public func applyCloudPlaylistCatalog(_ incoming: [PlaylistSummary], previousCloudIDs: Set<String>,
+                                          pending: [LibraryChange] = []) {
+        var pendingSaves = Set<String>(), pendingRemovals = Set<String>()
+        for change in pending {
+            guard case .playlist(let playlist, let on) = change else { continue }
+            if on { pendingSaves.insert(playlist.id); pendingRemovals.remove(playlist.id) }
+            else { pendingRemovals.insert(playlist.id); pendingSaves.remove(playlist.id) }
+        }
+        var seen = Set<String>()
+        let cloud = incoming.filter { !pendingRemovals.contains($0.id) && seen.insert($0.id).inserted }
+        let localOnly = playlists.filter {
+            !seen.contains($0.id) && !pendingRemovals.contains($0.id)
+                && (!previousCloudIDs.contains($0.id) || pendingSaves.contains($0.id))
+        }
+        playlists = cloud + localOnly
+        save()
+    }
+
     /// Remove what the account no longer holds, after `mergeAccount`, when the listener chose to
     /// mirror the account: likes and saves undone on another device go here too.
     public func dropMissing(liked keep: Set<String>?, albums keepAlbums: Set<String>?, playlists keepPlaylists: Set<String>?, artists keepArtists: Set<String>?) {

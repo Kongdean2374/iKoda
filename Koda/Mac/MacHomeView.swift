@@ -1,9 +1,8 @@
 import KodaCore
 import SwiftUI
 
-/// Home on the Mac. The first screenful does the work: Your Mix beside Quick picks, so there
-/// is something to play the moment the window opens, then what the listener goes back to,
-/// then YouTube Music's shelves, each a row of covers that pages with its arrows.
+/// Keep the Mac's existing page and navigation, with the same cloud-first hierarchy
+/// and playlist controls as the phone. Recommendations load only when requested.
 struct MacHomeView: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
@@ -12,37 +11,86 @@ struct MacHomeView: View {
     let model: HomeModel
     @State private var width: CGFloat = 1000
     @State private var refreshing = false
+    @State private var showsRecommendations = false
+    @State private var showsCreatePlaylist = false
+    @State private var preferences = HomePlaylistPreferences()
 
     var body: some View {
         MacPage {
             header
-            switch model.state {
-            case .loading:
-                sections(.placeholder)
-                    .loadingPlaceholder()
-            case .failed(let message):
-                ContentUnavailableView {
-                    Label(String(localized: "Couldn't Load Home"), systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(message)
-                } actions: {
+            cloudPlaylists
+            DisclosureGroup("Recommendations", isExpanded: $showsRecommendations) {
+                switch model.state {
+                case .loading:
+                    ProgressView("Loading…")
+                case .failed(let message):
+                    Text(message).foregroundStyle(.secondary)
                     Button(String(localized: "Try Again")) { Task { await load() } }
-                        .buttonStyle(.glass)
+                case .loaded(let content): sections(content)
                 }
-                .frame(maxWidth: .infinity, minHeight: 360)
-            case .loaded(let content):
-                sections(content)
-                    .transition(.opacity)
             }
+            .padding(.horizontal, MacMetrics.gutter)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        .animation(.smooth, value: model.state.value == nil)
         .navigationTitle(String(localized: "Home"))
-        .task {
-            // Loaded already: shown as it was. Last launch's snapshot, or a Home half an hour
-            // old, refreshes quietly in place.
-            if model.needsRefresh { await load() }
+        .task(id: app.roster.activeID) {
+            preferences = HomePlaylistPreferences.load(profileID: app.roster.activeID)
+            showsRecommendations = false
+            await app.cloudPlaylists.refresh(force: true)
         }
+        .task(id: showsRecommendations) {
+            model.recommendationsRequested = showsRecommendations
+            if showsRecommendations {
+                if model.needsRefresh { await load() }
+            }
+        }
+        .onDisappear { model.recommendationsRequested = false }
+        .sheet(isPresented: $showsCreatePlaylist) {
+            CloudPlaylistCreateView().appEnvironment(app)
+        }
+    }
+
+    private var cloudPlaylists: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("My YouTube Music Playlists").font(.title2.bold())
+                Spacer()
+                Button("New Cloud Playlist", systemImage: "plus") { showsCreatePlaylist = true }
+                    .buttonStyle(.glass)
+            }
+            CloudPlaylistSessionNotice()
+            CloudPlaylistOperationView()
+            PlaylistQueueLoadingView()
+            if app.cloudPlaylists.hasSession {
+                if app.cloudPlaylists.isRefreshing { ProgressView("Refreshing Cloud Playlists…") }
+                if let error = app.cloudPlaylists.refreshError { Text(error).foregroundStyle(.secondary) }
+                if app.cloudPlaylists.isFromCache {
+                    Text("Showing Cached Cloud Playlists").font(.footnote).foregroundStyle(.secondary)
+                }
+                let ordered = preferences.sorted(app.cloudPlaylists.catalog)
+                if ordered.isEmpty, !app.cloudPlaylists.isRefreshing, app.cloudPlaylists.refreshError == nil {
+                    ContentUnavailableView("No Cloud Playlists Yet", systemImage: "music.note.list",
+                                           description: Text("Create a playlist in your YouTube Music account to see it here."))
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14)], spacing: 14) {
+                    ForEach(ordered) { playlist in
+                        let group = ordered.filter { preferences.isPinned($0.id) == preferences.isPinned(playlist.id) }
+                        HomeCloudPlaylistCard(playlist: playlist, isPinned: preferences.isPinned(playlist.id),
+                            canMoveEarlier: group.first?.id != playlist.id, canMoveLater: group.last?.id != playlist.id,
+                            play: { player.playPlaylist(id: playlist.id) },
+                            shuffle: { player.playPlaylist(id: playlist.id, shuffled: true) },
+                            pin: { updatePreference { $0.togglePin(playlist.id) } },
+                            move: { offset in updatePreference { $0.move(playlist.id, by: offset, in: ordered) } })
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, MacMetrics.gutter)
+    }
+
+    private func updatePreference(_ change: (inout HomePlaylistPreferences) -> Void) {
+        change(&preferences)
+        preferences.save(profileID: app.roster.activeID)
     }
 
     /// The greeting, with Refresh beside it as Last.fm's page has Sync Now: the window's
@@ -53,8 +101,11 @@ struct MacHomeView: View {
             Button(String(localized: "Refresh"), systemImage: "arrow.clockwise") {
                 Task {
                     refreshing = true
-                    await app.music.clearPageCache()
-                    await load()
+                    await app.cloudPlaylists.refresh(force: true)
+                    if showsRecommendations {
+                        await app.music.clearPageCache()
+                        await load()
+                    }
                     refreshing = false
                 }
             }

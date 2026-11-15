@@ -39,9 +39,7 @@ struct MacRootView: View {
     /// The namespace the player bar's cover is the zoom source in.
     @Namespace private var playerZoom
     @State private var namingPlaylist = false
-    @State private var draftName = ""
-    @State private var renaming: UserPlaylist?
-    @State private var deleting: UserPlaylist?
+    @State private var showingLegacyPlaylists = false
     /// The sidebar's height: a short window leaves the list its room rather than the glance.
     @State private var sidebarHeight: CGFloat = 800
     /// Which of the sidebar's groups are open, kept between launches as the Mac's sidebars keep
@@ -235,27 +233,24 @@ struct MacRootView: View {
         } message: {
             Text(model.linkError ?? "")
         }
-        .alert(String(localized: "New Playlist"), isPresented: $namingPlaylist) {
-            TextField(String(localized: "Name"), text: $draftName)
-            Button(String(localized: "Cancel"), role: .cancel) {}
-            Button(String(localized: "Create")) { section = .userPlaylist(library.createPlaylist(named: draftName).id) }
-        } message: {
-            Text(String(localized: "Add songs to it from any song's menu."))
-        }
-        .alert(String(localized: "Rename Playlist"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField(String(localized: "Name"), text: $draftName)
-            Button(String(localized: "Cancel"), role: .cancel) {}
-            Button(String(localized: "Save")) { if let renaming { library.renamePlaylist(renaming.id, to: draftName) } }
-        }
-        .confirmationDialog(String(localized: "Delete “\(deleting?.name ?? "")”?"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
-                            titleVisibility: .visible) {
-            Button(String(localized: "Delete Playlist"), role: .destructive) {
-                guard let deleting else { return }
-                if section == .userPlaylist(deleting.id) { section = .home }
-                library.deletePlaylist(deleting.id)
+        .sheet(isPresented: $namingPlaylist) {
+            CloudPlaylistCreateView { snapshot in
+                namingPlaylist = false
+                section = .playlists
+                paths[.playlists] = [.playlist(snapshot.playlist)]
             }
-        } message: {
-            Text(String(localized: "The songs stay wherever else you saved them."))
+            .appEnvironment(model)
+        }
+        .sheet(isPresented: $showingLegacyPlaylists) {
+            NavigationStack {
+                LegacyPlaylistArchiveView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showingLegacyPlaylists = false }
+                        }
+                    }
+            }
+            .appEnvironment(model)
         }
     }
 
@@ -279,6 +274,7 @@ struct MacRootView: View {
         .onAppear {
             if model.settings.mode == .video, model.settings.videoModeEnabled, !(section ?? .home).isVideo { section = .videos }
         }
+        .task(id: model.roster.activeID) { await model.cloudPlaylists.refresh(force: false) }
         // Remembered for the next launch (and the iPhone's tabs follow the same setting there).
         .onChange(of: section) { _, section in
             model.settings.mode = (section ?? .home).isVideo ? .video : .music
@@ -343,9 +339,13 @@ struct MacRootView: View {
     /// everything else opens its page.
     @ViewBuilder
     private var pinnedSidebar: some View {
-        if !library.pins.isEmpty {
+        let pins = library.pins.filter { pin in
+            if case .userPlaylist = pin { return false }
+            return true
+        }
+        if !pins.isEmpty {
             Section(String(localized: "Pinned"), isExpanded: $pinnedExpanded) {
-                ForEach(library.pins) { pin in
+                ForEach(pins) { pin in
                     pinnedRow(pin)
                         .contextMenu {
                             PinMenuItem(pin: pin)
@@ -372,8 +372,10 @@ struct MacRootView: View {
         case .album(let album): sidebarRow(album.title, "square.stack", .pinned(pin))
         case .playlist(let playlist): sidebarRow(playlist.title, "music.note.list", .pinned(pin))
         case .artist(let artist): sidebarRow(artist.name, "music.mic", .pinned(pin))
-        case .userPlaylist(let id):
-            if let playlist = library.userPlaylist(id) { sidebarRow(playlist.name, "music.note", .userPlaylist(id)) }
+        case .userPlaylist:
+            // Existing pin data remains available in the legacy archive; normal
+            // navigation only offers the account's actual cloud playlists.
+            EmptyView()
         case .liked: sidebarRow(String(localized: "Liked Songs"), "heart", .liked)
         }
     }
@@ -401,22 +403,18 @@ struct MacRootView: View {
             sidebarRow(String(localized: "Listening Stats"), "chart.bar", .stats)
             sidebarRow(String(localized: "Last.fm"), "dot.radiowaves.left.and.right", .lastFM)
         }
-        Section(String(localized: "Your Playlists"), isExpanded: $playlistsExpanded) {
-            ForEach(library.userPlaylists) { playlist in
-                sidebarRow(playlist.name, "music.note", .userPlaylist(playlist.id))
+        Section(String(localized: "My YouTube Music Playlists"), isExpanded: $playlistsExpanded) {
+            ForEach(model.cloudPlaylists.catalog.prefix(20)) { playlist in
+                sidebarRow(playlist.title, "music.note.list", .pinned(.playlist(playlist)))
                     .contextMenu {
-                        Button(String(localized: "Play"), systemImage: "play") { player.play(playlist.songs) }
-                            .disabled(playlist.songs.isEmpty)
-                        Button(String(localized: "Rename…"), systemImage: "pencil") {
-                            draftName = playlist.name
-                            renaming = playlist
-                        }
-                        Divider()
-                        Button(String(localized: "Delete Playlist…"), systemImage: "trash", role: .destructive) { deleting = playlist }
+                        Button(String(localized: "Play"), systemImage: "play") { player.playPlaylist(id: playlist.id) }
+                        Button(String(localized: "Shuffle"), systemImage: "shuffle") { player.playPlaylist(id: playlist.id, shuffled: true) }
                     }
             }
+            if model.cloudPlaylists.catalog.count > 20 {
+                sidebarRow(String(localized: "Playlists"), "music.note.list", .playlists)
+            }
             Button {
-                draftName = ""
                 namingPlaylist = true
             } label: {
                 MacSidebarLabel(title: String(localized: "New Playlist"), systemImage: "plus", isSelected: false, dimmed: true)
@@ -424,6 +422,14 @@ struct MacRootView: View {
             .buttonStyle(.plain)
             .listRowInsets(MacSidebarLabel.insets)
             .listRowBackground(Color.clear)
+            if !library.userPlaylists.isEmpty {
+                Button { showingLegacyPlaylists = true } label: {
+                    MacSidebarLabel(title: String(localized: "Legacy Local Playlists"), systemImage: "archivebox", isSelected: false, dimmed: true)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(MacSidebarLabel.insets)
+                .listRowBackground(Color.clear)
+            }
         }
     }
 

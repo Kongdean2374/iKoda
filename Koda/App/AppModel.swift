@@ -16,6 +16,8 @@ final class AppModel {
     /// Animated album covers; the loops live in Caches, which the system may clear.
     let motionArtwork: MotionArtwork
     let sleepTimer: SleepTimer
+    /// The cloud account is authoritative; operation receipts survive navigation and restart.
+    @ObservationIgnored lazy var cloudPlaylists = CloudPlaylistCoordinator(app: self)
     /// Everyone who uses Koda on this device; the library is the active profile's.
     let roster: ProfileRoster
     let profilePhotos: ProfilePhotos
@@ -76,6 +78,8 @@ final class AppModel {
     @ObservationIgnored var syncTask: Task<Void, Never>?
     /// Numbers each sync, so one that was overtaken doesn't clear `isSyncingAccount` for the next.
     @ObservationIgnored var syncRound = 0
+    /// A cloud read-back must not override a newer local like/save intent.
+    @ObservationIgnored var libraryIntentRevision: UInt64 = 0
     /// Each signed-in profile's `AccountMirror`, read from its folder on first use.
     @ObservationIgnored var mirrors: [UUID: AccountMirror] = [:]
     /// When a play has been heard long enough to go to the account's YouTube history.
@@ -153,6 +157,7 @@ final class AppModel {
         videos.autoplays = { settings.autoplaysVideos }
         videos.defaultQuality = { settings.videoQuality }
         videos.pauseMusic = { [player] in
+            MusicCatcher.cancelActiveRecognition()
             player.pause(from: "a video starting")
         }
         player.onListened = { [library] song, seconds in
@@ -217,22 +222,28 @@ final class AppModel {
         // Player considers releasing AVAudioSession. Foregrounding never reopens it.
         player.onPlaybackRequested = { [weak self] in
             guard let self, !self.player.isPlaybackSessionFinished else { return }
+            MusicCatcher.cancelActiveRecognition()
             self.videos.pause()
             self.lyricsPreparation.resumePlaybackSession()
             self.setArtworkSessionFinished(false)
         }
         player.onPlaybackSessionFinished = { [weak self] in
             guard let self else { return }
+            MusicCatcher.cancelActiveRecognition()
             self.cancelPlaybackLookup()
             self.lyricsPreparation.finishPlaybackSession()
             self.setArtworkSessionFinished(true)
         }
         player.canDeactivateAudioSession = { [videos] in
-            !videos.ownsAudioSession && !VoiceSearch.ownsAudioSession
+            !videos.ownsAudioSession && !VoiceSearch.ownsAudioSession && !MusicCatcher.ownsAudioSession
         }
         VoiceSearch.canDeactivateAfterRecording = { [weak player, weak videos] in
             guard let player, let videos else { return false }
-            return !player.ownsAudioSession && !videos.ownsAudioSession
+            return !player.ownsAudioSession && !videos.ownsAudioSession && !MusicCatcher.ownsAudioSession
+        }
+        MusicCatcher.canDeactivateAfterRecording = { [weak player, weak videos] in
+            guard let player, let videos else { return false }
+            return !player.ownsAudioSession && !videos.ownsAudioSession && !VoiceSearch.ownsAudioSession
         }
         setArtworkSessionFinished(player.isPlaybackSessionFinished)
         lyricsPreparation.start()
@@ -267,6 +278,8 @@ final class AppModel {
     func switchProfile(to id: UUID) {
         guard id != roster.activeID, let profile = roster.profile(id) else { return }
         cancelPlaybackLookup()
+        MusicCatcher.cancelActiveRecognition()
+        cloudPlaylists.invalidateSession()
         let leaving = roster.active
         player.clearSmartShuffleHistory()
         forgetVideoState()
@@ -287,6 +300,8 @@ final class AppModel {
         }
         guard deleted else { return }
         if next != nil {
+            MusicCatcher.cancelActiveRecognition()
+            cloudPlaylists.invalidateSession()
             cancelPlaybackLookup()
             player.clearSmartShuffleHistory()
         }

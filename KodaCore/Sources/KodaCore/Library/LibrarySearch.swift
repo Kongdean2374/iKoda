@@ -55,6 +55,14 @@ nonisolated public enum LibrarySearch {
         guard !words.isEmpty else { return songs }
         return filter(songs, words: words) { ($0.title, [$0.artistLine, $0.album?.title ?? ""]) }
     }
+
+    /// Search the current cloud directory with the same word/folding rules as songs,
+    /// instead of matching stale titles retained in an older library cache.
+    public static func playlists(_ playlists: [PlaylistSummary], matching text: String) -> [PlaylistSummary] {
+        let words = words(text)
+        guard !words.isEmpty else { return playlists }
+        return filter(playlists, words: words) { ($0.title, [$0.subtitle ?? ""]) }
+    }
 }
 
 extension Library {
