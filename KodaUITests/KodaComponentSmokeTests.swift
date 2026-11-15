@@ -85,9 +85,11 @@ final class KodaComponentSmokeTests: XCTestCase {
         confirm.tap()
         // The production coordinator must complete a remote read-back. The service
         // boundary is a deterministic actor, not a second local userPlaylist store.
-        let saved = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
-            "Created “UI Merged” with ")).firstMatch
-        reveal(saved, in: app, towardTop: true)
+        let saved = app.staticTexts["playlist.merge.result"]
+        // The result is the final Form section. Searching toward the header can
+        // never reveal it on a compact display after operation status is inserted.
+        reveal(saved, in: app)
+        XCTAssertTrue(saved.label.hasPrefix("Created “UI Merged” with "))
         app.navigationBars.buttons["Done"].tap()
         XCTAssertTrue(app.staticTexts["fixture.playlist.UI Merged"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.staticTexts["fixture.playlist.UI Merged"].label, "UI Merged: 3")
