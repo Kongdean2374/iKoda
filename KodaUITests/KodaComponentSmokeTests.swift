@@ -14,9 +14,9 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.buttons["fixture.translation"].tap()
         let orb = app.buttons["lyrics.translation.toggle"]
         XCTAssertTrue(orb.waitForExistence(timeout: 10))
-        XCTAssertEqual(orb.value as? String, "Off")
+        expectValue("Off", from: orb)
         orb.tap()
-        XCTAssertEqual(orb.value as? String, "On")
+        expectValue("On", from: orb)
         orb.press(forDuration: 0.8)
         let done = app.buttons["lyrics.translation.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10))
@@ -28,11 +28,11 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.navigationBars["Chinese Lyrics"].buttons.element(boundBy: 0).tap()
         done.tap()
         XCTAssertTrue(orb.waitForExistence(timeout: 10))
-        XCTAssertEqual(orb.value as? String, "On", "Releasing a long press must not also toggle")
+        expectValue("On", from: orb, because: "Releasing a long press must not also toggle")
         orb.tap()
-        XCTAssertEqual(orb.value as? String, "Off")
+        expectValue("Off", from: orb)
         orb.tap()
-        XCTAssertEqual(orb.value as? String, "On")
+        expectValue("On", from: orb)
     }
 
     @MainActor
@@ -41,19 +41,19 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.buttons["fixture.selection"].tap()
         let row = app.buttons["playlist.row.0"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        let count = app.staticTexts["playlist.selection.count"]
-        XCTAssertEqual(count.label, "0 selected")
+        let count = control("playlist.selection.count", in: app)
+        expectState(count, matching: NSPredicate(format: "label == %@", "0 selected"))
         row.tap()
-        XCTAssertEqual(count.label, "1 selected")
+        expectState(count, matching: NSPredicate(format: "label == %@", "1 selected"))
         app.buttons["playlist.selection.menu"].tap()
         app.buttons["playlist.selectAll"].tap()
-        XCTAssertEqual(count.label, "2 selected")
-        XCTAssertTrue(app.buttons["playlist.actions.menu"].isEnabled)
+        expectState(count, matching: NSPredicate(format: "label == %@", "2 selected"))
+        expectState(app.buttons["playlist.actions.menu"], matching: NSPredicate(format: "exists == true AND enabled == true"))
         capture(app, "playlist-selection")
         app.buttons["playlist.selection.menu"].tap()
         app.buttons["playlist.deselectAll"].tap()
-        XCTAssertEqual(count.label, "0 selected")
-        XCTAssertFalse(app.buttons["playlist.actions.menu"].isEnabled)
+        expectState(count, matching: NSPredicate(format: "label == %@", "0 selected"))
+        expectState(app.buttons["playlist.actions.menu"], matching: NSPredicate(format: "exists == true AND enabled == false"))
     }
 
     @MainActor
@@ -69,10 +69,11 @@ final class KodaComponentSmokeTests: XCTestCase {
                 "playlist.merge.choice.", name)).firstMatch
             reveal(choice, in: app)
             choice.tap()
+            expectState(choice, matching: NSPredicate(format: "selected == true"))
         }
         let prepare = app.buttons["playlist.merge.prepare"]
         reveal(prepare, in: app)
-        XCTAssertTrue(prepare.isEnabled)
+        expectState(prepare, matching: NSPredicate(format: "enabled == true"))
         prepare.tap()
         let create = app.buttons["playlist.merge.create"]
         reveal(create, in: app)
@@ -100,23 +101,23 @@ final class KodaComponentSmokeTests: XCTestCase {
         let automatic = app.switches["sound.automaticRouting"]
         XCTAssertTrue(automatic.waitForExistence(timeout: 10))
         XCTAssertEqual(automatic.value as? String, "0")
-        automatic.tap()
-        XCTAssertEqual(automatic.value as? String, "1")
+        tapSwitchThumb(automatic)
+        expectValue("1", from: automatic)
         capture(app, "device-sound-settings")
-        automatic.tap()
-        XCTAssertEqual(automatic.value as? String, "0")
+        tapSwitchThumb(automatic)
+        expectValue("0", from: automatic)
     }
 
     @MainActor
     func testSleepTimerPresetsStartRealCountdownsAndCanBeCancelled() {
         let app = launch()
         app.buttons["fixture.sleep"].tap()
-        let duration = app.buttons["sleep.timer.duration"]
+        let duration = control("sleep.timer.duration", in: app)
         XCTAssertTrue(duration.waitForExistence(timeout: 10))
         for minutes in [30, 60, 90, 120, 180] {
             reveal(duration, in: app, towardTop: true)
             duration.tap()
-            app.buttons["sleep.timer.duration.\(minutes)"].tap()
+            control("sleep.timer.duration.\(minutes)", in: app).tap()
             let start = app.buttons["sleep.timer.start"]
             reveal(start, in: app)
             start.tap()
@@ -134,7 +135,7 @@ final class KodaComponentSmokeTests: XCTestCase {
             let cancel = app.buttons["sleep.timer.cancel"]
             reveal(cancel, in: app, towardTop: true)
             cancel.tap()
-            XCTAssertFalse(app.staticTexts["sleep.timer.remaining"].exists)
+            expectState(app.staticTexts["sleep.timer.remaining"], matching: NSPredicate(format: "exists == false"))
         }
     }
 
@@ -142,20 +143,20 @@ final class KodaComponentSmokeTests: XCTestCase {
     func testSleepTimerCustomDurationExtendResetAndExpiryChoices() {
         let app = launch()
         app.buttons["fixture.sleep"].tap()
-        let expiry = app.buttons["sleep.timer.expiryAction"]
+        let expiry = control("sleep.timer.expiryAction", in: app)
         reveal(expiry, in: app)
-        XCTAssertEqual(expiry.value as? String, "Finish Playback Session")
+        expectValue("Finish Playback Session", from: expiry)
         // Selecting an action changes only expiry behavior, not the schedule mode.
         expiry.tap()
-        app.buttons["sleep.expiry.pause"].tap()
-        XCTAssertEqual(expiry.value as? String, "Pause Playback")
+        control("sleep.expiry.pause", in: app).tap()
+        expectValue("Pause Playback", from: expiry)
         expiry.tap()
-        app.buttons["sleep.expiry.finish"].tap()
-        XCTAssertEqual(expiry.value as? String, "Finish Playback Session")
-        let duration = app.buttons["sleep.timer.duration"]
+        control("sleep.expiry.finish", in: app).tap()
+        expectValue("Finish Playback Session", from: expiry)
+        let duration = control("sleep.timer.duration", in: app)
         reveal(duration, in: app, towardTop: true)
         duration.tap()
-        app.buttons["sleep.timer.custom"].tap()
+        control("sleep.timer.custom", in: app).tap()
         let minutes = app.textFields["sleep.timer.custom.minutes"]
         XCTAssertTrue(minutes.waitForExistence(timeout: 10))
         minutes.tap()
@@ -174,8 +175,8 @@ final class KodaComponentSmokeTests: XCTestCase {
         let initialDeadline = app.staticTexts["sleep.timer.deadline"].label
         reveal(expiry, in: app)
         expiry.tap()
-        app.buttons["sleep.expiry.pause"].tap()
-        XCTAssertEqual(expiry.value as? String, "Pause Playback")
+        control("sleep.expiry.pause", in: app).tap()
+        expectValue("Pause Playback", from: expiry)
         reveal(remaining, in: app, towardTop: true)
         XCTAssertEqual(app.staticTexts["sleep.timer.deadline"].label, initialDeadline)
         XCTAssertGreaterThan(countdownSeconds(remaining.label), initial - 60,
@@ -196,7 +197,7 @@ final class KodaComponentSmokeTests: XCTestCase {
         let cancel = app.buttons["sleep.timer.cancel"]
         reveal(cancel, in: app)
         cancel.tap()
-        XCTAssertFalse(app.staticTexts["sleep.timer.remaining"].exists)
+        expectState(app.staticTexts["sleep.timer.remaining"], matching: NSPredicate(format: "exists == false"))
     }
 
     @MainActor
@@ -252,12 +253,12 @@ final class KodaComponentSmokeTests: XCTestCase {
         let orb = app.buttons["lyrics.translation.toggle"]
         XCTAssertTrue(orb.waitForExistence(timeout: 10))
         orb.tap()
-        XCTAssertEqual(orb.value as? String, "On")
+        expectValue("On", from: orb)
         orb.press(forDuration: 0.8)
         XCTAssertTrue(app.buttons["lyrics.translation.done"].waitForExistence(timeout: 10))
         capture(app, "system-reduced-motion-and-transparency")
         app.buttons["lyrics.translation.done"].tap()
-        XCTAssertEqual(orb.value as? String, "On")
+        expectValue("On", from: orb)
         app.terminate()
     }
 
@@ -272,7 +273,7 @@ final class KodaComponentSmokeTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(orb.frame.width, 44)
             XCTAssertGreaterThanOrEqual(orb.frame.height, 44)
             orb.tap()
-            XCTAssertEqual(orb.value as? String, "開啟")
+            expectValue("開啟", from: orb)
             capture(app, dark ? "zh-Hant-large-dark" : "zh-Hant-large-light")
             app.navigationBars["Translation control"].buttons.element(boundBy: 0).tap()
             app.buttons["fixture.sound"].tap()
@@ -298,6 +299,45 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    private func control(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        // Native Picker presentations can expose their labels as a button, menu item
+        // or selection row. Match the production identifier, not a platform AX role.
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor
+    private func expectValue(_ value: String, from element: XCUIElement, because reason: String = "",
+                             file: StaticString = #filePath, line: UInt = #line) {
+        expectState(element, matching: NSPredicate(format: "value == %@", value),
+                    because: reason, file: file, line: line)
+    }
+
+    @MainActor
+    private func expectState(_ element: XCUIElement, matching predicate: NSPredicate, because reason: String = "",
+                             file: StaticString = #filePath, line: UInt = #line) {
+        // Event delivery, SwiftUI rendering and accessibility snapshots complete at
+        // different times. Observe the requested state, without retrying the gesture.
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 8)
+        if result != .completed {
+            let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            screenshot.name = "state-expectation-timeout"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+        XCTAssertEqual(result, .completed,
+                       "Expected \(predicate) for \(element). \(reason)", file: file, line: line)
+    }
+
+    @MainActor
+    private func tapSwitchThumb(_ toggle: XCUIElement) {
+        // On iOS 27 the switch AX frame includes its entire Form/Settings row.
+        // A center tap hits the label; target the visible trailing switch instead.
+        XCTAssertTrue(toggle.exists && toggle.isHittable && toggle.isEnabled)
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    }
+
+    @MainActor
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, towardTop: Bool = false) {
         for _ in 0..<12 {
             if element.exists && element.isHittable { return }
@@ -315,8 +355,18 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     private func countdownSeconds(_ value: String, file: StaticString = #filePath, line: UInt = #line) -> Int {
-        let parts = value.split(separator: ":").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        guard (2...3).contains(parts.count) else {
+        // SwiftUI LabeledContent exposes a combined localized AX label, for example
+        // "Time Remaining, 17:00" or "剩餘時間、30:00". Extract its time value while
+        // keeping the duration assertions exact; never discard a failed numeric part.
+        guard let range = value.range(of: #"(?<![0-9:])[0-9]+:[0-9]{2}(?::[0-9]{2})?(?![0-9:])"#,
+                                      options: .regularExpression) else {
+            XCTFail("Expected a real minute/second countdown, received: \(value)", file: file, line: line)
+            return 0
+        }
+        let components = value[range].split(separator: ":")
+        let parts = components.compactMap { Int($0) }
+        guard (2...3).contains(parts.count), parts.count == components.count,
+              parts.dropFirst().allSatisfy({ $0 < 60 }) else {
             XCTFail("Expected a real minute/second countdown, received: \(value)", file: file, line: line)
             return 0
         }
@@ -354,8 +404,8 @@ final class KodaComponentSmokeTests: XCTestCase {
             throw XCTSkip("This Simulator does not expose the \(title) system switch; system preference interaction was not validated.")
         }
         let original = toggle.value as? String == "1"
-        if original != enabled { toggle.tap() }
-        XCTAssertEqual(toggle.value as? String, enabled ? "1" : "0")
+        if original != enabled { tapSwitchThumb(toggle) }
+        expectValue(enabled ? "1" : "0", from: toggle)
         return original
     }
 }

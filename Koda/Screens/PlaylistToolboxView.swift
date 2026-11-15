@@ -100,24 +100,24 @@ struct PlaylistToolboxView: View {
                     .accessibilityIdentifier("playlist.selection.menu")
                 }
                 ToolbarItem(placement: .bottomBar) {
-                    HStack {
-                        Text("\(selection.selectedIndices.count) selected")
-                            .font(.subheadline).monospacedDigit()
-                            .accessibilityIdentifier("playlist.selection.count")
-                        Spacer()
-                        Menu("Actions", systemImage: "ellipsis.circle") {
-                            Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(next: true) }
-                            Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(next: false) }
-                            Divider()
-                            Button("Copy to Local Playlist", systemImage: "text.badge.plus") { choosingDestination = .copy }
-                            if sourceSnapshot != nil {
-                                Button("Move to Local Playlist", systemImage: "arrow.right.doc.on.clipboard") { choosingDestination = .move }
-                                Button("Remove Selected Songs", systemImage: "trash", role: .destructive) { pendingRemoval = true }
-                            }
+                    Text("\(selection.selectedIndices.count) selected")
+                        .font(.subheadline).monospacedDigit()
+                        .accessibilityIdentifier("playlist.selection.count")
+                }
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
+                    Menu("Actions", systemImage: "ellipsis.circle") {
+                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(next: true) }
+                        Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(next: false) }
+                        Divider()
+                        Button("Copy to Local Playlist", systemImage: "text.badge.plus") { choosingDestination = .copy }
+                        if sourceSnapshot != nil {
+                            Button("Move to Local Playlist", systemImage: "arrow.right.doc.on.clipboard") { choosingDestination = .move }
+                            Button("Remove Selected Songs", systemImage: "trash", role: .destructive) { pendingRemoval = true }
                         }
-                        .disabled(selection.selectedIndices.isEmpty || !prepared || busy)
-                        .accessibilityIdentifier("playlist.actions.menu")
                     }
+                    .disabled(selection.selectedIndices.isEmpty || !prepared || busy)
+                    .accessibilityIdentifier("playlist.actions.menu")
                 }
             }
             .searchable(text: $query, prompt: "Find in Playlist")

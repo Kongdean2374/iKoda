@@ -119,7 +119,8 @@ struct PlaylistMergeView: View {
                             }
                         }
                     }
-                    .frame(minHeight: 44).contentShape(.rect)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selectedIDs.contains(choice.id) ? .isSelected : [])
