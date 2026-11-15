@@ -59,3 +59,27 @@ class SimulatorSelectionTests(unittest.TestCase):
             ]},
         }
         self.assertEqual([d["udid"] for d in UI.select_devices(inventory)], ["phone"])
+
+    def test_same_version_general_runtime_beats_device_variant_but_variant_remains_a_fallback(self):
+        variant = "test.iOS-27-2-iPhone19-4"
+        general = "test.iOS-27-2"
+        inventory = {
+            "runtimes": [
+                {"identifier": variant, "version": "27.2", "isAvailable": True},
+                {"identifier": general, "version": "27.2.0", "isAvailable": True},
+            ],
+            "devices": {
+                variant: [{"name": "iPhone Duo", "udid": "duo", "isAvailable": True}],
+                general: [
+                    {"name": "iPhone 17e", "udid": "compact", "isAvailable": True},
+                    {"name": "iPhone 17 Pro Max", "udid": "large", "isAvailable": True},
+                ],
+            },
+        }
+        selected = UI.select_devices(inventory)
+        self.assertEqual([device["udid"] for device in selected], ["compact", "large"])
+        self.assertTrue(all(device["runtime"] == general for device in selected))
+        inventory["runtimes"][1]["isAvailable"] = False
+        self.assertEqual(UI.select_devices(inventory), [
+            {"name": "iPhone Duo", "udid": "duo", "runtime": variant},
+        ])

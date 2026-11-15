@@ -154,7 +154,9 @@ jobs:
 
   simulator:
     runs-on: xcode-27
-    timeout-minutes: 40
+    # Two cold Simulator boots plus Debug compilation can exceed the Release build.
+    # Leave time after the bounded test step to retain failure logs and screenshots.
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
 
@@ -163,6 +165,7 @@ jobs:
         run: python3 scripts/build-version.py --github-output "$GITHUB_OUTPUT"
 
       - name: Validate controls on available iPhone Simulators
+        timeout-minutes: 45
         run: python3 scripts/run-ui-smoke.py
 
       - name: Upload UI results and screenshots

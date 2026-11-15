@@ -557,15 +557,16 @@ private struct SleepTimerPill: View {
         Menu {
             SleepTimerActions(openSettings: openSettings)
         } label: {
-            TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { context in
-                Label(app.sleepTimer.label(at: context.date), systemImage: "moon.fill")
+            TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { _ in
+                let remaining = app.sleepTimer.label(at: .now)
+                Label(remaining, systemImage: "moon.fill")
                     .font(.footnote.weight(.semibold).monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .padding(.horizontal, 12)
                     .frame(height: 30)
                     .accessibilityLabel("Sleep timer")
-                    .accessibilityValue(app.sleepTimer.label(at: context.date))
+                    .accessibilityValue(remaining)
             }
             .kodaGlassSurface(in: .capsule, interactive: true)
             .frame(minHeight: ControlMetrics.touchTarget)

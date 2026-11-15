@@ -24,36 +24,46 @@ def command(*args: str, check: bool = True) -> subprocess.CompletedProcess:
 
 
 def select_devices(inventory: dict) -> list[dict]:
-    eligible = {}
+    def size_hint(device):
+        name = device["name"]
+        if "SE" in name or "mini" in name:
+            return 0
+        if re.search(r"iPhone \d+e\b", name):
+            return 1
+        if "Max" in name or "Plus" in name:
+            return 4
+        if "Air" in name:
+            return 3
+        return 2
+
+    eligible = []
     for runtime in inventory.get("runtimes", []):
         version = tuple(int(v) for v in runtime.get("version", "0").split(".") if v.isdigit())
+        version += (0,) * max(0, 3 - len(version))
         identifier = runtime.get("identifier", "")
-        if runtime.get("isAvailable") and ".iOS-" in identifier and version >= (26,):
-            eligible[identifier] = version
-    for identifier in sorted(eligible, key=eligible.get, reverse=True):
+        if not (runtime.get("isAvailable") and ".iOS-" in identifier and version >= (26,)):
+            continue
         phones = [d for d in inventory.get("devices", {}).get(identifier, [])
                   if d.get("isAvailable") and d.get("name", "").startswith("iPhone")]
         if not phones:
             continue
-        # Prefer compact and Max variants on the same runtime. Names are selection
-        # hints only; the manifest records exactly what was actually available.
-        def size_hint(device):
-            name = device["name"]
-            if "SE" in name or "mini" in name:
-                return 0
-            if re.search(r"iPhone \d+e\b", name):
-                return 1
-            if "Max" in name or "Plus" in name:
-                return 4
-            if "Air" in name:
-                return 3
-            return 2
-        phones.sort(key=lambda d: (size_hint(d), d["name"]))
-        selected = [phones[0]]
-        if phones[-1]["udid"] != phones[0]["udid"]:
-            selected.append(phones[-1])
-        return [{"name": d["name"], "udid": d["udid"], "runtime": identifier} for d in selected]
-    return []
+        # Some Xcode releases list a device-specific runtime before the general
+        # runtime at the same OS version. Prefer real compact/large coverage, then
+        # the general runtime, without excluding a sole available device variant.
+        has_size_range = len({size_hint(d) for d in phones}) > 1
+        general_runtime = bool(re.search(r"\.iOS-\d+(?:-\d+)*$", identifier))
+        priority = (version, has_size_range, general_runtime)
+        eligible.append((priority, identifier, phones))
+    if not eligible:
+        return []
+    _, identifier, phones = max(eligible, key=lambda candidate: candidate[0])
+    # Names are selection hints only; the manifest records exactly what was
+    # actually available. Never invent a second device when only one exists.
+    phones.sort(key=lambda d: (size_hint(d), d["name"]))
+    selected = [phones[0]]
+    if phones[-1]["udid"] != phones[0]["udid"]:
+        selected.append(phones[-1])
+    return [{"name": d["name"], "udid": d["udid"], "runtime": identifier} for d in selected]
 
 
 def record(value: dict) -> None:

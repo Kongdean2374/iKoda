@@ -216,9 +216,11 @@ private struct SleepTimerStatus: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { context in
+        TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { _ in
             LabeledContent("Time Remaining") {
-                Text(timer.label(at: context.date)).monospacedDigit()
+                // Scheduling a timer can invalidate this view between timeline ticks.
+                // Read the current clock so a preceding tick cannot add an extra second.
+                Text(timer.label(at: .now)).monospacedDigit()
                     .accessibilityIdentifier("sleep.timer.remaining")
             }
         }
