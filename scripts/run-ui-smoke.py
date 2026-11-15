@@ -117,8 +117,15 @@ def main() -> int:
         print(f"Testing on {device['name']} ({device['runtime']})", flush=True)
         with log.open("w") as handle:
             completed = subprocess.run(arguments, cwd=ROOT, text=True, stdout=handle, stderr=subprocess.STDOUT)
-        tail = log.read_text(errors="replace").splitlines()[-80:]
-        print("\n".join(tail), flush=True)
+        lines = log.read_text(errors="replace").splitlines()
+        print("\n".join(lines[-80:]), flush=True)
+        if completed.returncode:
+            # A failure early in a suite disappears from the final 80 lines.
+            # Keep its assertion and nearby AX diagnostics in the Actions log.
+            failures = [i for i, line in enumerate(lines)
+                        if "error:" in line or ("Test Case '" in line and "' failed" in line)]
+            for index in failures[:30]:
+                print("\n".join(line[:2000] for line in lines[max(0, index - 2):index + 8]), flush=True)
         if bundle.exists():
             attachments = OUTPUT / f"device-{index}-attachments"
             exported = command("xcrun", "xcresulttool", "export", "attachments", "--path", str(bundle),

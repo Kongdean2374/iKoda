@@ -80,7 +80,9 @@ final class KodaComponentSmokeTests: XCTestCase {
         reveal(create, in: app)
         capture(app, "playlist-merge-preview")
         create.tap()
-        let confirm = app.buttons["playlist.merge.confirm"]
+        // iOS 27 may expose the native confirmation action as both a wrapper
+        // and a child button with the same identifier. They perform one action.
+        let confirm = app.buttons.matching(identifier: "playlist.merge.confirm").firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
         confirm.tap()
         // The production coordinator must complete a remote read-back. The service
@@ -91,11 +93,16 @@ final class KodaComponentSmokeTests: XCTestCase {
         reveal(saved, in: app)
         XCTAssertTrue(saved.label.hasPrefix("Created “UI Merged” with "))
         app.navigationBars.buttons["Done"].tap()
-        XCTAssertTrue(app.staticTexts["fixture.playlist.UI Merged"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["fixture.playlist.UI Merged"].label, "UI Merged: 3")
-        XCTAssertEqual(app.staticTexts["fixture.playlist.Fixture Alpha"].label, "Fixture Alpha: 2")
-        XCTAssertEqual(app.staticTexts["fixture.playlist.Fixture Beta"].label, "Fixture Beta: 2")
-        XCTAssertEqual(app.staticTexts["fixture.localPlaylistCount"].label, "0")
+        let localCount = app.staticTexts["fixture.localPlaylistCount"]
+        reveal(localCount, in: app)
+        XCTAssertEqual(localCount.label, "0")
+        // The newly created row shifts the last source below a compact viewport.
+        // Materialize each lazy List row before checking the unchanged contents.
+        for (title, count) in [("UI Merged", 3), ("Fixture Alpha", 2), ("Fixture Beta", 2)] {
+            let entry = app.staticTexts["fixture.playlist.\(title)"]
+            reveal(entry, in: app)
+            XCTAssertEqual(entry.label, "\(title): \(count)")
+        }
     }
 
     @MainActor
