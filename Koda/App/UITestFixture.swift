@@ -7,6 +7,7 @@ import SwiftUI
 /// Release builds do not contain this host or the launch-argument branch.
 struct KodaUITestFixture: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var prepared = false
@@ -24,6 +25,8 @@ struct KodaUITestFixture: View {
     var body: some View {
         NavigationStack {
             List {
+                Text(verbatim: colorScheme == .dark ? "dark" : "light")
+                    .accessibilityIdentifier("fixture.appearance")
                 NavigationLink {
                     translation
                 } label: {
@@ -97,6 +100,9 @@ struct KodaUITestFixture: View {
     private func prepare() {
         guard !prepared else { return }
         app.onboarding = nil
+        // KodaApp applies this setting at the window, above the fixture. Set the
+        // real preference so dark-mode screenshots cannot silently remain light.
+        app.settings.theme = dark ? .dark : .light
         app.settings.automaticLyricsTranslation = false
         app.settings.importedLyricsEnabled = true
         app.settings.showsLyricsTranslation = false

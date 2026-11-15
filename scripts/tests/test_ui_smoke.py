@@ -83,3 +83,20 @@ class SimulatorSelectionTests(unittest.TestCase):
         self.assertEqual(UI.select_devices(inventory), [
             {"name": "iPhone Duo", "udid": "duo", "runtime": variant},
         ])
+
+    def test_matrix_groups_select_each_device_once_and_default_keeps_both(self):
+        inventory = {
+            "runtimes": [{"identifier": "test.iOS-27", "version": "27.2", "isAvailable": True}],
+            "devices": {"test.iOS-27": [
+                {"name": "iPhone 17e", "udid": "compact", "isAvailable": True},
+                {"name": "iPhone 18 Pro Max", "udid": "large", "isAvailable": True},
+            ]},
+        }
+        self.assertEqual([d["udid"] for d in UI.select_devices(inventory)], ["compact", "large"])
+        self.assertEqual([d["udid"] for d in UI.select_devices(inventory, "compact")], ["compact"])
+        self.assertEqual([d["udid"] for d in UI.select_devices(inventory, "large")], ["large"])
+        inventory["devices"]["test.iOS-27"].pop()
+        self.assertEqual(UI.select_devices(inventory, "large"), [])
+        self.assertEqual([d["udid"] for d in UI.select_devices(inventory, "compact")], ["compact"])
+        with self.assertRaisesRegex(ValueError, "KODA_UI_DEVICE"):
+            UI.select_devices(inventory, "unknown")

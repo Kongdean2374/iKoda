@@ -153,9 +153,13 @@ jobs:
           retention-days: 30
 
   simulator:
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [compact, large]
     runs-on: xcode-27
-    # Two cold Simulator boots plus Debug compilation can exceed the Release build.
-    # Leave time after the bounded test step to retain failure logs and screenshots.
+    # Isolate each size on a fresh runner: a second boot on a heavily used runner
+    # can stall accessibility snapshots. Retain logs even if one size fails.
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@v7
@@ -166,13 +170,15 @@ jobs:
 
       - name: Validate controls on available iPhone Simulators
         timeout-minutes: 45
+        env:
+          KODA_UI_DEVICE: ${{ matrix.device }}
         run: python3 scripts/run-ui-smoke.py
 
       - name: Upload UI results and screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.version.outputs.artifact_name }}-ui-smoke
+          name: ${{ steps.version.outputs.artifact_name }}-ui-smoke-${{ matrix.device }}
           path: ui-smoke-results/
           if-no-files-found: warn
           retention-days: 30

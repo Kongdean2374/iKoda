@@ -41,18 +41,17 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.buttons["fixture.selection"].tap()
         let row = app.buttons["playlist.row.0"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        let count = control("playlist.selection.count", in: app)
-        expectState(count, matching: NSPredicate(format: "label == %@", "0 selected"))
+        expectSelectionCount(0, in: app)
         row.tap()
-        expectState(count, matching: NSPredicate(format: "label == %@", "1 selected"))
+        expectSelectionCount(1, in: app)
         app.buttons["playlist.selection.menu"].tap()
         app.buttons["playlist.selectAll"].tap()
-        expectState(count, matching: NSPredicate(format: "label == %@", "2 selected"))
+        expectSelectionCount(2, in: app)
         expectState(app.buttons["playlist.actions.menu"], matching: NSPredicate(format: "exists == true AND enabled == true"))
         capture(app, "playlist-selection")
         app.buttons["playlist.selection.menu"].tap()
         app.buttons["playlist.deselectAll"].tap()
-        expectState(count, matching: NSPredicate(format: "label == %@", "0 selected"))
+        expectSelectionCount(0, in: app)
         expectState(app.buttons["playlist.actions.menu"], matching: NSPredicate(format: "exists == true AND enabled == false"))
     }
 
@@ -204,6 +203,7 @@ final class KodaComponentSmokeTests: XCTestCase {
     func testSleepTimerTraditionalChineseLargeTypeInBothAppearances() {
         for dark in [false, true] {
             let app = launch(chinese: true, dark: dark, largeText: true)
+            expectAppearance(dark ? "dark" : "light", in: app)
             app.buttons["fixture.sleep"].tap()
             let start = app.buttons["sleep.timer.start"]
             reveal(start, in: app)
@@ -266,6 +266,7 @@ final class KodaComponentSmokeTests: XCTestCase {
     func testTraditionalChineseLargeTypeInLightAndDarkAppearance() {
         for dark in [false, true] {
             let app = launch(chinese: true, dark: dark, largeText: true)
+            expectAppearance(dark ? "dark" : "light", in: app)
             app.buttons["fixture.translation"].tap()
             let orb = app.buttons["lyrics.translation.toggle"]
             XCTAssertTrue(orb.waitForExistence(timeout: 10))
@@ -296,6 +297,27 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["fixture.translation"].waitForExistence(timeout: 20))
         return app
+    }
+
+    @MainActor
+    private func expectSelectionCount(_ count: Int, in app: XCUIApplication,
+                                      file: StaticString = #filePath, line: UInt = #line) {
+        // Native menus can temporarily invalidate the AX tree. Resolve a fresh
+        // exact query on each state instead of retaining the pre-menu leaf.
+        let matchingCount = app.staticTexts.matching(identifier: "playlist.selection.count")
+            .matching(NSPredicate(format: "label == %@", "\(count) selected")).firstMatch
+        XCTAssertTrue(matchingCount.waitForExistence(timeout: 8),
+                      "Expected the visible selection count to be \(count)", file: file, line: line)
+    }
+
+    @MainActor
+    private func expectAppearance(_ appearance: String, in app: XCUIApplication,
+                                  file: StaticString = #filePath, line: UInt = #line) {
+        // The fixture reads the actual SwiftUI environment, not its launch argument.
+        let probe = app.staticTexts.matching(identifier: "fixture.appearance")
+            .matching(NSPredicate(format: "label == %@", appearance)).firstMatch
+        XCTAssertTrue(probe.waitForExistence(timeout: 8),
+                      "Expected the actual \(appearance) color scheme", file: file, line: line)
     }
 
     @MainActor

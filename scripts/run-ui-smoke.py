@@ -23,7 +23,10 @@ def command(*args: str, check: bool = True) -> subprocess.CompletedProcess:
                           stderr=subprocess.STDOUT, check=check)
 
 
-def select_devices(inventory: dict) -> list[dict]:
+def select_devices(inventory: dict, device_group: str = "all") -> list[dict]:
+    if device_group not in {"all", "compact", "large"}:
+        raise ValueError(f"Unknown KODA_UI_DEVICE selection: {device_group}")
+
     def size_hint(device):
         name = device["name"]
         if "SE" in name or "mini" in name:
@@ -63,6 +66,10 @@ def select_devices(inventory: dict) -> list[dict]:
     selected = [phones[0]]
     if phones[-1]["udid"] != phones[0]["udid"]:
         selected.append(phones[-1])
+    if device_group == "compact":
+        selected = selected[:1]
+    elif device_group == "large":
+        selected = selected[1:2]
     return [{"name": d["name"], "udid": d["udid"], "runtime": identifier} for d in selected]
 
 
@@ -82,13 +89,16 @@ def record(value: dict) -> None:
 def main() -> int:
     OUTPUT.mkdir(exist_ok=True)
     inventory = json.loads(command("xcrun", "simctl", "list", "--json").stdout)
-    devices = select_devices(inventory)
+    device_group = os.environ.get("KODA_UI_DEVICE", "all")
+    devices = select_devices(inventory, device_group)
     if not devices:
         reason = "No available iOS 26+ iPhone Simulator runtime; no UI tests executed."
+        if device_group == "large" and select_devices(inventory):
+            reason = "No second available iPhone Simulator for large-device coverage; no UI tests executed."
         print(f"::warning::{reason}")
-        record({"status": "skipped", "reason": reason, "devices": []})
+        record({"status": "skipped", "reason": reason, "device_group": device_group, "devices": []})
         return 0
-    result = {"status": "running", "devices": devices}
+    result = {"status": "running", "device_group": device_group, "devices": devices}
     record(result)
     for index, device in enumerate(devices, 1):
         uid = device["udid"]
