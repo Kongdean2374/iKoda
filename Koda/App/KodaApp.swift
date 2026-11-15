@@ -94,12 +94,14 @@ struct KodaApp: App {
 /// Changes when what Siri and Spotlight are told about does.
 private struct IntentsIndexKey: Equatable {
     var profileID: UUID
+    var hasCloudSession: Bool
     var liked: [String]
     var playlists: [String]
 
     @MainActor
     init(_ app: AppModel) {
         profileID = app.roster.activeID
+        hasCloudSession = app.cloudPlaylists.hasSession
         liked = app.library.liked.map(\.id)
         playlists = app.cloudPlaylists.catalog.map { "\($0.id)\u{0}\($0.title)" }
     }

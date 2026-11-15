@@ -242,7 +242,15 @@ struct MacRootView: View {
             .appEnvironment(model)
         }
         .sheet(isPresented: $showingLegacyPlaylists) {
-            LegacyPlaylistArchiveView().appEnvironment(model)
+            NavigationStack {
+                LegacyPlaylistArchiveView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showingLegacyPlaylists = false }
+                        }
+                    }
+            }
+            .appEnvironment(model)
         }
     }
 
