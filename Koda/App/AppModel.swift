@@ -76,6 +76,8 @@ final class AppModel {
     @ObservationIgnored var needsSessionRead = false
     @ObservationIgnored var lastAccountSync: [UUID: Date] = [:]
     @ObservationIgnored var syncTask: Task<Void, Never>?
+    @ObservationIgnored var homeLoadTask: Task<Void, Never>?
+    @ObservationIgnored var homeLoadID: UUID?
     /// Numbers each sync, so one that was overtaken doesn't clear `isSyncingAccount` for the next.
     @ObservationIgnored var syncRound = 0
     /// A cloud read-back must not override a newer local like/save intent.
@@ -277,6 +279,8 @@ final class AppModel {
     /// has one, signs requests from here on and its library is brought in step behind.
     func switchProfile(to id: UUID) {
         guard id != roster.activeID, let profile = roster.profile(id) else { return }
+        cancelHomeLoading()
+        player.cancelPlaylistLoading()
         cancelPlaybackLookup()
         MusicCatcher.cancelActiveRecognition()
         cloudPlaylists.invalidateSession()
@@ -292,6 +296,10 @@ final class AppModel {
     /// Delete a profile and what it keeps on this device; another takes over if it was active.
     func deleteProfile(_ id: UUID) {
         guard let profile = roster.profile(id) else { return }
+        if roster.activeID == id {
+            cancelHomeLoading()
+            player.cancelPlaylistLoading()
+        }
         var next: KodaProfile?
         let deleted = roster.delete(id) { nextID in
             library.open(directory: roster.folder(for: nextID))

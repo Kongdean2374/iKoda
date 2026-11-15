@@ -77,6 +77,8 @@ extension AppModel {
     func completeSignIn(cookies httpCookies: [HTTPCookie], into: UUID?) async throws {
         let cookies = YouTubeCookies(httpCookies)
         guard cookies.looksSignedIn else { throw SignInError.noSession }
+        cancelHomeLoading()
+        player.cancelPlaylistLoading()
         let trial = into ?? UUID()
         let profileID: UUID = try await withAccountWork { [self] in
             await music.accounts.signIn(AccountSession(profileID: trial, cookies: cookies))
@@ -112,7 +114,12 @@ extension AppModel {
     /// The account is let go; the profile stays on this device with everything it holds.
     func signOut(_ id: UUID) {
         let wasActive = id == roster.activeID
-        if wasActive { cloudPlaylists.invalidateSession(); MusicCatcher.cancelActiveRecognition() }
+        if wasActive {
+            cancelHomeLoading()
+            player.cancelPlaylistLoading()
+            cloudPlaylists.invalidateSession()
+            MusicCatcher.cancelActiveRecognition()
+        }
         roster.signOut(id)
         forgetAccount(of: id)
         try? FileManager.default.removeItem(at: mirrorFile(id))
@@ -174,7 +181,10 @@ extension AppModel {
                 updateMirror(id) { library.reconcile(with: account, mirror: &$0) }
                 cloudPlaylists.receiveCatalog(account.playlists, for: id, expectedRevision: cloudRevision)
                 // Home was made before the account's likes arrived, so Your Mix had nothing to seed from.
-                if firstSync, home.profile == id, home.recommendationsRequested { Task { await loadHome(home) } }
+                if firstSync, home.profile == id, home.recommendationsRequested {
+                    let model = home
+                    Task { await loadHome(model) }
+                }
                 if let info {
                     roster.update(id) {
                         $0.handle = info.handle ?? $0.handle
@@ -199,8 +209,31 @@ extension AppModel {
     /// Load Home once the session has settled, so a Home made by a switch or a sign-in is asked
     /// for as the right account (or as none), not the one being left.
     func loadHome(_ model: HomeModel) async {
-        await accountWork?.value
-        await model.load(music: music, library: library, signedIn: roster.profile(model.profile)?.isSignedIn == true)
+        guard !Task.isCancelled, home === model, roster.activeID == model.profile else { return }
+        if let homeLoadTask { await homeLoadTask.value; return }
+        let token = UUID()
+        let task = Task { @MainActor [self] in
+            defer {
+                if homeLoadID == token { homeLoadTask = nil; homeLoadID = nil }
+            }
+            await accountWork?.value
+            guard !Task.isCancelled, home === model, roster.activeID == model.profile else { return }
+            await model.load(music: music, library: library,
+                             signedIn: roster.profile(model.profile)?.isSignedIn == true,
+                             isCurrent: { [weak self, weak model] in
+                                 guard let self, let model else { return false }
+                                 return self.home === model && self.roster.activeID == model.profile
+                             })
+        }
+        homeLoadID = token
+        homeLoadTask = task
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    func cancelHomeLoading() {
+        homeLoadTask?.cancel()
+        homeLoadTask = nil
+        homeLoadID = nil
     }
 
     /// A sync now, for pull to refresh, finishing when it does.

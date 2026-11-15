@@ -2,7 +2,7 @@ import KodaCore
 import SwiftUI
 
 /// Keep the Mac's existing page and navigation, with the same cloud-first hierarchy
-/// and playlist controls as the phone. Recommendations load only when requested.
+/// and playlist controls as the phone. A small listening shelf stays available offline.
 struct MacHomeView: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
@@ -14,20 +14,18 @@ struct MacHomeView: View {
     @State private var showsRecommendations = false
     @State private var showsCreatePlaylist = false
     @State private var preferences = HomePlaylistPreferences()
+    private var listeningSelection: HomeListeningSelection? { .make(library: library, model: model) }
+    private var needsRecommendationPreview: Bool {
+        app.cloudPlaylists.catalog.isEmpty && library.recent.isEmpty && library.liked.isEmpty
+    }
 
     var body: some View {
         MacPage {
             header
             cloudPlaylists
+            listeningPreview
             DisclosureGroup("Recommendations", isExpanded: $showsRecommendations) {
-                switch model.state {
-                case .loading:
-                    ProgressView("Loading…")
-                case .failed(let message):
-                    Text(message).foregroundStyle(.secondary)
-                    Button(String(localized: "Try Again")) { Task { await load() } }
-                case .loaded(let content): sections(content)
-                }
+                recommendations
             }
             .padding(.horizontal, MacMetrics.gutter)
         }
@@ -35,15 +33,20 @@ struct MacHomeView: View {
         .navigationTitle(String(localized: "Home"))
         .task(id: app.roster.activeID) {
             preferences = HomePlaylistPreferences.load(profileID: app.roster.activeID)
-            showsRecommendations = false
-            await app.cloudPlaylists.refresh(force: true)
+            await app.cloudPlaylists.refresh(force: false)
         }
         .task(id: showsRecommendations) {
-            model.recommendationsRequested = showsRecommendations
+            model.recommendationsRequested = showsRecommendations || needsRecommendationPreview
             if showsRecommendations {
                 if model.needsRefresh { await load() }
             }
         }
+        .task(id: "\(model.profile)-\(needsRecommendationPreview)") {
+            model.recommendationsRequested = showsRecommendations || needsRecommendationPreview
+            if needsRecommendationPreview, model.needsRefresh { await load() }
+        }
+        .onChange(of: app.roster.activeID) { _, _ in showsRecommendations = false }
+        .onAppear { model.recommendationsRequested = showsRecommendations || needsRecommendationPreview }
         .onDisappear { model.recommendationsRequested = false }
         .sheet(isPresented: $showsCreatePlaylist) {
             CloudPlaylistCreateView().appEnvironment(app)
@@ -55,30 +58,43 @@ struct MacHomeView: View {
             HStack {
                 Text("My YouTube Music Playlists").font(.title2.bold())
                 Spacer()
-                Button("New Cloud Playlist", systemImage: "plus") { showsCreatePlaylist = true }
-                    .buttonStyle(.glass)
+                if app.cloudPlaylists.hasSession {
+                    Button("New Cloud Playlist", systemImage: "plus") { showsCreatePlaylist = true }
+                        .buttonStyle(.glass)
+                }
             }
             CloudPlaylistSessionNotice()
             CloudPlaylistOperationView()
             PlaylistQueueLoadingView()
             if app.cloudPlaylists.hasSession {
                 if app.cloudPlaylists.isRefreshing { ProgressView("Refreshing Cloud Playlists…") }
-                if let error = app.cloudPlaylists.refreshError { Text(error).foregroundStyle(.secondary) }
+                if let error = app.cloudPlaylists.refreshError {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("home.cloud.error")
+                    Button("Try Again") { Task { await app.cloudPlaylists.refresh(force: true) } }
+                        .accessibilityIdentifier("home.cloud.retry")
+                }
                 if app.cloudPlaylists.isFromCache {
                     Text("Showing Cached Cloud Playlists").font(.footnote).foregroundStyle(.secondary)
                 }
                 let ordered = preferences.sorted(app.cloudPlaylists.catalog)
                 if ordered.isEmpty, !app.cloudPlaylists.isRefreshing, app.cloudPlaylists.refreshError == nil {
-                    ContentUnavailableView("No Cloud Playlists Yet", systemImage: "music.note.list",
-                                           description: Text("Create a playlist in your YouTube Music account to see it here."))
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("No Cloud Playlists Yet").font(.headline)
+                        Text("Create a playlist in your YouTube Music account to see it here.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        Button("Create Cloud Playlist") { showsCreatePlaylist = true }
+                            .buttonStyle(.glass)
+                    }
+                    .accessibilityIdentifier("home.cloud.empty")
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14)], spacing: 14) {
                     ForEach(ordered) { playlist in
                         let group = ordered.filter { preferences.isPinned($0.id) == preferences.isPinned(playlist.id) }
                         HomeCloudPlaylistCard(playlist: playlist, isPinned: preferences.isPinned(playlist.id),
                             canMoveEarlier: group.first?.id != playlist.id, canMoveLater: group.last?.id != playlist.id,
-                            play: { player.playPlaylist(id: playlist.id) },
-                            shuffle: { player.playPlaylist(id: playlist.id, shuffled: true) },
+                            play: { playCloudPlaylist(playlist) },
+                            shuffle: { playCloudPlaylist(playlist, shuffled: true) },
                             pin: { updatePreference { $0.togglePin(playlist.id) } },
                             move: { offset in updatePreference { $0.move(playlist.id, by: offset, in: ordered) } })
                     }
@@ -86,6 +102,78 @@ struct MacHomeView: View {
             }
         }
         .padding(.horizontal, MacMetrics.gutter)
+    }
+
+    @ViewBuilder
+    private var listeningPreview: some View {
+        if let selection = listeningSelection {
+            if selection.source == .recommendations {
+                if !showsRecommendations {
+                    let columns = max(1, min(3, Int((width - MacMetrics.gutter * 2) / 230)))
+                    VStack(alignment: .leading, spacing: 10) {
+                        MacSectionTitle(title: selection.title, subtitle: String(localized: "Start with these"))
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: columns), spacing: 2) {
+                            ForEach(Array(selection.songs.prefix(8).enumerated()), id: \.offset) { index, song in
+                                MacSongTile(song: song) { player.play(selection.songs, startAt: index) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, MacMetrics.gutter)
+                    .accessibilityIdentifier(selection.accessibilityID)
+                }
+            } else {
+                listeningShelf(selection)
+            }
+        } else if needsRecommendationPreview, !showsRecommendations {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Recommendations").font(.title3.bold())
+                recommendations
+                Text("Play a song to see your recent listening here.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, MacMetrics.gutter)
+            .accessibilityIdentifier("home.recommendations.preview")
+        }
+    }
+
+    private func listeningShelf(_ selection: HomeListeningSelection) -> some View {
+        MacShelf(title: selection.title, seeAll: selection.seeAll) {
+            ForEach(Array(selection.songs.prefix(8).enumerated()), id: \.element.id) { index, song in
+                Button { player.play(selection.songs, startAt: index) } label: {
+                    MacCoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine,
+                                 onPlay: { player.play(selection.songs, startAt: index) })
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.listening.song.\(song.id)")
+                .contextMenu { SongMenuItems(song: song) }
+            }
+        }
+        .accessibilityIdentifier(selection.accessibilityID)
+    }
+
+    @ViewBuilder
+    private var recommendations: some View {
+        switch model.state {
+        case .loading: ProgressView("Loading…")
+        case .failed(let message):
+            Text(message).foregroundStyle(.secondary)
+            Button("Try Again") { Task { await load() } }
+        case .loaded(let content): sections(content)
+        }
+    }
+
+    private func playCloudPlaylist(_ playlist: PlaylistSummary, shuffled: Bool = false) {
+        if let snapshot = app.cloudPlaylists.cachedSnapshot(id: playlist.id) {
+            // A complete source remains a complete shuffle pool, including after a
+            // cold launch. Refresh only updates the cache for the next explicit play.
+            player.playPlaylist(snapshot.songs, continuation: nil, shuffled: shuffled, sourceID: snapshot.id)
+            guard let scope = app.cloudPlaylists.captureScope() else { return }
+            Task {
+                _ = try? await app.cloudPlaylists.loadSnapshot(id: snapshot.id, force: false, expectedScope: scope)
+            }
+        } else {
+            player.playPlaylist(id: playlist.id, shuffled: shuffled)
+        }
     }
 
     private func updatePreference(_ change: (inout HomePlaylistPreferences) -> Void) {
@@ -102,7 +190,7 @@ struct MacHomeView: View {
                 Task {
                     refreshing = true
                     await app.cloudPlaylists.refresh(force: true)
-                    if showsRecommendations {
+                    if showsRecommendations || needsRecommendationPreview {
                         await app.music.clearPageCache()
                         await load()
                     }
@@ -130,18 +218,6 @@ struct MacHomeView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                }
-            }
-        }
-        if !library.recent.isEmpty {
-            MacShelf(title: String(localized: "Recently played"), seeAll: .songs(title: String(localized: "Recently Played"), source: .recent)) {
-                ForEach(Array(library.recent.prefix(16).enumerated()), id: \.element.id) { index, song in
-                    Button { player.play(Array(library.recent.prefix(50)), startAt: index) } label: {
-                        MacCoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine,
-                                     onPlay: { player.play(Array(library.recent.prefix(50)), startAt: index) })
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu { SongMenuItems(song: song) }
                 }
             }
         }

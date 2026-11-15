@@ -33,6 +33,18 @@ extension YouTubeMusic {
         }
     }
 
+    /// Browsing can retain known remote cards when a new service renderer or a late
+    /// page failure prevents a complete directory. This is never used for writes,
+    /// read-back, or authoritative account synchronization.
+    public func libraryPlaylistCatalog() async throws -> CloudPlaylistCatalogResult {
+        try await CloudPlaylistCatalogLoader.load { continuation in
+            let payload: [String: Any] = if let continuation { ["continuation": continuation] }
+                else { ["browseId": "FEmusic_liked_playlists"] }
+            let root = try await api.music("browse", payload, signing: .required)
+            return AccountPages.playlistCatalogPage(root)
+        }
+    }
+
     public func libraryAlbums() async throws -> [AlbumSummary] {
         try await library("FEmusic_liked_albums").compactMap { if case .album(let a) = $0 { return a }; return nil }
     }

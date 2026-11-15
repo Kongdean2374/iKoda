@@ -28,6 +28,10 @@ struct KodaUITestFixture: View {
             List {
                 Text(verbatim: colorScheme == .dark ? "dark" : "light")
                     .accessibilityIdentifier("fixture.appearance")
+                Text(verbatim: "\(app.cloudPlaylists.catalogRequestCount)")
+                    .accessibilityIdentifier("fixture.cloud.requestCount")
+                Text(verbatim: "\(app.cloudPlaylists.snapshotRequestCounts["PLui-alpha", default: 0])")
+                    .accessibilityIdentifier("fixture.snapshot.requestCount")
                 NavigationLink {
                     translation
                 } label: {
@@ -48,6 +52,12 @@ struct KodaUITestFixture: View {
                 .accessibilityIdentifier("fixture.sleep")
                 NavigationLink { HomeView() } label: { Text(verbatim: "Cloud home") }
                     .accessibilityIdentifier("fixture.home")
+                NavigationLink { LibraryView() } label: { Text(verbatim: "Cloud library") }
+                    .accessibilityIdentifier("fixture.library")
+                NavigationLink {
+                    if let firstPlaylist { PlaylistView(summary: firstPlaylist) }
+                } label: { Text(verbatim: "Cached cloud playlist") }
+                    .accessibilityIdentifier("fixture.playlist.cached")
                 Button { sheet = .flow } label: { Text(verbatim: "Koda Flow preview") }
                     .accessibilityIdentifier("fixture.flow")
                 Button { sheet = .selection } label: {
@@ -101,7 +111,7 @@ struct KodaUITestFixture: View {
             .dynamicTypeSize(largeText ? .accessibility3 : .large)
             .preferredColorScheme(dark ? .dark : .light)
         }
-        .task { prepare() }
+        .task { await prepare() }
     }
 
     private var translation: some View {
@@ -116,7 +126,7 @@ struct KodaUITestFixture: View {
         .navigationTitle(Text(verbatim: "Translation control"))
     }
 
-    private func prepare() {
+    private func prepare() async {
         guard !prepared else { return }
         app.onboarding = nil
         // KodaApp applies this setting at the window, above the fixture. Set the
@@ -135,6 +145,7 @@ struct KodaUITestFixture: View {
         let second = Song(id: "ui-smoke-b", title: "Second Song", artistLine: "Fixture Artist", duration: 210)
         let third = Song(id: "ui-smoke-c", title: "Third Song (Live)", artistLine: "Fixture Artist", duration: 240)
         songs = [first, second, third]
+        for song in songs.reversed() { app.library.recordPlay(song) }
         func snapshot(_ id: String, _ title: String, _ songs: [Song], editable: Bool = true) -> CloudPlaylistSnapshot {
             .init(playlist: .init(id: id, title: title), rows: songs.enumerated().map {
                 let row = "\(id)-\($0.offset)"
@@ -149,9 +160,12 @@ struct KodaUITestFixture: View {
                          snapshot("PLui-beta", "Fixture Beta", [second, third]),
                          snapshot("PLui-read-only", "Fixture Read Only", [first], editable: false)]
         firstPlaylist = snapshots[0].playlist
+        let catalogFailure = ProcessInfo.processInfo.arguments.contains("-KodaUITestCatalogFailure")
         app.cloudPlaylists.installUITestData(catalog: snapshots.map(\.playlist), snapshots: snapshots,
             transport: UITestCloudTransport(snapshots: snapshots, songs: songs + (largePlaylist ? sourceSongs : []),
-                failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure")), like: { $0 })
+                failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure")), like: { $0 },
+            catalogReader: catalogFailure ? { throw URLError(.notConnectedToInternet) } : nil)
+        if catalogFailure { await app.cloudPlaylists.refresh(force: true) }
         prepared = true
     }
 

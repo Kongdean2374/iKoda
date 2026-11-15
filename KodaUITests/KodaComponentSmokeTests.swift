@@ -155,6 +155,7 @@ final class KodaComponentSmokeTests: XCTestCase {
     @MainActor
     func testCloudHomeShowsDirectPlaybackControlsWithoutLocalPlaylists() {
         let app = launch()
+        reveal(app.buttons["fixture.home"], in: app)
         app.buttons["fixture.home"].tap()
         XCTAssertTrue(control("home.cloud.title", in: app).waitForExistence(timeout: 10))
         let play = app.buttons["home.cloud.play.PLui-alpha"]
@@ -167,6 +168,73 @@ final class KodaComponentSmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["home.cloud.create"].exists)
         capture(app, "cloud-home-direct-controls")
         // Stream playback is covered by queue/Flow logic tests, not fabricated here.
+    }
+
+    @MainActor
+    func testCachedHomeSurvivesRefreshFailureAndReentry() {
+        let app = launch(extraArguments: ["-KodaUITestCatalogFailure"])
+        let count = app.staticTexts["fixture.cloud.requestCount"]
+        expectState(count, matching: NSPredicate(format: "label == %@", "1"))
+        reveal(app.buttons["fixture.home"], in: app)
+        app.buttons["fixture.home"].tap()
+        reveal(control("home.cloud.error", in: app), in: app, towardTop: true)
+        let play = app.buttons["home.cloud.play.PLui-alpha"]
+        reveal(play, in: app)
+        XCTAssertTrue(play.isEnabled, "A refresh failure must not discard the known cloud playlist")
+        let recent = app.buttons["home.listening.song.ui-smoke-a"]
+        reveal(recent, in: app)
+        XCTAssertTrue(recent.isEnabled, "Real listening history must remain available outside collapsed recommendations")
+        capture(app, "home-cached-playlists-refresh-failed")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        reveal(count, in: app, towardTop: true)
+        expectState(count, matching: NSPredicate(format: "label == %@", "1"))
+        reveal(app.buttons["fixture.home"], in: app)
+        app.buttons["fixture.home"].tap()
+        XCTAssertTrue(control("home.cloud.error", in: app).waitForExistence(timeout: 10))
+        let retry = app.buttons["home.cloud.retry"]
+        reveal(retry, in: app, towardTop: true)
+        retry.tap()
+        reveal(play, in: app)
+        XCTAssertTrue(play.isEnabled)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        reveal(count, in: app, towardTop: true)
+        expectState(count, matching: NSPredicate(format: "label == %@", "2"),
+                    because: "Only explicit Retry should fetch again while the cached catalog is fresh")
+    }
+
+    @MainActor
+    func testLibraryReentryKeepsFreshCatalogWithoutNetworkRequests() {
+        let app = launch()
+        for _ in 0..<2 {
+            reveal(app.buttons["fixture.library"], in: app)
+            app.buttons["fixture.library"].tap()
+            let playlist = app.staticTexts.matching(NSPredicate(format: "label == %@", "Fixture Alpha")).firstMatch
+            reveal(playlist, in: app)
+            XCTAssertTrue(playlist.exists)
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            let count = app.staticTexts["fixture.cloud.requestCount"]
+            reveal(count, in: app, towardTop: true)
+            expectState(count, matching: NSPredicate(format: "label == %@", "0"),
+                        because: "Entering Library must reuse the fresh account catalog")
+        }
+    }
+
+    @MainActor
+    func testPlaylistReentryImmediatelyUsesCompleteCachedSnapshot() {
+        let app = launch()
+        for _ in 0..<2 {
+            reveal(app.buttons["fixture.playlist.cached"], in: app)
+            app.buttons["fixture.playlist.cached"].tap()
+            let firstSong = control("playlist.song.0", in: app)
+            reveal(firstSong, in: app)
+            XCTAssertTrue(firstSong.exists)
+            XCTAssertFalse(control("playlist.cache.retry", in: app).exists)
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            let count = app.staticTexts["fixture.snapshot.requestCount"]
+            reveal(count, in: app, towardTop: true)
+            expectState(count, matching: NSPredicate(format: "label == %@", "0"),
+                        because: "A fresh complete snapshot must not be fetched again on navigation")
+        }
     }
 
     @MainActor
@@ -512,6 +580,8 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.launchArguments += extraArguments
         app.launch()
         XCTAssertTrue(app.buttons["fixture.translation"].waitForExistence(timeout: 20))
+        expectState(app.buttons["fixture.translation"], matching: NSPredicate(format: "enabled == true"),
+                    because: "The offline fixture must finish preparing before interaction")
         return app
     }
 

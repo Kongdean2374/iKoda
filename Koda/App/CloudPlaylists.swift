@@ -49,8 +49,10 @@ final class CloudPlaylistCoordinator {
     private(set) var refreshError: String?
     private(set) var lastRefreshed: Date?
     private(set) var isFromCache = false
+    private(set) var isCatalogComplete = false
     private(set) var operation: CloudPlaylistOperationState?
     private(set) var readProgress: [String: Int] = [:]
+    private(set) var snapshotErrors: [String: String] = [:]
     private(set) var catalogRevision: UInt64 = 0
 
     @ObservationIgnored private weak var app: AppModel?
@@ -58,21 +60,30 @@ final class CloudPlaylistCoordinator {
     @ObservationIgnored private var profileID: UUID?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var restoration: Task<Void, Never>?
-    @ObservationIgnored private var catalogTask: Task<[PlaylistSummary], Error>?
+    @ObservationIgnored private var catalogTask: Task<Void, Never>?
+    @ObservationIgnored private var catalogFailedAt: Date?
+    @ObservationIgnored private var snapshotTasks: [String: (id: UUID, task: Task<CloudPlaylistSnapshot, Error>)] = [:]
+    @ObservationIgnored private var snapshotFailedAt: [String: Date] = [:]
+    @ObservationIgnored private var snapshotFailures: [String: Error] = [:]
     @ObservationIgnored private var mutationTask: Task<CloudPlaylistSnapshot, Error>?
     @ObservationIgnored private var likeTask: Task<Song, Error>?
     @ObservationIgnored private var dismissalTask: Task<Void, Never>?
     @ObservationIgnored private var checkpoint: CloudPlaylistCheckpoint?
     @ObservationIgnored private var damagedReceipt = false
     @ObservationIgnored private var snapshotOrder: [String] = []
+    @ObservationIgnored private var authoritativeCatalogIDs = Set<String>()
     @ObservationIgnored private let cacheSession = UUID()
     @ObservationIgnored private var cacheRevision: UInt64 = 0
+    @ObservationIgnored private var snapshotCacheRevision: UInt64 = 0
 
     #if DEBUG
     @ObservationIgnored private var testingTransport: (any CloudPlaylistTransport)?
     @ObservationIgnored private var testingCatalog: [PlaylistSummary]?
     @ObservationIgnored private var testingLike: (@Sendable (Song) async throws -> Song)?
     @ObservationIgnored private var testingDirectory: URL?
+    @ObservationIgnored private var testingCatalogReader: (@Sendable () async throws -> [PlaylistSummary])?
+    private(set) var catalogRequestCount = 0
+    private(set) var snapshotRequestCounts: [String: Int] = [:]
     #endif
 
     init(app: AppModel) {
@@ -123,19 +134,24 @@ final class CloudPlaylistCoordinator {
         catalogRevision &+= 1
         restoration?.cancel(); restoration = nil
         catalogTask?.cancel(); catalogTask = nil
+        for request in snapshotTasks.values { request.task.cancel() }
+        snapshotTasks = [:]
         mutationTask?.cancel(); mutationTask = nil
         likeTask?.cancel(); likeTask = nil
         dismissalTask?.cancel(); dismissalTask = nil
         profileID = nil
-        catalog = []; snapshots = [:]; snapshotOrder = []; readProgress = [:]
+        catalog = []; snapshots = [:]; snapshotOrder = []; readProgress = [:]; snapshotErrors = [:]
+        authoritativeCatalogIDs = []; isCatalogComplete = false
+        snapshotFailedAt = [:]; snapshotFailures = [:]; catalogFailedAt = nil
         checkpoint = nil; operation = nil; damagedReceipt = false
         isRefreshing = false; refreshError = nil; lastRefreshed = nil; isFromCache = false
         #if DEBUG
         testingTransport = nil; testingCatalog = nil; testingLike = nil; testingDirectory = nil
+        testingCatalogReader = nil; catalogRequestCount = 0; snapshotRequestCounts = [:]
         #endif
     }
 
-    func refresh(force: Bool = true, expectedScope: CloudPlaylistAccountScope? = nil) async {
+    func refresh(force: Bool = false, expectedScope: CloudPlaylistAccountScope? = nil) async {
         let context: AccountContext
         do { context = try await prepareProfile(expectedScope: expectedScope) }
         catch {
@@ -144,63 +160,135 @@ final class CloudPlaylistCoordinator {
             return
         }
         let app = context.app, profileID = context.profileID
-        if !force, let lastRefreshed, Date().timeIntervalSince(lastRefreshed) < 15 * 60 { return }
-        if !force, let catalogTask { _ = try? await catalogTask.value; return }
+        switch CloudPlaylistCachePolicy.catalog.decision(fetchedAt: lastRefreshed, failedAt: catalogFailedAt,
+                                                         force: force, isInFlight: catalogTask != nil) {
+        case .useCache: return
+        case .join:
+            await catalogTask?.value
+            return
+        case .fetch: break
+        }
         // A background AccountLibrary result includes playlist metadata too. Stop
         // that older round before accepting a newer authoritative cloud read.
         app.cloudRefreshBegan()
-        catalogTask?.cancel()
         catalogRevision &+= 1
         let revision = catalogRevision, generation = context.generation
         isRefreshing = true
         refreshError = nil
-        let task = Task { @MainActor [weak self] () throws -> [PlaylistSummary] in
-            guard let self else { throw CancellationError() }
-            return try await app.withCloudAccountWork {
-                try await self.validate(profileID: profileID, generation: generation)
-                #if DEBUG
-                if let catalog = self.testingCatalog { return catalog }
-                #endif
-                let result = try await app.music.libraryPlaylists()
-                try await self.validate(profileID: profileID, generation: generation)
-                return result
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.isCurrent(profileID, generation), self.catalogRevision == revision {
+                    self.isRefreshing = false
+                    self.catalogTask = nil
+                }
+            }
+            do {
+                let result = try await app.withCloudAccountWork {
+                    try await self.validate(profileID: profileID, generation: generation)
+                    #if DEBUG
+                    self.catalogRequestCount += 1
+                    if let reader = self.testingCatalogReader {
+                        return CloudPlaylistCatalogResult(playlists: try await reader())
+                    }
+                    if let catalog = self.testingCatalog { return CloudPlaylistCatalogResult(playlists: catalog) }
+                    #endif
+                    let result = try await app.music.libraryPlaylistCatalog()
+                    try await self.validate(profileID: profileID, generation: generation)
+                    return result
+                }
+                guard self.isCurrent(profileID, generation), self.catalogRevision == revision else { return }
+                if result.isComplete {
+                    self.applyCatalog(result.playlists, for: profileID)
+                } else {
+                    self.catalog = result.mergingForDisplay(previous: self.catalog)
+                    self.isCatalogComplete = false
+                    self.catalogFailedAt = Date()
+                    self.refreshError = result.displayMessage
+                }
+                await self.reloadReceiptAfterRefresh(profileID: profileID, generation: generation)
+            } catch {
+                guard self.isCurrent(profileID, generation), self.catalogRevision == revision else { return }
+                if !(error is CancellationError) {
+                    self.catalogFailedAt = Date()
+                    self.refreshError = Self.message(error)
+                }
             }
         }
         catalogTask = task
-        do {
-            let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
-            guard isCurrent(profileID, generation), catalogRevision == revision else { return }
-            applyCatalog(result, for: profileID)
-            await reloadReceiptAfterRefresh(profileID: profileID, generation: generation)
-        } catch {
-            guard isCurrent(profileID, generation), catalogRevision == revision else { return }
-            if !(error is CancellationError) { refreshError = Self.message(error) }
-        }
-        if isCurrent(profileID, generation), catalogRevision == revision {
-            isRefreshing = false
-            catalogTask = nil
-        }
+        // The coordinator owns this read. Navigating away cancels a view's wait,
+        // not the shared work needed by Home, Library, and the next visit.
+        await task.value
     }
 
-    /// Reopening a detail/Flow preparation asks fresh complete pages by default.
+    /// A complete snapshot for display in the current account, never mutation proof.
+    func cachedSnapshot(id: String) -> CloudPlaylistSnapshot? {
+        guard let profileID, app?.roster.activeID == profileID else { return nil }
+        return snapshots[Self.canonical(id)]
+    }
+
+    /// Browsing opts into `force: false` to return complete cached rows immediately
+    /// and refresh stale rows in the background. Management/Flow stays fresh by default.
     func loadSnapshot(id: String, force: Bool = true, expectedScope: CloudPlaylistAccountScope? = nil) async throws -> CloudPlaylistSnapshot {
         let context = try await prepareProfile(expectedScope: expectedScope)
         let id = Self.canonical(id)
-        if !force, let cached = snapshots[id] { return cached }
+        let cached = snapshots[id]
+        let decision = CloudPlaylistCachePolicy.snapshot.decision(fetchedAt: cached?.fetchedAt, failedAt: snapshotFailedAt[id],
+                                                                 force: force, isInFlight: snapshotTasks[id] != nil)
+        if decision == .useCache {
+            if let cached { return cached }
+            throw snapshotFailures[id] ?? CloudPlaylistError.incompleteResponse
+        }
+        let task = snapshotTasks[id]?.task ?? startSnapshotRead(id: id, context: context)
+        if !force, let cached { return cached }
+        let result = try await task.value
+        try requireCurrent(context)
+        return result
+    }
+
+    private func startSnapshotRead(id: String, context: AccountContext) -> Task<CloudPlaylistSnapshot, Error> {
+        let requestID = UUID()
         readProgress[id] = 0
-        defer {
-            if isCurrent(context.profileID, context.generation) { readProgress[id] = nil }
+        snapshotErrors[id] = nil
+        snapshotFailures[id] = nil
+        let transport = transport(profileID: context.profileID, generation: context.generation,
+                                  reading: id, readingRequestID: requestID)
+        let task = Task { @MainActor [self] () throws -> CloudPlaylistSnapshot in
+            defer {
+                if isCurrent(context.profileID, context.generation), snapshotTasks[id]?.id == requestID {
+                    snapshotTasks[id] = nil
+                    readProgress[id] = nil
+                }
+            }
+            do {
+                let snapshot = try await context.app.withCloudAccountWork {
+                    try await self.validate(profileID: context.profileID, generation: context.generation)
+                    #if DEBUG
+                    self.snapshotRequestCounts[id, default: 0] += 1
+                    #endif
+                    let snapshot = try await transport.readPlaylist(id: id)
+                    try await self.validate(profileID: context.profileID, generation: context.generation)
+                    return snapshot
+                }
+                try requireCurrent(context)
+                guard snapshotTasks[id]?.id == requestID else { throw CancellationError() }
+                remember(snapshot)
+                snapshotFailedAt[id] = nil
+                snapshotErrors[id] = nil
+                snapshotFailures[id] = nil
+                return snapshot
+            } catch {
+                if isCurrent(context.profileID, context.generation), snapshotTasks[id]?.id == requestID,
+                   !(error is CancellationError) {
+                    snapshotFailedAt[id] = Date()
+                    snapshotErrors[id] = Self.message(error)
+                    snapshotFailures[id] = error
+                }
+                throw error
+            }
         }
-        let transport = transport(profileID: context.profileID, generation: context.generation, reading: id)
-        let snapshot = try await context.app.withCloudAccountWork { [self] in
-            try await validate(profileID: context.profileID, generation: context.generation)
-            let snapshot = try await transport.readPlaylist(id: id)
-            try await validate(profileID: context.profileID, generation: context.generation)
-            return snapshot
-        }
-        guard isCurrent(context.profileID, context.generation) else { throw CloudAccountAccessError.changed }
-        remember(snapshot)
-        return snapshot
+        snapshotTasks[id] = (requestID, task)
+        return task
     }
 
     func editablePlaylists(for songs: [Song], expectedScope: CloudPlaylistAccountScope? = nil) async throws -> [EditablePlaylist] {
@@ -246,7 +334,7 @@ final class CloudPlaylistCoordinator {
     func recoverCreation(using playlistID: String, expectedScope: CloudPlaylistAccountScope? = nil) async throws -> CloudPlaylistSnapshot {
         let context = try await prepareProfile(expectedScope: expectedScope)
         guard !isBusy, var saved = checkpoint, let title = pendingCreationTitle else { throw CloudAccountAccessError.unresolved }
-        let snapshot = try await loadSnapshot(id: playlistID, expectedScope: context.scope)
+        let snapshot = try await loadSnapshot(id: playlistID, force: true, expectedScope: context.scope)
         try requireCurrent(context)
         guard snapshot.title == title, snapshot.capabilities.canAdd else { throw CloudPlaylistError.readOnly }
         saved.playlistID = snapshot.id
@@ -345,7 +433,11 @@ final class CloudPlaylistCoordinator {
 
     func receiveRefreshError(_ error: Error, for profileID: UUID, expectedRevision: UInt64) {
         guard app?.roster.activeID == profileID, catalogRevision == expectedRevision, !isBusy else { return }
-        refreshError = Self.message(error)
+        if let cloudError = error as? CloudPlaylistError, cloudError == .incompleteResponse {
+            refreshError = CloudPlaylistCatalogResult(playlists: [], issues: [.unrecognizedPage]).displayMessage
+        } else {
+            refreshError = Self.message(error)
+        }
     }
 
     // MARK: Durable operation lifecycle
@@ -362,6 +454,7 @@ final class CloudPlaylistCoordinator {
         guard !damagedReceipt else { throw CloudAccountAccessError.damagedReceipt }
         context.app.cloudMutationBegan()
         invalidateCatalogRead()
+        if let id = receipt.playlistID { invalidateSnapshotRead(id: id) }
         checkpoint = receipt
         operation = Self.state(receipt, phase: .running)
         guard let directory = storageDirectory(for: context.profileID) else { throw CloudAccountAccessError.changed }
@@ -419,7 +512,7 @@ final class CloudPlaylistCoordinator {
             #if DEBUG
             if testingCatalog != nil { testingCatalog = entries }
             #endif
-            applyCatalog(entries, for: context.profileID)
+            applyConfirmedPlaylistEntries(entries, for: context.profileID)
             operation = Self.state(checkpoint ?? receipt, phase: .succeeded)
             operation?.detail = String(localized: "Confirmed in YouTube Music.")
             return snapshot
@@ -445,6 +538,20 @@ final class CloudPlaylistCoordinator {
         catalogTask?.cancel()
         catalogTask = nil
         isRefreshing = false
+    }
+
+    private func invalidateSnapshotRead(id: String) {
+        let id = Self.canonical(id)
+        snapshotTasks[id]?.task.cancel()
+        snapshotTasks[id] = nil
+        readProgress[id] = nil
+        snapshotFailedAt[id] = nil
+        snapshotFailures[id] = nil
+        snapshotErrors[id] = nil
+        // Preserve rows on screen, but a possibly changed remote list must refresh
+        // on its next visit even when this mutation has an uncertain outcome.
+        if snapshots[id] != nil { snapshots[id]?.fetchedAt = .distantPast }
+        persistSnapshots(snapshotOrder.reversed().compactMap { snapshots[$0] })
     }
 
     private func receivedCheckpoint(_ value: CloudPlaylistCheckpoint, profileID: UUID, generation: UInt64) {
@@ -477,6 +584,7 @@ final class CloudPlaylistCoordinator {
             let directory = app.roster.folder(for: id)
             restoration = Task { @MainActor [weak self, journal] in
                 let cache = await journal.loadCatalog(in: directory)
+                let cachedSnapshots = await journal.loadSnapshots(in: directory)
                 let saved: Result<CloudPlaylistCheckpoint?, Error>
                 do { saved = .success(try await journal.load(in: directory)) }
                 catch { saved = .failure(error) }
@@ -485,11 +593,24 @@ final class CloudPlaylistCoordinator {
                     self.catalog = cache.playlists
                     self.lastRefreshed = cache.fetchedAt
                     self.isFromCache = true
+                    self.isCatalogComplete = true
+                    self.authoritativeCatalogIDs = Set(cache.playlists.map(\.id))
+                }
+                if self.snapshots.isEmpty {
+                    self.snapshots = Dictionary(uniqueKeysWithValues: cachedSnapshots.map { ($0.id, $0) })
+                    self.snapshotOrder = cachedSnapshots.reversed().map(\.id)
                 }
                 switch saved {
                 case .success(let checkpoint):
                     self.checkpoint = checkpoint
                     if let checkpoint {
+                        // A process may have ended after the remote mutation but
+                        // before its freshly read snapshot reached the disk cache.
+                        if let id = checkpoint.playlistID, var cached = self.snapshots[id],
+                           checkpoint.updatedAt > cached.fetchedAt {
+                            cached.fetchedAt = .distantPast
+                            self.snapshots[id] = cached
+                        }
                         self.operation = Self.state(checkpoint, phase: checkpoint.isComplete ? .succeeded : .needsConfirmation)
                         if !checkpoint.isComplete {
                             self.operation?.detail = String(localized: "An unfinished cloud change was restored. Check its status before continuing.")
@@ -568,19 +689,22 @@ final class CloudPlaylistCoordinator {
         }
     }
 
-    private func transport(profileID: UUID, generation: UInt64, reading id: String? = nil) -> any CloudPlaylistTransport {
+    private func transport(profileID: UUID, generation: UInt64, reading id: String? = nil,
+                           readingRequestID: UUID? = nil) -> any CloudPlaylistTransport {
         #if DEBUG
         if let testingTransport { return testingTransport }
         #endif
         return YouTubeCloudPlaylistTransport(music: app!.music,
             validate: validator(profileID: profileID, generation: generation),
             progress: { [weak self] count in
-                await self?.receivedProgress(count, for: id, profileID: profileID, generation: generation)
+                await self?.receivedProgress(count, for: id, requestID: readingRequestID,
+                                             profileID: profileID, generation: generation)
             })
     }
 
-    private func receivedProgress(_ count: Int, for id: String?, profileID: UUID, generation: UInt64) {
-        guard isCurrent(profileID, generation), let id else { return }
+    private func receivedProgress(_ count: Int, for id: String?, requestID: UUID?, profileID: UUID, generation: UInt64) {
+        guard !Task.isCancelled, isCurrent(profileID, generation), let id, let requestID,
+              snapshotTasks[id]?.id == requestID else { return }
         readProgress[id] = count
     }
 
@@ -588,19 +712,48 @@ final class CloudPlaylistCoordinator {
         snapshots[snapshot.id] = snapshot
         snapshotOrder.removeAll { $0 == snapshot.id }
         snapshotOrder.append(snapshot.id)
-        while snapshotOrder.count > 12 { snapshots[snapshotOrder.removeFirst()] = nil }
+        let retained = CloudPlaylistCachePolicy.retainedSnapshots(snapshotOrder.reversed().compactMap { snapshots[$0] })
+        snapshots = Dictionary(uniqueKeysWithValues: retained.map { ($0.id, $0) })
+        snapshotOrder = retained.reversed().map(\.id)
+        persistSnapshots(retained)
+    }
+
+    private func persistSnapshots(_ retained: [CloudPlaylistSnapshot]) {
+        guard let profileID, let directory = storageDirectory(for: profileID) else { return }
+        snapshotCacheRevision &+= 1
+        let revision = snapshotCacheRevision, session = cacheSession
+        Task { [journal] in try? await journal.saveSnapshots(retained, session: session, revision: revision, in: directory) }
     }
 
     private func applyCatalog(_ values: [PlaylistSummary], for profileID: UUID) {
         guard let app, app.roster.activeID == profileID else { return }
-        let previous = Set(catalog.map(\.id))
+        let previous = authoritativeCatalogIDs
         var seen = Set<String>()
         catalog = values.filter { $0.id != "LM" && $0.id != "SE" && seen.insert($0.id).inserted }
+        authoritativeCatalogIDs = Set(catalog.map(\.id))
         let date = Date()
         lastRefreshed = date
         isFromCache = false
+        isCatalogComplete = true
         refreshError = nil
+        catalogFailedAt = nil
         app.applyCloudPlaylistCatalogToLibrary(catalog, previousCloudIDs: previous, profileID: profileID)
+        persistCatalog(fetchedAt: date, profileID: profileID)
+    }
+
+    /// Read-back proves this one playlist changed, not that the whole account's
+    /// directory is fresh or complete. Keep the full-read timestamp and any partial
+    /// failure visible until an actual directory refresh succeeds.
+    private func applyConfirmedPlaylistEntries(_ entries: [PlaylistSummary], for profileID: UUID) {
+        guard let app, app.roster.activeID == profileID else { return }
+        catalog = entries
+        guard isCatalogComplete, let lastRefreshed else { return }
+        authoritativeCatalogIDs = Set(entries.map(\.id))
+        app.applyCloudPlaylistCatalogToLibrary(entries, previousCloudIDs: [], profileID: profileID)
+        persistCatalog(fetchedAt: lastRefreshed, profileID: profileID)
+    }
+
+    private func persistCatalog(fetchedAt date: Date, profileID: UUID) {
         guard let directory = storageDirectory(for: profileID) else { return }
         let value = CloudPlaylistJournal.Catalog(playlists: catalog, fetchedAt: date)
         cacheRevision &+= 1
@@ -651,17 +804,22 @@ final class CloudPlaylistCoordinator {
     func installUITestData(catalog: [PlaylistSummary], snapshots: [CloudPlaylistSnapshot],
                            transport: any CloudPlaylistTransport,
                            like: (@Sendable (Song) async throws -> Song)? = nil,
-                           testingDirectory: URL? = nil) {
+                           testingDirectory: URL? = nil,
+                           catalogFetchedAt: Date? = Date(),
+                           catalogReader: (@Sendable () async throws -> [PlaylistSummary])? = nil) {
         invalidateSession()
         profileID = app?.roster.activeID
         testingTransport = transport
         testingCatalog = catalog
         testingLike = like
+        testingCatalogReader = catalogReader
         self.testingDirectory = testingDirectory ?? FileManager.default.temporaryDirectory.appending(path: "KodaCloudUI-\(UUID())")
         self.catalog = catalog
+        authoritativeCatalogIDs = Set(catalog.map(\.id))
+        isCatalogComplete = true
         self.snapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
         snapshotOrder = snapshots.map(\.id)
-        lastRefreshed = Date()
+        lastRefreshed = catalogFetchedAt
     }
     #endif
 }

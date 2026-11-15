@@ -145,7 +145,8 @@ struct PlayerEnhancementTests {
         #expect(loads == 1)
     }
 
-    @Test func transientRetryKeepsOccurrencePositionAndPlayerThenStopsOnDenial() async throws {
+    @Test(arguments: [false, true], [false, true])
+    func transientRetryKeepsOccurrencePositionAndPlayerThenStopsOnDenial(background: Bool, cancelledTransfer: Bool) async throws {
         let suite = "koda.player-enhancements." + UUID().uuidString
         let defaults = preferences(suite)
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -158,9 +159,11 @@ struct PlayerEnhancementTests {
         var loads = 0
         player.streamLoader = { _, _ in
             loads += 1
+            if loads == 1, cancelledTransfer { throw CancellationError() }
             throw loads == 1 ? MusicError.network : MusicError.badResponse(403)
         }
         player.resume()
+        if background { player.applicationBecameInactive() }
         for _ in 0..<300 {
             if case .failed = player.phase { break }
             try await Task.sleep(for: .milliseconds(10))

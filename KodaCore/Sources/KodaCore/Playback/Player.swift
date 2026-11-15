@@ -102,10 +102,16 @@ public final class Player {
         var shuffled: Bool
         var operation: PlaylistOperation
         var requestedRepeat: RepeatMode? = nil
+        // Memory only: a continuation belongs to the session that supplied it.
+        var accountScope: String? = nil
     }
+    private enum PlaylistPreparationError: Error { case accountChanged }
     @ObservationIgnored private var playlistRequest: PlaylistRequest?
     @ObservationIgnored private var playlistLoadingTask: Task<Bool, Never>?
     @ObservationIgnored private var playlistRequestGeneration = 0
+    @ObservationIgnored private var playlistAutomaticRetries = 0
+    @ObservationIgnored private var playlistAutomaticRetryEligible = false
+    @ObservationIgnored private var playlistRecoveryRevision: UInt64 = 0
     public private(set) var playbackIntentRevision: UInt64 = 0
     /// Metadata-only test seams; no audio URLs are resolved while preparing the source.
     @ObservationIgnored var playlistFirstPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?
@@ -882,6 +888,7 @@ public final class Player {
     @discardableResult
     public func retryPlaylistLoading() -> Task<Bool, Never> {
         guard playlistLoadCanRetry, playlistRequest != nil, playlistLoadingTask == nil else { return Task { false } }
+        playlistAutomaticRetries = 0
         return beginPlaylistLoading()
     }
 
@@ -897,6 +904,8 @@ public final class Player {
         playlistLoadingError = nil
         playlistLoadCanRetry = false
         playlistLoadingSourceID = nil
+        playlistAutomaticRetries = 0
+        playlistAutomaticRetryEligible = false
     }
 
     /// A link may need metadata before it can select a song. Claim its intent now and let
@@ -923,10 +932,12 @@ public final class Player {
         if request.operation == .replace || queue.isEmpty { onPlaybackRequested?() }
         playlistRequestGeneration += 1
         let token = playlistRequestGeneration
+        let recoveryRevision = playlistRecoveryRevision
         playlistLoadingCount = request.checkpoint.songs.count
         playlistLoadingSourceID = request.sourceID
         playlistLoadingError = nil
         playlistLoadCanRetry = false
+        playlistAutomaticRetryEligible = false
         restoredPlaybackWasActive = false
         mayResumeRestoredQueue = false
         let music = music
@@ -935,19 +946,35 @@ public final class Player {
         let task = Task { [weak self] in
             await withTaskCancellationHandler {
             do {
+                guard let scope = try await self?.playlistAccountScope(for: request, token: token) else {
+                    throw CancellationError()
+                }
                 let completed = try await PlaylistQueueLoader.load(from: request.checkpoint,
                     fetchFirst: {
+                        try await Self.requirePlaylistAccountScope(scope, music: music)
                         guard let id = request.sourceID else { throw PlaylistQueueLoader.LoadingError.invalidCheckpoint }
-                        if let firstLoader { return try await firstLoader(id) }
-                        let page = try await music.playlistFreshForPlayback(id)
-                        return .init(songs: page.songs, continuation: page.continuation)
+                        let result: PlaylistQueueLoader.Page
+                        if let firstLoader { result = try await firstLoader(id) }
+                        else {
+                            let page = try await music.playlistFreshForPlayback(id)
+                            result = .init(songs: page.songs, continuation: page.continuation)
+                        }
+                        try await Self.requirePlaylistAccountScope(scope, music: music)
+                        return result
                     }, fetchMore: { cursor in
-                        if let moreLoader { return try await moreLoader(cursor) }
-                        let page = try await music.playlistMoreForPlayback(cursor)
-                        return .init(songs: page.songs, continuation: page.continuation)
+                        try await Self.requirePlaylistAccountScope(scope, music: music)
+                        let result: PlaylistQueueLoader.Page
+                        if let moreLoader { result = try await moreLoader(cursor) }
+                        else {
+                            let page = try await music.playlistMoreForPlayback(cursor)
+                            result = .init(songs: page.songs, continuation: page.continuation)
+                        }
+                        try await Self.requirePlaylistAccountScope(scope, music: music)
+                        return result
                     }, didLoadPage: { [weak self] checkpoint in
                         await self?.receivedPlaylistPage(checkpoint, token: token)
                     })
+                try await Self.requirePlaylistAccountScope(scope, music: music)
                 try Task.checkCancellation()
                 guard let self, self.playlistRequestGeneration == token else { return false }
                 guard !completed.songs.isEmpty else {
@@ -970,7 +997,7 @@ public final class Player {
             } catch {
                 guard let self, self.playlistRequestGeneration == token else { return false }
                 self.playlistLoadingTask = nil
-                if error is CancellationError || Task.isCancelled {
+                if Task.isCancelled || error is PlaylistPreparationError {
                     self.cancelPlaylistLoading()
                 } else {
                     // Only fixed local messages are displayed. Response bodies, cursors, account
@@ -978,6 +1005,14 @@ public final class Player {
                     self.playlistLoadingError = (error as? PlaylistQueueLoader.LoadingError)?.errorDescription
                         ?? NSLocalizedString("The complete playlist could not be loaded. Your current queue was kept. Retry to continue loading.", bundle: KodaLocalization.bundle, comment: "")
                     self.playlistLoadCanRetry = !(error is PlaylistQueueLoader.LoadingError)
+                    // URLSession may cancel a transfer when the app is suspended even though
+                    // this intent is still live. Keep its successful-page boundary; only a
+                    // lifecycle/connectivity event may retry it, with a bounded budget.
+                    self.playlistAutomaticRetryEligible = error is CancellationError
+                        || PlaybackFailureReason.classify(error).isRetryable
+                    // A reconnect/foreground event can precede delivery of the failed
+                    // transfer. Do not lose that opportunity while this task was pending.
+                    if self.playlistRecoveryRevision != recoveryRevision { self.resumePlaylistLoadingIfAllowed() }
                 }
                 return false
             }
@@ -990,6 +1025,29 @@ public final class Player {
         }
         playlistLoadingTask = task
         return task
+    }
+
+    private func playlistAccountScope(for request: PlaylistRequest, token: Int) async throws -> String {
+        let scope = await music.accounts.cacheScope
+        try Task.checkCancellation()
+        guard playlistRequestGeneration == token else { throw CancellationError() }
+        if let expected = request.accountScope, scope != expected { throw PlaylistPreparationError.accountChanged }
+        playlistRequest?.accountScope = scope
+        return scope
+    }
+
+    nonisolated private static func requirePlaylistAccountScope(_ expected: String, music: YouTubeMusic) async throws {
+        try Task.checkCancellation()
+        guard await music.accounts.cacheScope == expected else { throw PlaylistPreparationError.accountChanged }
+        try Task.checkCancellation()
+    }
+
+    private func resumePlaylistLoadingIfAllowed() {
+        guard !isPlaybackSessionFinished, !evaluateSleepTimer(), !interruption.isInterrupted,
+              latestNetwork.status == .online, playlistLoadingTask == nil, playlistRequest != nil,
+              playlistAutomaticRetryEligible, playlistAutomaticRetries < 2 else { return }
+        playlistAutomaticRetries += 1
+        _ = beginPlaylistLoading()
     }
 
     private func receivedPlaylistPage(_ checkpoint: PlaylistQueueLoader.Checkpoint, token: Int) {
@@ -1406,11 +1464,13 @@ public final class Player {
                 updateNowPlaying()
                 prepareNext()
                 armCrossfade()
-            } catch is CancellationError {
             } catch {
                 guard !Task.isCancelled, token == generation, queue.current?.id == item.id,
                           !isPlaybackSessionFinished, !evaluateSleepTimer() else { return }
-                handleLoadFailure(error, for: item)
+                // A transfer can be cancelled by URLSession without cancelling this
+                // playback intent (for example, while suspended). Otherwise loading
+                // would wait forever: the stall watchdog only watches a ready item.
+                handleLoadFailure(error is CancellationError ? MusicError.network : error, for: item)
             }
         }
     }
@@ -2693,6 +2753,11 @@ public final class Player {
         if previous != snapshot { recordDiagnostic(.networkChanged, network: snapshot) }
         refreshAudioInformation()
         resumeRestoredQueueIfAllowed()
+        if snapshot.status == .online,
+           previous.status != .online || previous.interface != snapshot.interface {
+            playlistRecoveryRevision &+= 1
+            resumePlaylistLoadingIfAllowed()
+        }
         // A healthy buffered or offline-file stream keeps playing through interface changes.
         guard snapshot.status == .online, wantsToPlay, !interruption.isInterrupted,
               let id = queue.current?.id else { return }
@@ -2704,7 +2769,9 @@ public final class Player {
     public func applicationBecameActive() {
         guard !evaluateSleepTimer(), !isPlaybackSessionFinished else { return }
         mayResumeRestoredQueue = true
+        playlistRecoveryRevision &+= 1
         networkChanged(networkSnapshotOverride ?? NetworkPath.shared.snapshot)
+        resumePlaylistLoadingIfAllowed()
         refreshAudioInformation()
     }
 
