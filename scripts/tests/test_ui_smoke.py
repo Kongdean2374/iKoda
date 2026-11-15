@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import xml.etree.ElementTree as ET
 
 
 SPEC = importlib.util.spec_from_file_location("ui_smoke", Path(__file__).resolve().parents[1] / "run-ui-smoke.py")
@@ -9,6 +10,19 @@ SPEC.loader.exec_module(UI)
 
 
 class SimulatorSelectionTests(unittest.TestCase):
+    def test_original_release_scheme_remains_shared_when_ui_scheme_is_added(self):
+        # Xcode stops exposing the implicit Koda scheme once explicit shared schemes
+        # exist. Preserve the entry point used by both existing release jobs.
+        schemes = Path(__file__).resolve().parents[2] / "Koda.xcodeproj/xcshareddata/xcschemes"
+        release = ET.parse(schemes / "Koda.xcscheme").getroot()
+        entries = release.findall("./BuildAction/BuildActionEntries/BuildActionEntry")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].get("buildForArchiving"), "YES")
+        self.assertEqual(entries[0].find("BuildableReference").get("BlueprintName"), "Koda")
+        smoke = ET.parse(schemes / "Koda-UI-Smoke.xcscheme").getroot()
+        testables = smoke.findall("./TestAction/Testables/TestableReference/BuildableReference")
+        self.assertEqual([item.get("BlueprintName") for item in testables], ["KodaUITests"])
+
     def test_unsupported_or_unavailable_runtime_is_not_reported_as_testable(self):
         inventory = {
             "runtimes": [
