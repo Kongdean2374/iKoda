@@ -95,8 +95,9 @@ public actor MotionArtwork {
     // MARK: Finding the cover
 
     /// The animated covers of the album `song` is on, or nil when it has none (most don't).
-    public func covers(for song: Song, allowsCellular: Bool) async -> Covers? {
-        guard !isPlaybackSessionFinished, !Task.isCancelled else { return nil }
+    public func covers(for song: Song, allowsCellular: Bool, expectedRevision: UInt64? = nil) async -> Covers? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled,
+              expectedRevision == nil || expectedRevision == playbackRevision else { return nil }
         loadLookups()
         // Known by its id first: the same song can reach the player without its album (some
         // lists leave it out), and the answer found when it had one still holds.
@@ -214,8 +215,10 @@ public actor MotionArtwork {
 
     /// A local file of the album's `shape` loop, at least about `pixels` across, downloading it
     /// if no file that size is kept yet. Nil when it can't be had now.
-    public func loop(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool) async -> URL? {
-        guard !isPlaybackSessionFinished, !Task.isCancelled else { return nil }
+    public func loop(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool,
+                     expectedRevision: UInt64? = nil) async -> URL? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled,
+              expectedRevision == nil || expectedRevision == playbackRevision else { return nil }
         if let kept = keptLoop(covers.albumID, shape: shape, pixels: pixels) {
             touch(kept)
             return kept
@@ -297,8 +300,10 @@ public actor MotionArtwork {
 
     /// The loop's first frame as an image, for the Lock Screen to show while the loop loads:
     /// kept beside the loops, so it is fetched once per album and shape.
-    public func previewImage(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool) async -> Data? {
-        guard !isPlaybackSessionFinished, !Task.isCancelled else { return nil }
+    public func previewImage(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool,
+                             expectedRevision: UInt64? = nil) async -> Data? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled,
+              expectedRevision == nil || expectedRevision == playbackRevision else { return nil }
         let revision = playbackRevision
         let file = directory.appending(path: "\(covers.albumID)-\(shape.rawValue)-preview.jpg")
         if let kept = try? Data(contentsOf: file), !kept.isEmpty {

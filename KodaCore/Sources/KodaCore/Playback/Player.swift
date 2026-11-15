@@ -50,6 +50,15 @@ public final class Player {
     public private(set) var phase: Phase = .idle
     /// Whether the listener wants sound: true while loading or buffering a song they pressed play on.
     public private(set) var wantsToPlay = false
+    /// The shared app session remains owned while music intends to play or any audible
+    /// transition player is running/waiting. A paused, merely preloaded standby does not.
+    public var ownsAudioSession: Bool {
+        func needsSession(_ player: AVPlayer?) -> Bool {
+            guard let player else { return false }
+            return player.rate > 0 || player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        }
+        return wantsToPlay || needsSession(avPlayer) || needsSession(tail) || needsSession(standby?.player)
+    }
     /// True while the player waits on the network with the intent to play.
     public private(set) var isBuffering = false
     public private(set) var duration: TimeInterval = 0

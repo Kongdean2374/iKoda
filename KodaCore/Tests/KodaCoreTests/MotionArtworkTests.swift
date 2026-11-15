@@ -236,9 +236,14 @@ extension MotionArtworkTests {
         #expect(await asked.value == 0)
         #expect(try Data(contentsOf: directory.appending(path: "lookups.json")) == lookup)
         await motion.setPlaybackSessionFinished(false, revision: 3)
-        #expect(await motion.covers(for: song("Espresso", album: nil), allowsCellular: true) == covers)
-        #expect(await motion.previewImage(covers, shape: .tall, pixels: 600, allowsCellular: true) == Data([1, 2, 3]))
-        #expect(await motion.loop(covers, shape: .tall, pixels: 600, allowsCellular: true) == loop)
+        // A retained Lock Screen handler belongs to its original session, not whichever
+        // session happens to be open when its callback finally arrives.
+        #expect(await motion.covers(for: song("Espresso", album: nil), allowsCellular: true, expectedRevision: 1) == nil)
+        #expect(await motion.previewImage(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 1) == nil)
+        #expect(await motion.loop(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 1) == nil)
+        #expect(await motion.covers(for: song("Espresso", album: nil), allowsCellular: true, expectedRevision: 3) == covers)
+        #expect(await motion.previewImage(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 3) == Data([1, 2, 3]))
+        #expect(await motion.loop(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 3) == loop)
         await motion.setPlaybackSessionFinished(true, revision: 2)
         #expect(await motion.isPlaybackSessionFinished == false)
     }

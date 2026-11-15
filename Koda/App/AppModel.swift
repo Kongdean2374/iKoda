@@ -51,8 +51,11 @@ final class AppModel {
     var linkError: String?
     /// Only the newest album-card or shared-song lookup may replace the queue.
     @ObservationIgnored private var playbackLookupTask: Task<Void, Never>?
-    @ObservationIgnored private var artworkSessionRevision: UInt64 = 0
+    /// Views include this admission generation in their task identity, even when a stop
+    /// and manual resume happen in the same UI update and the Boolean ends unchanged.
+    private(set) var artworkSessionRevision: UInt64 = 0
     @ObservationIgnored private var artworkSessionFinished: Bool?
+    @ObservationIgnored private var artworkSessionTask: Task<Void, Never>?
     /// The sheet that adds a profile, asked for from a toolbar menu, the profile page or the Mac's sidebar.
     var isAddingProfile = false
     /// The pane the Mac's Settings window should show when it next opens or is already open.
@@ -229,7 +232,7 @@ final class AppModel {
         }
         VoiceSearch.canDeactivateAfterRecording = { [weak player, weak videos] in
             guard let player, let videos else { return false }
-            return !player.wantsToPlay && !player.isPlaying && !videos.ownsAudioSession
+            return !player.ownsAudioSession && !videos.ownsAudioSession
         }
         setArtworkSessionFinished(player.isPlaybackSessionFinished)
         lyricsPreparation.start()
@@ -240,9 +243,21 @@ final class AppModel {
         artworkSessionFinished = finished
         artworkSessionRevision &+= 1
         let revision = artworkSessionRevision
-        Task { [motionArtwork] in
+        artworkSessionTask = Task { [motionArtwork] in
             await motionArtwork.setPlaybackSessionFinished(finished, revision: revision)
         }
+    }
+
+    /// AV/SwiftUI callers await the actor's admission before asking for artwork. Without
+    /// this barrier an immediate manual resume could read the still-closed actor once,
+    /// then keep a missing cover because no later view input had changed.
+    func waitForArtworkSession(expectedRevision: UInt64) async -> Bool {
+        guard !Task.isCancelled, !player.isPlaybackSessionFinished,
+              artworkSessionRevision == expectedRevision else { return false }
+        let admission = artworkSessionTask
+        await admission?.value
+        return !Task.isCancelled && !player.isPlaybackSessionFinished
+            && artworkSessionRevision == expectedRevision
     }
 
     /// Make another profile the active one: its library replaces this one's everywhere at once,
