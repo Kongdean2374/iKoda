@@ -58,6 +58,7 @@ struct AnimatedCover: View {
     }
 
     private func find(sessionRevision: UInt64) async {
+        guard !Task.isCancelled, app.artworkSessionRevision == sessionRevision else { return }
         let setting = app.settings.animatedArt
         guard let song, setting != .off, allowed else {
             show(nil)
