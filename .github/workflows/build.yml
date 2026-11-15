@@ -143,7 +143,12 @@ jobs:
           mkdir dmg
           cp -R build/Build/Products/Release-maccatalyst/Koda.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname Koda -srcfolder dmg -fs APFS -format ULFO -ov "${{ steps.version.outputs.dmg_name }}"
+          # APFS metadata can exceed hdiutil's automatic source-folder estimate.
+          # Leave 25% plus 128 MiB inside the image; empty space compresses away.
+          source_kb=$(du -sk dmg | awk '{print $1}')
+          image_mb=$(( (source_kb * 5 + 4095) / 4096 + 128 ))
+          df -h .
+          hdiutil create -volname Koda -srcfolder dmg -size "${image_mb}m" -fs APFS -format ULFO -ov "${{ steps.version.outputs.dmg_name }}"
           ls -lh "${{ steps.version.outputs.dmg_name }}"
 
       - uses: actions/upload-artifact@v7
