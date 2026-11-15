@@ -212,7 +212,7 @@ extension AppModel {
         guard !Task.isCancelled, home === model, roster.activeID == model.profile else { return }
         if let homeLoadTask { await homeLoadTask.value; return }
         let token = UUID()
-        let task = Task { @MainActor [self] in
+        let task = Task { @MainActor [self, model] in
             defer {
                 if homeLoadID == token { homeLoadTask = nil; homeLoadID = nil }
             }
