@@ -299,17 +299,17 @@ final class CloudPlaylistCoordinator {
                           canRetry: false, canDismiss: false, canRecoverCreation: false)
         let task = Task { @MainActor [self] in
             try await context.app.withCloudAccountWork {
-                try await validate(profileID: context.profileID, generation: context.generation)
+                try await self.validate(profileID: context.profileID, generation: context.generation)
                 #if DEBUG
-                if testingTransport != nil {
-                    guard let testingLike else { throw CloudPlaylistError.unsupported }
+                if self.testingTransport != nil {
+                    guard let testingLike = self.testingLike else { throw CloudPlaylistError.unsupported }
                     return try await testingLike(song)
                 }
                 #endif
                 try await context.app.music.setLiked(videoId: song.id, liked: true)
-                try await validate(profileID: context.profileID, generation: context.generation)
+                try await self.validate(profileID: context.profileID, generation: context.generation)
                 let liked = try await context.app.music.likedSongs()
-                try await validate(profileID: context.profileID, generation: context.generation)
+                try await self.validate(profileID: context.profileID, generation: context.generation)
                 guard let confirmed = liked.first(where: { $0.id == song.id }) else { throw CloudPlaylistError.unconfirmedWrite }
                 return confirmed
             }
@@ -373,7 +373,7 @@ final class CloudPlaylistCoordinator {
                 // A profile may have switched away and back while an old Create
                 // was returning its ID. Read the durable receipt only after that
                 // older task has released the shared account barrier.
-                let persisted = try await journal.load(in: directory)
+                let persisted = try await self.journal.load(in: directory)
                 try await validate()
                 var effective = receipt
                 if let persisted {
@@ -381,22 +381,22 @@ final class CloudPlaylistCoordinator {
                         guard persisted.operation == receipt.operation else { throw CloudPlaylistError.invalidOperation }
                         if recoveringCreation {
                             guard persisted.playlistID == nil, persisted.pending?.kind == .create else {
-                                checkpoint = persisted
-                                operation = Self.state(persisted, phase: .needsConfirmation)
+                                self.checkpoint = persisted
+                                self.operation = Self.state(persisted, phase: .needsConfirmation)
                                 throw CloudAccountAccessError.unresolved
                             }
                         } else {
                             effective = persisted
                         }
                     } else if !persisted.isComplete {
-                        checkpoint = persisted
-                        operation = Self.state(persisted, phase: .needsConfirmation)
+                        self.checkpoint = persisted
+                        self.operation = Self.state(persisted, phase: .needsConfirmation)
                         throw CloudAccountAccessError.unresolved
                     }
                 }
-                checkpoint = effective
-                try await journal.save(effective, in: directory)
-                return try await CloudPlaylistRunner.run(effective, transport: transport, validate: validate) { [weak self, journal] next in
+                self.checkpoint = effective
+                try await self.journal.save(effective, in: directory)
+                return try await CloudPlaylistRunner.run(effective, transport: transport, validate: validate) { [weak self, journal = self.journal] next in
                     // A successful Create ID is valuable even after cancellation or
                     // switching accounts. Always save its original profile first.
                     try await journal.save(next, in: directory)

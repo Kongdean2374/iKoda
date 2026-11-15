@@ -18,6 +18,15 @@ private final class CatcherGate<Value: Sendable> {
     }
 }
 
+/// A caller's account/playback intent changes on MainActor while an external
+/// permission or catalog callback is suspended. Keep that state actor-isolated,
+/// rather than capturing a mutable stack variable across the asynchronous flow.
+@MainActor
+private final class CatcherTestIntent {
+    private(set) var isCurrent = true
+    func invalidate() { isCurrent = false }
+}
+
 @MainActor
 private final class CatcherTestProvider: MusicRecognitionProviding {
     var isAvailable = true
@@ -98,11 +107,11 @@ struct MusicRecognitionTests {
     @Test func changedAccountOrPlaybackIntentRejectsPermissionGrant() async {
         let provider = CatcherTestProvider()
         let flow = MusicRecognitionFlow()
-        var current = true
-        let work = flow.start(provider: provider, isCurrent: { current }, beforeRecording: { true },
+        let intent = CatcherTestIntent()
+        let work = flow.start(provider: provider, isCurrent: { intent.isCurrent }, beforeRecording: { true },
                               stoppedRecording: { _ in }, search: { _ in [] })
         _ = await provider.permissionStarted.wait()
-        current = false
+        intent.invalidate()
         provider.permission.release(true)
         await work.value
         #expect(provider.recognitionCalls == 0)
@@ -215,11 +224,11 @@ struct MusicRecognitionTests {
         let flow = MusicRecognitionFlow()
         let searching = CatcherGate<Bool>()
         let results = CatcherGate<[Song]>()
-        var current = true
-        let work = flow.start(provider: provider, isCurrent: { current }, beforeRecording: { true },
+        let intent = CatcherTestIntent()
+        let work = flow.start(provider: provider, isCurrent: { intent.isCurrent }, beforeRecording: { true },
                               stoppedRecording: { _ in }, search: { _ in searching.release(true); return await results.wait() })
         _ = await searching.wait()
-        current = false
+        intent.invalidate()
         results.release([song])
         await work.value
         #expect(flow.phase == .idle && flow.candidates.isEmpty)

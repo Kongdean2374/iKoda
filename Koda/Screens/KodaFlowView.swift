@@ -78,7 +78,7 @@ struct KodaFlowView: View {
                         .accessibilityIdentifier("flow.error")
                 }
                 if let plan {
-                    Section("Flow Preview") {
+                    Section {
                         LabeledContent("Songs", value: plan.songs.count.formatted())
                             .accessibilityIdentifier("flow.preview.count")
                         LabeledContent("Estimated Duration", value: duration(plan.estimatedDuration))
@@ -109,6 +109,8 @@ struct KodaFlowView: View {
                         Button("Start Flow", systemImage: "play.fill", action: start)
                             .disabled(plan.songs.isEmpty || preparing || !app.cloudPlaylists.hasSession)
                             .accessibilityIdentifier("flow.start")
+                    } header: {
+                        Text("Flow Preview")
                     } footer: {
                         Text("Durations come from the song information. AutoMix and crossfade can shorten playback. Flow ends without starting a recommendation radio; use the Sleep Timer if you need a fixed stopping time.")
                     }
