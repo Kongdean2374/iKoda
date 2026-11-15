@@ -151,3 +151,34 @@ jobs:
           name: ${{ steps.version.outputs.artifact_name }}-mac
           path: ${{ steps.version.outputs.dmg_name }}
           retention-days: 30
+
+  simulator:
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [compact, large]
+    runs-on: xcode-27
+    # Isolate each size on a fresh runner: a second boot on a heavily used runner
+    # can stall accessibility snapshots. Retain logs even if one size fails.
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compute release identity
+        id: version
+        run: python3 scripts/build-version.py --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate controls on available iPhone Simulators
+        timeout-minutes: 45
+        env:
+          KODA_UI_DEVICE: ${{ matrix.device }}
+        run: python3 scripts/run-ui-smoke.py
+
+      - name: Upload UI results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}-ui-smoke-${{ matrix.device }}
+          path: ui-smoke-results/
+          if-no-files-found: warn
+          retention-days: 30

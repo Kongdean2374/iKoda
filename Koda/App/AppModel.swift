@@ -51,6 +51,11 @@ final class AppModel {
     var linkError: String?
     /// Only the newest album-card or shared-song lookup may replace the queue.
     @ObservationIgnored private var playbackLookupTask: Task<Void, Never>?
+    /// Views include this admission generation in their task identity, even when a stop
+    /// and manual resume happen in the same UI update and the Boolean ends unchanged.
+    private(set) var artworkSessionRevision: UInt64 = 0
+    @ObservationIgnored private var artworkSessionFinished: Bool?
+    @ObservationIgnored private var artworkSessionTask: Task<Void, Never>?
     /// The sheet that adds a profile, asked for from a toolbar menu, the profile page or the Mac's sidebar.
     var isAddingProfile = false
     /// The pane the Mac's Settings window should show when it next opens or is already open.
@@ -133,7 +138,6 @@ final class AppModel {
         }
         // Music intent wins immediately, including time spent loading a playlist or stream.
         // Waiting for onSongStarted would let an old video load/countdown reclaim playback.
-        player.onPlaybackRequested = { [videos] in videos.pause() }
         player.onSongStarted = { [library, videos] song in
             // A song and a video never play over each other.
             videos.pause()
@@ -209,7 +213,51 @@ final class AppModel {
                 settings.hasSeenOnboarding = true
             }
         }
+        // A deliberate listening-session finish closes background preparation before
+        // Player considers releasing AVAudioSession. Foregrounding never reopens it.
+        player.onPlaybackRequested = { [weak self] in
+            guard let self, !self.player.isPlaybackSessionFinished else { return }
+            self.videos.pause()
+            self.lyricsPreparation.resumePlaybackSession()
+            self.setArtworkSessionFinished(false)
+        }
+        player.onPlaybackSessionFinished = { [weak self] in
+            guard let self else { return }
+            self.cancelPlaybackLookup()
+            self.lyricsPreparation.finishPlaybackSession()
+            self.setArtworkSessionFinished(true)
+        }
+        player.canDeactivateAudioSession = { [videos] in
+            !videos.ownsAudioSession && !VoiceSearch.ownsAudioSession
+        }
+        VoiceSearch.canDeactivateAfterRecording = { [weak player, weak videos] in
+            guard let player, let videos else { return false }
+            return !player.ownsAudioSession && !videos.ownsAudioSession
+        }
+        setArtworkSessionFinished(player.isPlaybackSessionFinished)
         lyricsPreparation.start()
+    }
+
+    private func setArtworkSessionFinished(_ finished: Bool) {
+        guard artworkSessionFinished != finished else { return }
+        artworkSessionFinished = finished
+        artworkSessionRevision &+= 1
+        let revision = artworkSessionRevision
+        artworkSessionTask = Task { [motionArtwork] in
+            await motionArtwork.setPlaybackSessionFinished(finished, revision: revision)
+        }
+    }
+
+    /// AV/SwiftUI callers await the actor's admission before asking for artwork. Without
+    /// this barrier an immediate manual resume could read the still-closed actor once,
+    /// then keep a missing cover because no later view input had changed.
+    func waitForArtworkSession(expectedRevision: UInt64) async -> Bool {
+        guard !Task.isCancelled, !player.isPlaybackSessionFinished,
+              artworkSessionRevision == expectedRevision else { return false }
+        let admission = artworkSessionTask
+        await admission?.value
+        return !Task.isCancelled && !player.isPlaybackSessionFinished
+            && artworkSessionRevision == expectedRevision
     }
 
     /// Make another profile the active one: its library replaces this one's everywhere at once,

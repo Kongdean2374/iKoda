@@ -54,6 +54,12 @@ final class VideoPlayback {
     private(set) var pageOnScreen: String?
 
     let player = AVPlayer()
+    /// Audio-session arbitration uses actual video intent and native presentation state,
+    /// including a buffered load or a PiP handoff that has not reported "playing" yet.
+    var ownsAudioSession: Bool {
+        intent.wantsToPlay || isLoading || isPlaying || isBuffering || hasExternalPresentation
+            || player.rate > 0 || player.timeControlStatus != .paused
+    }
     static let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
     /// The rates a hold can reach by sliding sideways.
     static let boostRange: ClosedRange<Float> = 1.25...3

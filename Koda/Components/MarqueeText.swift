@@ -8,6 +8,7 @@ struct MarqueeText: View {
     var font: Font
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var textWidth: CGFloat = 0
     @State private var boxWidth: CGFloat = 0
     @State private var offset: CGFloat = 0
@@ -20,7 +21,7 @@ struct MarqueeText: View {
     private static let rest: Duration = .seconds(2.5)
     private static let fade: CGFloat = 14
 
-    private var overflows: Bool { !reduceMotion && textWidth > boxWidth + 1 }
+    private var overflows: Bool { !reduceMotion && scenePhase == .active && textWidth > boxWidth + 1 }
 
     var body: some View {
         // The truncated line sets the height and takes the width offered; it is what shows

@@ -458,3 +458,60 @@ private actor ControlledLyricsEngine {
         for continuation in waiting { continuation.resume(throwing: CancellationError()) }
     }
 }
+
+extension AutomaticLyricTranslationPipelineTests {
+    @Test(.timeLimit(.minutes(1)))
+    func finishedListeningSessionRejectsForegroundRetriesAndKeepsCompletedText() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine()
+        let service = pipeline(directory: folder, engine: engine)
+        defer { service.suspend(); Task { await engine.finishAll() }; try? FileManager.default.removeItem(at: folder) }
+        let current = input("deep-stop", count: 3)
+        service.setRequests(current: current, upcoming: [input("future")], enabled: true, isForeground: true)
+        try await engine.waitForCalls(1)
+        let fragments = await engine.fragments(at: 0)
+        await engine.publish(0, values: [fragments[0].id: "已保存"])
+        service.setPlaybackSessionFinished(true)
+        await service.flush()
+        service.setRequests(current: current, upcoming: [input("future")], enabled: true, isForeground: true)
+        service.retry(songID: current.songID)
+        await engine.publish(0, values: [fragments[1].id: "不應出現"])
+        #expect(service.snapshot(for: current).lines == [0: "已保存"])
+        await engine.finish(0)
+        try await eventually { !service.isWorking }
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: false, allowsBackgroundCurrent: true)
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: true)
+        service.retry(songID: current.songID)
+        #expect(await engine.count == 1)
+        #expect(service.snapshot(for: current).phase == .paused)
+
+        service.setPlaybackSessionFinished(false)
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: true)
+        try await engine.waitForCalls(2)
+        let missing = await engine.fragments(at: 1)
+        #expect(missing.map(\.id) == Array(fragments.dropFirst()).map(\.id))
+        await engine.publish(1, values: Dictionary(uniqueKeysWithValues: missing.map { ($0.id, "繼續") }))
+        await engine.finish(1)
+        try await eventually { !service.isWorking }
+        #expect(service.snapshot(for: current).phase == .ready)
+        #expect(service.snapshot(for: current).lines[0] == "已保存")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func restoredFinishedSessionCannotStartTranslationUntilManualPlaybackResumes() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine()
+        let service = pipeline(directory: folder, engine: engine)
+        defer { service.suspend(); Task { await engine.finishAll() }; try? FileManager.default.removeItem(at: folder) }
+        let current = input("restored-stop", count: 1)
+        service.setPlaybackSessionFinished(true)
+        service.setRequests(current: current, upcoming: [input("future")], enabled: true, isForeground: true)
+        service.retry(songID: current.songID)
+        #expect(!service.isWorking)
+        #expect(await engine.count == 0)
+        service.setPlaybackSessionFinished(false)
+        #expect(!service.isWorking) // The owner must reconcile the selected song first.
+        service.setRequests(current: current, upcoming: [], enabled: true, isForeground: true)
+        try await engine.waitForCalls(1)
+        await engine.finish(0, outcome: .unavailable)
+        try await eventually { !service.isWorking }
+    }
+}

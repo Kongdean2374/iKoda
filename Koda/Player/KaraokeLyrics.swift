@@ -13,6 +13,8 @@ struct SyncedLyrics: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @Environment(Library.self) private var library
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var userScrolled = false
     /// How far the lines have scrolled up, up to `topFadeHeight`: the top fade grows with it.
     @State private var topFade: CGFloat = 0
@@ -93,7 +95,7 @@ struct SyncedLyrics: View {
             .frame(height: 44)
             .padding(.top, 6)
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: userScrolled)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: userScrolled)
         .onChange(of: desiredExtras, initial: true) { _, presentation in
             if scroll.isIdle { applyExtras(presentation) }
         }
@@ -118,7 +120,10 @@ struct SyncedLyrics: View {
 
     private func lyricContent() -> some View {
         @Bindable var scroll = scroll
-        return TimelineView(.periodic(from: .now, by: 0.1)) { context in
+        // An observed seek still redraws a paused clock. Resuming supplies a fresh date;
+        // scheduling does not change lyric times, translation mapping or word timing.
+        return TimelineView(.animation(minimumInterval: 0.1,
+                                       paused: !player.wantsToPlay || scenePhase != .active)) { context in
             let time = player.position(at: context.date) + Self.lead - offset
             let current = Lyrics.index(of: time, in: lines)
             let interlude = Interlude(lines: lines, current: current, time: time)
@@ -160,8 +165,8 @@ struct SyncedLyrics: View {
                 .padding(.top, 12)
                 .padding(.bottom, 380)
                 .padding(.horizontal, SyncedLyrics.bleed)
-                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: current)
-                .animation(.spring(response: 0.45, dampingFraction: 0.8), value: interlude?.after)
+                .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.85), value: current)
+                .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.8), value: interlude?.after)
                 .lyricsContentFrame(revision: scroll.revision)
                 .scrollTargetLayout()
             }
@@ -189,12 +194,12 @@ struct SyncedLyrics: View {
                 // waiting indefinitely for an idle phase between lines.
                 applyExtras(desiredExtras)
                 scroll.cancelCorrection()
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: index, anchor: UnitPoint(x: 0, y: 0.32)) }
+                withAnimation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: index, anchor: UnitPoint(x: 0, y: 0.32)) }
             }
             .onChange(of: userScrolled) { _, scrolled in
                 guard !scrolled, let current else { return }
                 scroll.cancelCorrection()
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: current, anchor: UnitPoint(x: 0, y: 0.32)) }
+                withAnimation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.9)) { scroll.position.scrollTo(id: current, anchor: UnitPoint(x: 0, y: 0.32)) }
             }
             .onAppear {
                 if let current { scroll.position.scrollTo(id: current, anchor: UnitPoint(x: 0, y: 0.32)) }
@@ -311,6 +316,7 @@ struct LyricRow: View {
     var extra: String? = nil
     var isTranslation = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     nonisolated static let defaultFontSize: CGFloat = 30
     /// Where the line sits: every line on the left unless Duet Sides is on.
@@ -378,8 +384,8 @@ struct LyricRow: View {
         .compositingGroup()
         .opacity(isCurrent ? 1 : distance <= 1 ? 0.42 : 0.3)
         .blur(radius: isCurrent ? 0 : min(Double(max(distance - 1, 0)) * 0.7, 2.4))
-        .scaleEffect(isCurrent ? 1 : 0.97, anchor: UnitPoint(x: voice == .duet ? 1 : voice == .together ? 0.5 : 0, y: 0.5))
-        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: isCurrent)
+        .scaleEffect(isCurrent || reduceMotion ? 1 : 0.97, anchor: UnitPoint(x: voice == .duet ? 1 : voice == .together ? 0.5 : 0, y: 0.5))
+        .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.85), value: isCurrent)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(extra.map { "\(line.text), \($0)" } ?? line.text)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
@@ -403,11 +409,12 @@ private struct KaraokeLine: View {
     let player: Player
     var showsLead = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     private var motion: Bool { style.motion && !reduceMotion }
 
     var body: some View {
-        TimelineView(.animation(paused: !player.wantsToPlay)) { context in
+        TimelineView(.animation(paused: !player.wantsToPlay || scenePhase != .active)) { context in
             let time = player.position(at: context.date) + SyncedLyrics.lead - offset
             VStack(alignment: alignment, spacing: 6) {
                 if showsLead {

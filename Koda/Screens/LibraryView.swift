@@ -31,6 +31,7 @@ struct LibraryView: View {
     @Environment(Downloads.self) private var downloads
     @AppStorage("koda.library.sort") private var sort: LibrarySort = .recent
     @State private var showsProfile = false
+    @State private var showsMerge = false
 
     private var isEmpty: Bool {
         library.liked.isEmpty && library.albums.isEmpty && library.playlists.isEmpty && library.artists.isEmpty
@@ -93,6 +94,11 @@ struct LibraryView: View {
         .refreshable { if app.roster.active.isSignedIn { await app.refreshAccount() } }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Menu("Playlist Tools", systemImage: "ellipsis") {
+                    Button("Merge Playlists", systemImage: "square.stack.3d.up") { showsMerge = true }
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu(String(localized: "Sort"), systemImage: "arrow.up.arrow.down") {
                     Picker(String(localized: "Sort By"), selection: $sort) {
                         ForEach(LibrarySort.allCases) { option in
@@ -107,6 +113,7 @@ struct LibraryView: View {
             }
         }
         .sheet(isPresented: $showsProfile) { ProfileView().appEnvironment(app) }
+        .sheet(isPresented: $showsMerge) { PlaylistMergeView().appEnvironment(app) }
     }
 
     // MARK: Your playlists

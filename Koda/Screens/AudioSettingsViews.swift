@@ -26,9 +26,10 @@ struct EqualizerSettingsView: View {
             Section {
                 ForEach(EqualizerPreset.allCases) { preset in
                     Button {
-                        player.equalizer = preset
-                        player.soundSettings.customEnabled = false
-                        player.soundSettings.enabled = true
+                        var settings = player.soundSettings
+                        settings.customEnabled = false
+                        settings.enabled = true
+                        player.applySoundProfile(settings, preset: preset)
                     } label: {
                         HStack {
                             Text(preset.title).foregroundStyle(.primary)

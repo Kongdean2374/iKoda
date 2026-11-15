@@ -10,6 +10,8 @@ import SwiftUI
 /// only this bar redraws as the song plays, never the screen around it.
 struct Scrubber: View {
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var dragFraction: Double?
     /// Where the bar was when the finger came down.
     @State private var dragStart: Double?
@@ -17,7 +19,8 @@ struct Scrubber: View {
     var body: some View {
         // Four times a second is enough for a song's progress; through an AutoMix transition the
         // outgoing song's bar fades smoothly, so the timeline runs at frame rate then.
-        TimelineView(.animation(minimumInterval: player.mixing == nil ? 0.25 : 1.0 / 30)) { context in
+        TimelineView(.animation(minimumInterval: player.mixing == nil || reduceMotion ? 0.25 : 1.0 / 30,
+                                paused: (!player.wantsToPlay && player.mixing == nil) || scenePhase != .active)) { context in
             let duration = max(player.duration, 1)
             let fraction = dragFraction ?? min(1, player.position(at: context.date) / duration)
             let mixing = player.mixing
@@ -59,7 +62,7 @@ struct Scrubber: View {
                             })
                 }
                 .frame(height: 24)
-                .animation(.spring(response: 0.3, dampingFraction: 0.75), value: dragFraction == nil)
+                .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.75), value: dragFraction == nil)
 
                 HStack {
                     Text(format(fraction * duration))
@@ -76,7 +79,7 @@ struct Scrubber: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                 }
-                .animation(.smooth(duration: 0.4), value: mixing)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: mixing)
             }
             .accessibilityElement()
             .accessibilityLabel("Position")
@@ -102,6 +105,7 @@ struct Scrubber: View {
 /// the distance dragged, so brushing its loud end never jumps to full volume.
 struct VolumeSlider: View {
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var volume = SystemVolume()
     @State private var dragging = false
     /// The level when the finger came down.
@@ -120,7 +124,7 @@ struct VolumeSlider: View {
                         .frame(width: max(0, width * CGFloat(level)))
                         // Changes from the volume buttons ease in with the system's smooth spring;
                         // under the finger the bar follows directly, with no lag.
-                        .animation(dragging ? nil : .smooth, value: level)
+                        .animation(dragging || reduceMotion ? nil : .smooth, value: level)
                 }
                 .frame(height: dragging ? 12 : 6)
                 .frame(maxHeight: .infinity)
@@ -139,7 +143,7 @@ struct VolumeSlider: View {
                         })
             }
             .frame(height: 24)
-            .animation(.smooth, value: dragging)
+            .animation(reduceMotion ? nil : .smooth, value: dragging)
             Image(systemName: "speaker.wave.3.fill")
                 .font(.caption)
                 .accessibilityHidden(true)

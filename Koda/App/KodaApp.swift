@@ -19,7 +19,17 @@ struct KodaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-KodaUISmokeTests") {
+                    KodaUITestFixture()
+                } else {
+                    RootView()
+                }
+                #else
+                RootView()
+                #endif
+            }
                 .appEnvironment(model)
                 .background {
                     if !model.isNowPlayingPresented {

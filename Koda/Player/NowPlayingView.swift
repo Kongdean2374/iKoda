@@ -22,9 +22,10 @@ struct NowPlayingView: View {
     @State private var size: CGSize = .zero
     @State private var utility: PlayerUtility?
 
-    private enum PlayerUtility: Identifiable {
-        case sound, audio
+    private enum PlayerUtility: Hashable, Identifiable {
+        case sound, audio, sleep(custom: Bool)
         var id: Self { self }
+        var isSleepTimer: Bool { if case .sleep = self { return true }; return false }
     }
 
     /// With a tall loop the album's art moves in place of the square cover, as Music shows it:
@@ -41,14 +42,14 @@ struct NowPlayingView: View {
             if isWide, player.current != nil {
                 SideMotionArt(song: player.current, isPlaying: player.wantsToPlay, beside: panel != .artwork) { hasTallArt = $0 }
                     .opacity(showsMotionArt ? 1 : 0)
-                    .animation(.smooth(duration: 0.6), value: showsMotionArt)
-                    .animation(.smooth(duration: 0.45), value: panel)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: showsMotionArt)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: panel)
             }
             if !isWide, player.current != nil {
                 // Kept while lyrics or the queue are open, paused, so coming back doesn't load it again.
                 FullScreenMotionArt(song: player.current, isPlaying: player.wantsToPlay && panel == .artwork) { hasTallArt = $0 }
                     .opacity(showsMotionArt ? 1 : 0)
-                    .animation(.smooth(duration: 0.6), value: showsMotionArt)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: showsMotionArt)
             }
             if isWide { wideLayout } else { tallLayout }
         }
@@ -74,21 +75,30 @@ struct NowPlayingView: View {
             setPanel(requested)
         }
         .playlistPicker(whenOnTop: true)
-        .sheet(item: $utility) { destination in
+        .sheet(item: $utility, onDismiss: { app.sleepTimer.clearError() }) { destination in
             NavigationStack {
                 Group {
                     switch destination {
                     case .sound: AudioCenterView()
                     case .audio: AudioInformationView()
+                    case .sleep(let custom): SleepTimerSettingsView(startsWithCustomDuration: custom)
                     }
                 }
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { utility = nil }
+                            .accessibilityIdentifier(destination.isSleepTimer ? "sleep.timer.done" : "player.utility.done")
                     }
                 }
             }
             .appEnvironment(app)
+        }
+        .alert("Couldn't Set Sleep Timer", isPresented: Binding(
+            get: { utility == nil && app.sleepTimer.errorMessage != nil },
+            set: { if !$0 { app.sleepTimer.clearError() } })) {
+            Button("OK", role: .cancel) { app.sleepTimer.clearError() }
+        } message: {
+            Text(app.sleepTimer.errorMessage ?? "")
         }
     }
 
@@ -205,7 +215,7 @@ struct NowPlayingView: View {
             }
             Spacer()
             if app.sleepTimer.isActive {
-                SleepTimerPill()
+                SleepTimerPill { utility = .sleep(custom: $0) }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
             } else {
                 // The phone's grab handle; on the Mac the player closes with its button or Esc.
@@ -221,7 +231,7 @@ struct NowPlayingView: View {
                     }
                     SongMenuItems(song: song)
                     Section {
-                        SleepTimerMenu()
+                        SleepTimerMenu { utility = .sleep(custom: $0) }
                         if panel == .lyrics { LyricsTimingMenu(songId: song.id) }
                     }
                     Section {
@@ -240,7 +250,7 @@ struct NowPlayingView: View {
             }
         }
         .padding(.top, 8)
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: app.sleepTimer.isActive)
+        .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.8), value: app.sleepTimer.isActive)
     }
 
     /// Where the big cover goes. The cover itself is `floatingArtwork`, drawn once over
@@ -268,14 +278,14 @@ struct NowPlayingView: View {
             .clipShape(.rect(cornerRadius: radius, style: .continuous))
             .shadow(color: .black.opacity(big ? (isLoadingSong ? 0.2 : 0.35) : 0.25), radius: big ? 30 : 8, y: big ? 18 : 4)
             // The cover breathes back when paused, like a record lifted off.
-            .scaleEffect(big ? (player.wantsToPlay ? (isLoadingSong ? 0.93 : 1) : 0.84) : 1)
-            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: player.wantsToPlay)
+            .scaleEffect(big && !reduceMotion ? (player.wantsToPlay ? (isLoadingSong ? 0.93 : 1) : 0.84) : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.7), value: player.wantsToPlay)
             // No bounce: sound arriving is not a gesture with momentum behind it.
-            .animation(.smooth(duration: 0.45), value: isLoadingSong)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: isLoadingSong)
             .matchedGeometryEffect(id: "artwork", in: artworkSpace, isSource: false)
             // The full-screen loop takes the square cover's place.
             .opacity(showsMotionArt && (isWide || panel == .artwork) ? 0 : 1)
-            .animation(.smooth(duration: 0.6), value: showsMotionArt)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: showsMotionArt)
             .onTapGesture { if !big { setPanel(.artwork) } }
             .accessibilityHidden(true)
     }
@@ -330,7 +340,7 @@ struct NowPlayingView: View {
             panelButton(.lyrics, systemImage: "quote.bubble", activeImage: "quote.bubble.fill", label: "Lyrics")
                 .frame(maxWidth: .infinity)
             AirPlayButton()
-                .frame(width: 52, height: 40)
+                .frame(width: 52, height: ControlMetrics.touchTarget)
                 .frame(maxWidth: .infinity)
             panelButton(.queue, systemImage: "list.bullet", activeImage: "list.bullet", label: "Queue")
                 .frame(maxWidth: .infinity)
@@ -345,7 +355,7 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: active ? activeImage : systemImage)
                 .font(.body.weight(.semibold))
-                .frame(width: 52, height: 40)
+                .frame(width: 52, height: ControlMetrics.touchTarget)
         }
         .buttonStyle(PlayerToggleStyle(isOn: active))
         .sensoryFeedback(.selection, trigger: active)
@@ -364,15 +374,16 @@ struct MeshBackground: View {
     let palette: Palette
     let isAnimating: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !isAnimating || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !isAnimating || reduceMotion || scenePhase != .active)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             MeshGradient(width: 3, height: 3, points: points(t), colors: palette.mesh)
         }
         .overlay(Color.black.opacity(0.18))
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.8), value: palette)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.8), value: palette)
     }
 
     private func points(_ t: TimeInterval) -> [SIMD2<Float>] {
@@ -389,6 +400,7 @@ struct MeshBackground: View {
 struct LikeButton: View {
     let song: Song
     @Environment(Library.self) private var library
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let liked = library.isLiked(song)
@@ -400,6 +412,7 @@ struct LikeButton: View {
                 .foregroundStyle(liked ? Color.pink : .white)
                 .contentTransition(.symbolEffect(.replace))
                 .symbolEffect(.bounce, value: liked)
+                .symbolEffectsRemoved(reduceMotion)
                 // Drawn at the trailing edge of its tap area, so the heart lines up with the
                 // end of the progress bar rather than sitting inside it.
                 .frame(width: 44, height: 44, alignment: .trailing)
@@ -417,6 +430,7 @@ struct LikeButton: View {
 struct TransportControls: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var backs = 0
     @State private var forwards = 0
     @State private var rewinds = 0
@@ -465,6 +479,7 @@ struct TransportControls: View {
             Image(systemName: symbol)
                 .font(.system(size: size))
                 .symbolEffect(.bounce.down, value: taps)
+                .symbolEffectsRemoved(reduceMotion)
                 // Up to 72 wide: five to a row still fits the narrowest iPhone.
                 .frame(maxWidth: 72, minHeight: 60)
         }
@@ -476,6 +491,7 @@ struct TransportControls: View {
 /// A soft circle behind the symbol while it is held, as Music's transport buttons show.
 private struct TransportButtonStyle: ButtonStyle {
     var diameter: CGFloat = 64
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -485,8 +501,8 @@ private struct TransportButtonStyle: ButtonStyle {
                     .frame(width: diameter, height: diameter)
             }
             .contentShape(.rect)
-            .scaleEffect(configuration.isPressed ? 0.9 : 1)
-            .animation(.snappy(duration: 0.2), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.9 : 1)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: configuration.isPressed)
     }
 }
 
@@ -497,6 +513,7 @@ struct PlayerToggleStyle: ButtonStyle {
     var isOn: Bool
     /// The fill behind the symbol while off: none for a lone symbol, faint for a row of toggles.
     var offFill: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         let pressed = configuration.isPressed
@@ -509,9 +526,9 @@ struct PlayerToggleStyle: ButtonStyle {
                 Capsule().fill(Color.primary.opacity(isOn ? (pressed ? 0.85 : 1) : offFill + (pressed ? 0.12 : 0)))
             }
             .contentShape(.capsule)
-            .scaleEffect(pressed ? 0.95 : 1)
-            .animation(.snappy(duration: 0.2), value: pressed)
-            .animation(.smooth(duration: 0.25), value: isOn)
+            .scaleEffect(pressed && !reduceMotion ? 0.95 : 1)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: pressed)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: isOn)
     }
 }
 
@@ -526,29 +543,38 @@ private struct FailureBanner: View {
             Button("Retry", action: retry).font(.footnote.weight(.semibold)).buttonStyle(.glass)
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .kodaGlassSurface(in: .rect(cornerRadius: 16))
     }
 }
 
 /// Time left on the sleep timer, at the top of Now Playing; a tap changes or ends it.
 private struct SleepTimerPill: View {
+    let openSettings: (Bool) -> Void
     @Environment(AppModel.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Menu {
-            SleepTimerMenu()
+            SleepTimerActions(openSettings: openSettings)
         } label: {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Label(app.sleepTimer.label(at: context.date), systemImage: "moon.fill")
+            TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { _ in
+                let remaining = app.sleepTimer.label(at: .now)
+                Label(remaining, systemImage: "moon.fill")
                     .font(.footnote.weight(.semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .padding(.horizontal, 12)
                     .frame(height: 30)
+                    .accessibilityLabel("Sleep timer")
+                    .accessibilityValue(remaining)
             }
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .kodaGlassSurface(in: .capsule, interactive: true)
+            .frame(minHeight: ControlMetrics.touchTarget)
+            .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .accessibilityLabel("Sleep timer")
+        .accessibilityIdentifier("sleep.timer.pill")
     }
 }
 

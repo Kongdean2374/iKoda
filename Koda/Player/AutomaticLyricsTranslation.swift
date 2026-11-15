@@ -16,6 +16,7 @@ nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
     var lines: [Int: String] = [:]
     var completed = 0
     var total = 0
+    var playbackSessionFinished = false
 }
 
 /// Installed language sessions belong to the work task, not to any lyrics view.
@@ -197,7 +198,11 @@ struct AutomaticLyricsNotice: View {
                 Button("Retry Translation", action: retry)
             }
         case .paused:
-            Text("Translation is paused. Saved translations are kept and remaining lines resume when the app is active.")
+            if result.playbackSessionFinished {
+                Text("The listening session has ended. Play music to resume translation. Saved translations are kept.")
+            } else {
+                Text("Translation is paused. Saved translations are kept and remaining lines resume when the app is active.")
+            }
         case .unavailable:
             Text("On-device translation is unavailable for some lyric languages. Available translations are shown; unsupported text keeps its original wording.")
         case .failed:

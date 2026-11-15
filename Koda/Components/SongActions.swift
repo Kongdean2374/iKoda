@@ -101,7 +101,7 @@ struct SongMenuButton: View {
             Image(systemName: "ellipsis")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 36, height: 44)
+                .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
                 .contentShape(.rect)
         }
         .accessibilityLabel("More")

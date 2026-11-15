@@ -138,30 +138,42 @@ public nonisolated enum TrackAnalyzer {
     public static let sampleRate: Double = 22_050
 
     public static func analyze(_ samples: [Float], sampleRate: Double = sampleRate) -> TrackAnalysis {
+        analyze(samples, sampleRate: sampleRate, checkCancellation: {})
+    }
+
+    /// The player's detached measurement checks cancellation between bounded DSP chunks.
+    /// The public pure function keeps its existing behavior for callers without a task.
+    static func analyzeCancellable(_ samples: [Float], sampleRate: Double = sampleRate) throws -> TrackAnalysis {
+        try analyze(samples, sampleRate: sampleRate, checkCancellation: { try Task.checkCancellation() })
+    }
+
+    static func analyze(_ samples: [Float], sampleRate: Double, checkCancellation: () throws -> Void) rethrows -> TrackAnalysis {
+        try checkCancellation()
         let duration = Double(samples.count) / sampleRate
-        let levels = Levels(samples, sampleRate: sampleRate)
-        let onsets = Onsets(samples, sampleRate: sampleRate)
+        let levels = try Levels(samples, sampleRate: sampleRate, checkCancellation: checkCancellation)
+        let onsets = try Onsets(samples, sampleRate: sampleRate, checkCancellation: checkCancellation)
         var analysis = TrackAnalysis(duration: duration, musicStart: levels.musicStart, musicEnd: levels.musicEnd,
                                      bodyDb: levels.bodyDb, ending: levels.ending, outroStart: levels.outroStart,
                                      fadeCue: levels.fadeCue, introEnd: levels.introEnd, bpm: nil, tempoConfidence: 0)
         analysis.envelope = levels.envelope
         analysis.hiddenTail = levels.hiddenTail
         guard levels.musicEnd - levels.musicStart > 20 else { return analysis }
-        let tempo = onsets.tempo(from: levels.musicStart + 2, to: levels.musicEnd - 2)
+        let tempo = try onsets.tempo(from: levels.musicStart + 2, to: levels.musicEnd - 2, checkCancellation: checkCancellation)
         analysis.tempoConfidence = tempo.confidence
         guard let period = tempo.period else { return analysis }
         analysis.bpm = 60 / period
         // The grids are searched where transitions happen: the first and the last half minute of music.
         let introTo = min(levels.musicStart + 30, levels.musicEnd)
-        analysis.intro = onsets.grid(from: levels.musicStart, to: introTo, near: period)
+        analysis.intro = try onsets.grid(from: levels.musicStart, to: introTo, near: period, checkCancellation: checkCancellation)
         let outroTo = levels.ending == .fade ? (levels.fadeCue ?? levels.musicEnd) : levels.musicEnd
-        analysis.outro = onsets.grid(from: max(levels.musicStart, outroTo - 30), to: outroTo, near: period)
+        analysis.outro = try onsets.grid(from: max(levels.musicStart, outroTo - 30), to: outroTo, near: period, checkCancellation: checkCancellation)
         // Further back, every 12 s, a narrower search around the outro's own tempo.
         let refined = analysis.outro?.period ?? period
         var windowEnd = levels.musicEnd
         let earliest = max(levels.musicStart, levels.musicEnd - 170)
         while windowEnd - 24 >= earliest {
-            if let grid = onsets.grid(from: windowEnd - 24, to: windowEnd, near: refined, spread: 0.008) {
+            try checkCancellation()
+            if let grid = try onsets.grid(from: windowEnd - 24, to: windowEnd, near: refined, spread: 0.008, checkCancellation: checkCancellation) {
                 analysis.grids.append(grid)
             }
             windowEnd -= 12
@@ -187,13 +199,14 @@ public nonisolated enum TrackAnalyzer {
         /// A one-second moving window, every 0.1 s, for the shape of fades and intros.
         static let smoothHop = 0.1
 
-        init(_ samples: [Float], sampleRate: Double) {
+        init(_ samples: [Float], sampleRate: Double, checkCancellation: () throws -> Void) rethrows {
             let frameLength = Int(sampleRate * Self.frame)
             guard frameLength > 0, samples.count >= frameLength * 4 else { return }
             let frameCount = samples.count / frameLength
             var power = [Float](repeating: 0, count: frameCount)
-            samples.withUnsafeBufferPointer { buffer in
+            try samples.withUnsafeBufferPointer { buffer in
                 for i in 0..<frameCount {
+                    try checkCancellation()
                     var mean: Float = 0
                     vDSP_measqv(buffer.baseAddress! + i * frameLength, 1, &mean, vDSP_Length(frameLength))
                     power[i] = mean
@@ -234,6 +247,7 @@ public nonisolated enum TrackAnalyzer {
             var smooth: [Float] = []
             var i = 0
             while i < frameCount {
+                try checkCancellation()
                 let lo = max(0, i - halfWindow), hi = min(frameCount, i + halfWindow)
                 var sum: Float = 0
                 for j in lo..<hi { sum += power[j] }
@@ -319,7 +333,7 @@ public nonisolated enum TrackAnalyzer {
         static let hop = 256
         static let window = 1024
 
-        init(_ samples: [Float], sampleRate: Double) {
+        init(_ samples: [Float], sampleRate: Double, checkCancellation: () throws -> Void) rethrows {
             fps = sampleRate / Double(Self.hop)
             offset = Double(Self.window / 2) / sampleRate
             let n = Self.window
@@ -336,6 +350,7 @@ public nonisolated enum TrackAnalyzer {
             flux.reserveCapacity(samples.count / Self.hop)
             var start = 0
             while start + n <= samples.count {
+                try checkCancellation()
                 let frame = vDSP.multiply(samples[start..<(start + n)], hann)
                 let (re, im) = dft.transform(real: frame, imaginary: zeros)
                 var sum: Float = 0
@@ -381,15 +396,17 @@ public nonisolated enum TrackAnalyzer {
         /// The song's beat period in seconds, by autocorrelation of the onsets between `from`
         /// and `to`, each candidate scored with its multiples and leaning towards 120 BPM the
         /// way listeners do when a tempo could be heard as half or double.
-        func tempo(from: Double, to: Double) -> (period: Double?, confidence: Double) {
+        func tempo(from: Double, to: Double, checkCancellation: () throws -> Void) rethrows -> (period: Double?, confidence: Double) {
+            try checkCancellation()
             let lo = max(0, Int(index(from))), hi = min(values.count, Int(index(to)))
             guard hi - lo > Int(fps * 15) else { return (nil, 0) }
             let slice = Array(values[lo..<hi])
             let maxLag = Int(fps * 60 / 60 * 4) + 2
             guard slice.count > maxLag * 2 else { return (nil, 0) }
             var acf = [Float](repeating: 0, count: maxLag + 1)
-            slice.withUnsafeBufferPointer { buffer in
+            try slice.withUnsafeBufferPointer { buffer in
                 for lag in 0...maxLag {
+                    try checkCancellation()
                     var dot: Float = 0
                     vDSP_dotpr(buffer.baseAddress!, 1, buffer.baseAddress! + lag, 1, &dot, vDSP_Length(slice.count - lag))
                     acf[lag] = dot / Float(slice.count - lag)
@@ -406,6 +423,7 @@ public nonisolated enum TrackAnalyzer {
             var best: (score: Double, bpm: Double) = (-1, 0)
             var bpm = 60.0
             while bpm <= 200 {
+                try checkCancellation()
                 let lag = fps * 60 / bpm
                 let comb = r(lag) + r(2 * lag) / 2 + r(3 * lag) / 3 + r(4 * lag) / 4
                 let octaves = log2(bpm / 120)
@@ -424,7 +442,9 @@ public nonisolated enum TrackAnalyzer {
 
         /// The beat grid within `from`–`to`: the period within 3 % of `near` and the phase whose
         /// beats land on the strongest onsets.
-        func grid(from: Double, to: Double, near period: Double, spread: Double = 0.03) -> BeatGrid? {
+        func grid(from: Double, to: Double, near period: Double, spread: Double = 0.03,
+                  checkCancellation: () throws -> Void) rethrows -> BeatGrid? {
+            try checkCancellation()
             let lo = index(from), hi = index(to)
             let approx = period * fps
             guard hi - lo > approx * 8 else { return nil }
@@ -436,10 +456,12 @@ public nonisolated enum TrackAnalyzer {
             var best: (score: Float, period: Double, phase: Double) = (-1, approx, 0)
             var scale = 1 - spread
             while scale <= 1 + spread {
+                try checkCancellation()
                 let p = approx * scale
                 let beats = Int((hi - lo) / p)
                 var phase = 0.0
                 while phase < p {
+                    try checkCancellation()
                     var sum: Float = 0
                     for k in 0..<beats { sum += value(at: lo + phase + Double(k) * p) }
                     let score = sum / Float(max(1, beats))

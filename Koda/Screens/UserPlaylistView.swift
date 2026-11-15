@@ -19,13 +19,17 @@ struct UserPlaylistView: View {
     @State private var confirmDelete = false
     @State private var editMode: EditMode = .inactive
     @State private var query = ""
+    @State private var toolbox: PlaylistToolboxRequest?
 
     var body: some View {
-        if let playlist = library.userPlaylist(id) {
-            if Platform.isMac { macContent(playlist) } else { content(playlist) }
-        } else {
-            ContentUnavailableView(String(localized: "Playlist Deleted"), systemImage: "music.note.list")
+        Group {
+            if let playlist = library.userPlaylist(id) {
+                if Platform.isMac { macContent(playlist) } else { content(playlist) }
+            } else {
+                ContentUnavailableView(String(localized: "Playlist Deleted"), systemImage: "music.note.list")
+            }
         }
+        .sheet(item: $toolbox) { PlaylistToolboxView(request: $0).appEnvironment(app) }
     }
 
     private func content(_ playlist: UserPlaylist) -> some View {
@@ -40,10 +44,11 @@ struct UserPlaylistView: View {
             // While finding, rows are the matches: offsets no longer point into the playlist, so
             // moving and deleting wait until the search is cleared.
             let finding = !query.isEmpty
-            let shown = finding ? LibrarySearch.songs(playlist.songs, matching: query) : playlist.songs
-            ForEach(shown) { song in
+            let matches = finding ? Set(LibrarySearch.songs(playlist.songs, matching: query)) : []
+            let shown = playlist.songs.enumerated().filter { !finding || matches.contains($0.element) }
+            ForEach(shown, id: \.offset) { index, song in
                 SongRow(song: song) {
-                    player.play(playlist.songs, startAt: playlist.songs.firstIndex { $0.id == song.id } ?? 0)
+                    player.play(playlist.songs, startAt: index)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                 .listRowSeparator(.hidden)
@@ -104,6 +109,7 @@ struct UserPlaylistView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu(String(localized: "More"), systemImage: "ellipsis") {
                     if !playlist.songs.isEmpty {
+                        toolboxActions
                         Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
                         Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
                     }
@@ -150,6 +156,7 @@ struct UserPlaylistView: View {
                 }
                 MacMoreMenu {
                     if !playlist.songs.isEmpty {
+                        toolboxActions
                         Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(playlist.songs) }
                         Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(playlist.songs) }
                         Divider()
@@ -224,6 +231,18 @@ struct UserPlaylistView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var toolboxActions: some View {
+        Group {
+            Button("Select Songs", systemImage: "checklist") {
+                toolbox = PlaylistToolboxRequest(source: .local(id))
+            }
+            Button("Check Duplicate Songs", systemImage: "square.on.square") {
+                toolbox = PlaylistToolboxRequest(source: .local(id), checksDuplicates: true)
+            }
+            Divider()
+        }
     }
 
     /// The header while editing, as Music's: the cover opens a menu to choose or remove a photo,

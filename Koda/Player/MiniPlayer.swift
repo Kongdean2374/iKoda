@@ -11,6 +11,7 @@ struct MiniPlayer: View {
     let open: () -> Void
     @Environment(Player.self) private var player
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isInline: Bool { placement == .inline }
 
@@ -37,8 +38,8 @@ struct MiniPlayer: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentTransition(.opacity)
             }
-            .offset(x: dragX)
-            .opacity(1 - min(abs(dragX) / 160, 0.6))
+            .offset(x: reduceMotion ? 0 : dragX)
+            .opacity(reduceMotion ? 1 : 1 - min(abs(dragX) / 160, 0.6))
             .contentShape(.rect)
             .gesture(swipe)
             .clipped()
@@ -50,7 +51,7 @@ struct MiniPlayer: View {
                 } label: {
                     Image(systemName: "forward.fill")
                         .font(.system(size: 18))
-                        .frame(width: 36, height: 36)
+                        .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -87,10 +88,15 @@ struct MiniPlayer: View {
                 let forward = dragX < -Self.skipDistance || (dragX < -20 && projected < -Self.skipDistance * 2)
                 let back = dragX > Self.skipDistance || (dragX > 20 && projected > Self.skipDistance * 2)
                 guard forward || back, player.current != nil else {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) { dragX = 0 }
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.75)) { dragX = 0 }
                     return
                 }
                 skips += 1
+                if reduceMotion {
+                    if forward { player.next() } else { player.previous() }
+                    dragX = 0
+                    return
+                }
                 // Out the way it was pushed, then the new song comes in from the other side.
                 withAnimation(.easeIn(duration: 0.14)) { dragX = forward ? -220 : 220 } completion: {
                     if forward { player.next() } else { player.previous() }
@@ -106,6 +112,7 @@ struct MiniPlayer: View {
 struct PlayPauseButton: View {
     var size: CGFloat
     @Environment(Player.self) private var player
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var taps = 0
 
     var body: some View {
@@ -117,15 +124,15 @@ struct PlayPauseButton: View {
                 Image(systemName: player.wantsToPlay ? "pause.fill" : "play.fill")
                     .font(.system(size: player.isBuffering ? size * 0.72 : size))
                     .opacity(player.isBuffering ? 0.75 : 1)
-                    .contentTransition(.symbolEffect(.replace.downUp))
+                    .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
                 if player.isBuffering {
                     BufferingRing(lineWidth: size > 30 ? 3 : 2)
                         .padding(size > 30 ? 4 : 3)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
                 }
             }
-            .frame(width: size * 1.8, height: size * 1.8)
-            .animation(.spring(response: 0.35, dampingFraction: 0.75), value: player.isBuffering)
+            .frame(width: max(ControlMetrics.touchTarget, size * 1.8), height: max(ControlMetrics.touchTarget, size * 1.8))
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.75), value: player.isBuffering)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

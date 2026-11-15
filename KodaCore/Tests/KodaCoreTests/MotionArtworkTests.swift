@@ -211,3 +211,88 @@ import Testing
         #expect(await motion.loop(covers, shape: .square, pixels: 900, allowsCellular: false) == file)
     }
 }
+
+extension MotionArtworkTests {
+    @Test func finishedSessionRejectsStaleResumeAndPreservesCachedArtwork() async throws {
+        let directory = URL.temporaryDirectory.appending(path: "motion-stop-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let covers = try #require(MotionArtworkCatalog.covers(in: search(), for: song("Espresso", album: "Short n' Sweet")))
+        let seeded = ["x": SeededLookup(covers: covers, until: .now + 3600)]
+        let lookup = try JSONEncoder().encode(seeded)
+        try lookup.write(to: directory.appending(path: "lookups.json"))
+        let preview = directory.appending(path: "\(covers.albumID)-tall-preview.jpg")
+        let loop = directory.appending(path: "\(covers.albumID)-tall-1080.mp4")
+        try Data([1, 2, 3]).write(to: preview)
+        try Data([4, 5, 6]).write(to: loop)
+        let asked = Counter()
+        let motion = MotionArtwork(directory: directory) { _ in await asked.add(); return nil }
+        await motion.setPlaybackSessionFinished(true, revision: 2)
+        await motion.setPlaybackSessionFinished(false, revision: 1)
+        #expect(await motion.isPlaybackSessionFinished)
+        #expect(await motion.covers(for: song("Espresso", album: nil), allowsCellular: true) == nil)
+        #expect(await motion.previewImage(covers, shape: .tall, pixels: 600, allowsCellular: true) == nil)
+        #expect(await motion.loop(covers, shape: .tall, pixels: 600, allowsCellular: true) == nil)
+        #expect(await asked.value == 0)
+        #expect(try Data(contentsOf: directory.appending(path: "lookups.json")) == lookup)
+        await motion.setPlaybackSessionFinished(false, revision: 3)
+        // A retained Lock Screen handler belongs to its original session, not whichever
+        // session happens to be open when its callback finally arrives.
+        #expect(await motion.covers(for: song("Espresso", album: nil), allowsCellular: true, expectedRevision: 1) == nil)
+        #expect(await motion.previewImage(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 1) == nil)
+        #expect(await motion.loop(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 1) == nil)
+        #expect(await motion.covers(for: song("Espresso", album: nil), allowsCellular: true, expectedRevision: 3) == covers)
+        #expect(await motion.previewImage(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 3) == Data([1, 2, 3]))
+        #expect(await motion.loop(covers, shape: .tall, pixels: 600, allowsCellular: true, expectedRevision: 3) == loop)
+        await motion.setPlaybackSessionFinished(true, revision: 2)
+        #expect(await motion.isPlaybackSessionFinished == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aLateAlbumReplyAfterStopCannotPoisonTheNextManualSession(resumeArrivesFirst: Bool) async throws {
+        let directory = URL.temporaryDirectory.appending(path: "motion-late-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let covers = try #require(MotionArtworkCatalog.covers(in: search(), for: song("Espresso", album: "Short n' Sweet")))
+        let seeded = ["album:MPREb_1": SeededLookup(covers: covers, until: .now + 3600)]
+        try JSONEncoder().encode(seeded).write(to: directory.appending(path: "lookups.json"))
+        let gate = MotionAlbumReplyGate()
+        let motion = MotionArtwork(directory: directory) { _ in await gate.find() }
+        let bare = song("Espresso", album: nil)
+        let old = Task { await motion.covers(for: bare, allowsCellular: false) }
+        await gate.waitForCalls(1)
+        if resumeArrivesFirst {
+            await motion.setPlaybackSessionFinished(false, revision: 2)
+            await motion.setPlaybackSessionFinished(true, revision: 1)
+        } else {
+            await motion.setPlaybackSessionFinished(true, revision: 1)
+            await motion.setPlaybackSessionFinished(false, revision: 2)
+        }
+        await gate.finish(0, with: nil) // A provider that ignores cancellation must not cache "no album".
+        #expect(await old.value == nil)
+        let next = Task { await motion.covers(for: bare, allowsCellular: false) }
+        await gate.waitForCalls(2)
+        await gate.finish(1, with: AlbumRef(id: "MPREb_1", title: "Short n' Sweet"))
+        #expect(await next.value == covers)
+        #expect(await gate.count == 2)
+    }
+}
+
+private actor MotionAlbumReplyGate {
+    private(set) var count = 0
+    private var replies: [Int: CheckedContinuation<AlbumRef?, Never>] = [:]
+    private var waiters: [(Int, AsyncStream<Void>.Continuation)] = []
+    func find() async -> AlbumRef? {
+        let index = count
+        count += 1
+        for (expected, waiter) in waiters where count >= expected { waiter.yield(()); waiter.finish() }
+        return await withCheckedContinuation { replies[index] = $0 }
+    }
+    func waitForCalls(_ expected: Int) async {
+        guard count < expected else { return }
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        waiters.append((expected, continuation))
+        for await _ in stream { break }
+    }
+    func finish(_ index: Int, with album: AlbumRef?) { replies.removeValue(forKey: index)?.resume(returning: album) }
+}

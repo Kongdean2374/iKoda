@@ -42,7 +42,7 @@ actor StreamResolver {
     private let session: URLSession
     private let identity: VisitorIdentity
     /// Both formats come from one `/player` answer, so both are kept and either is served.
-    private struct Choices {
+    private struct Choices: Sendable {
         var best: ResolvedStream
         var light: ResolvedStream
 
@@ -50,24 +50,82 @@ actor StreamResolver {
     }
 
     private var cache: [String: Choices] = [:]
-    private var inFlight: [String: Task<Choices, Error>] = [:]
+    private struct AudioRequest {
+        let id: UUID
+        let task: Task<Void, Never>
+        var waiters: [UUID: CheckedContinuation<Choices, Error>]
+    }
+    typealias AudioFetch = @Sendable (String) async throws -> (ResolvedStream, ResolvedStream)
+    private let audioFetchOverride: AudioFetch?
+    private var inFlight: [String: AudioRequest] = [:]
+    var audioRequestCount: Int { inFlight.count }
+    var audioSubscriberCount: Int { inFlight.values.reduce(0) { $0 + $1.waiters.count } }
+    /// Test synchronization includes stale request completions rejected by the ID guard.
+    private(set) var audioCompletionCount = 0
     private var videoCache: [String: VideoStream] = [:]
 
-    init(session: URLSession, identity: VisitorIdentity) {
+    init(session: URLSession, identity: VisitorIdentity, audioFetch: AudioFetch? = nil) {
         self.session = session
         self.identity = identity
+        self.audioFetchOverride = audioFetch
     }
 
     func resolve(_ videoId: String, quality: StreamQuality = .high) async throws -> ResolvedStream {
+        try Task.checkCancellation()
         if let cached = cache[videoId], cached.best.isFresh() { return cached.pick(quality) }
-        if let running = inFlight[videoId] { return try await running.value.pick(quality) }
-        let task = Task { try await self.fetch(videoId) }
-        inFlight[videoId] = task
-        defer { inFlight[videoId] = nil }
-        let choices = try await task.value
-        cache[videoId] = choices
-        if cache.count > 200 { cache = cache.filter { $0.value.best.isFresh() } }
+        let subscriber = UUID()
+        let choices: Choices = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                if var request = inFlight[videoId] {
+                    request.waiters[subscriber] = continuation
+                    inFlight[videoId] = request
+                    return
+                }
+                let requestID = UUID()
+                let fetch = audioFetchOverride
+                let task = Task.detached(priority: .userInitiated) { [weak self] in
+                    guard let self else { return }
+                    let result: Result<Choices, Error>
+                    do {
+                        try Task.checkCancellation()
+                        let choices: Choices
+                        if let fetch {
+                            let (best, light) = try await fetch(videoId)
+                            choices = Choices(best: best, light: light)
+                        } else { choices = try await self.fetch(videoId) }
+                        try Task.checkCancellation()
+                        result = .success(choices)
+                    } catch { result = .failure(error) }
+                    await self.finishAudioRequest(videoId, requestID: requestID, result: result)
+                }
+                inFlight[videoId] = AudioRequest(id: requestID, task: task, waiters: [subscriber: continuation])
+            }
+        } onCancel: {
+            Task { await self.cancelAudioSubscriber(subscriber, videoID: videoId) }
+        }
+        try Task.checkCancellation()
         return choices.pick(quality)
+    }
+
+    /// Cancels this caller immediately. A download sharing the same metadata/probe keeps
+    /// its subscription; only the final caller leaving cancels the underlying task.
+    private func cancelAudioSubscriber(_ subscriber: UUID, videoID: String) {
+        guard var request = inFlight[videoID], let continuation = request.waiters.removeValue(forKey: subscriber) else { return }
+        if request.waiters.isEmpty { inFlight[videoID] = nil; request.task.cancel() }
+        else { inFlight[videoID] = request }
+        continuation.resume(throwing: CancellationError())
+    }
+
+    private func finishAudioRequest(_ id: String, requestID: UUID, result: Result<Choices, Error>) {
+        audioCompletionCount &+= 1
+        guard let request = inFlight[id], request.id == requestID else { return }
+        inFlight[id] = nil
+        if case .success(let choices) = result {
+            cache[id] = choices
+            if cache.count > 200 { cache = cache.filter { $0.value.best.isFresh() } }
+        }
+        for continuation in request.waiters.values { continuation.resume(with: result) }
     }
 
     // MARK: Video
@@ -113,12 +171,16 @@ actor StreamResolver {
     }
 
     private func fetch(_ videoId: String) async throws -> Choices {
+        try Task.checkCancellation()
         guard let token = await identity.current() else { throw MusicError.network }
+        try Task.checkCancellation()
         switch try await attempt(videoId, token: token) {
         case .stream(let stream):
             return stream
         case .refused:
+            try Task.checkCancellation()
             guard let fresh = await identity.replace(token), fresh != token else { throw MusicError.botCheck }
+            try Task.checkCancellation()
             switch try await attempt(videoId, token: fresh) {
             case .stream(let stream): return stream
             case .refused: throw MusicError.botCheck
@@ -132,7 +194,9 @@ actor StreamResolver {
     }
 
     private func attempt(_ videoId: String, token: String) async throws -> Attempt {
+        try Task.checkCancellation()
         let root = try await player(videoId, token: token)
+        try Task.checkCancellation()
         let status = root["playabilityStatus"]["status"].string ?? ""
         if status == "LOGIN_REQUIRED" { return .refused }
         if !status.isEmpty, status != "OK" {
@@ -145,7 +209,9 @@ actor StreamResolver {
         }
         let choices = Choices(best: stream, light: Self.pickAudio(root, videoId: videoId, quality: .dataSaver) ?? stream)
         if await identity.isVetted(token) { return .stream(choices) }
-        switch await servesLastByte(stream) {
+        let probe = await servesLastByte(stream)
+        try Task.checkCancellation()
+        switch probe {
         case .some(false): return .refused
         case .some(true): await identity.markVetted(token)
         case .none: break

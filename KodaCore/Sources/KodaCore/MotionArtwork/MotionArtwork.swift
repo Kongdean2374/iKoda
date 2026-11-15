@@ -18,9 +18,9 @@ public actor MotionArtwork {
 
     private let directory: URL
     /// Wi-Fi and Ethernet only, and never in Low Data Mode.
-    private let unmetered: URLSession
+    private var unmetered: URLSession
     /// Cellular too, still never in Low Data Mode.
-    private let anyNetwork: URLSession
+    private var anyNetwork: URLSession
     /// Loops kept on disk; past it the least recently shown go.
     private let budget: Int
     /// The album of a song that came without one, from YouTube: covers are matched by album.
@@ -31,10 +31,16 @@ public actor MotionArtwork {
     private var token: String?
     private var lookups: [String: Lookup] = [:]
     private var lookupsLoaded = false
-    private var inFlight: [String: Task<Covers?, Never>] = [:]
-    private var downloads: [String: Task<URL?, Never>] = [:]
+    private struct Work<Value: Sendable> {
+        let revision: UInt64
+        let task: Task<Value, Never>
+    }
+    private var inFlight: [String: Work<Covers?>] = [:]
+    private var downloads: [String: Work<URL?>] = [:]
     /// After a failure, no new lookups for a minute, so every skip doesn't become another request.
     private var quietUntil = Date.distantPast
+    public private(set) var isPlaybackSessionFinished = false
+    private var playbackRevision: UInt64 = 0
 
     private struct Lookup: Codable {
         var covers: Covers?
@@ -50,31 +56,73 @@ public actor MotionArtwork {
         self.directory = directory
         self.budget = budget
         self.findAlbum = findAlbum
-        func session(allowsCellular: Bool) -> URLSession {
-            let configuration = URLSessionConfiguration.ephemeral
-            configuration.allowsConstrainedNetworkAccess = false
-            configuration.allowsExpensiveNetworkAccess = allowsCellular
-            configuration.timeoutIntervalForRequest = 10
-            configuration.timeoutIntervalForResource = 60
-            configuration.httpCookieAcceptPolicy = .never
-            return URLSession(configuration: configuration)
+        unmetered = Self.session(allowsCellular: false)
+        anyNetwork = Self.session(allowsCellular: true)
+    }
+
+    private static func session(allowsCellular: Bool) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.allowsConstrainedNetworkAccess = false
+        configuration.allowsExpensiveNetworkAccess = allowsCellular
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 60
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }
+
+    /// The app's sole music-session owner supplies monotonic revisions. An old queued
+    /// resume cannot reopen a newer deep stop, and no persisted artwork is removed.
+    public func setPlaybackSessionFinished(_ finished: Bool, revision: UInt64) {
+        guard revision > playbackRevision else { return }
+        playbackRevision = revision
+        isPlaybackSessionFinished = finished
+        // Even a newer resume delivered before its preceding stop ends the older
+        // generation's work. State equality alone is not an execution boundary.
+        for work in inFlight.values { work.task.cancel() }
+        for work in downloads.values { work.task.cancel() }
+        inFlight.removeAll()
+        downloads.removeAll()
+        // Invalidate these owned sessions synchronously. Enumerating tasks later
+        // could accidentally cancel a new manual session's requests.
+        unmetered.invalidateAndCancel()
+        anyNetwork.invalidateAndCancel()
+        if !finished {
+            unmetered = Self.session(allowsCellular: false)
+            anyNetwork = Self.session(allowsCellular: true)
         }
-        unmetered = session(allowsCellular: false)
-        anyNetwork = session(allowsCellular: true)
     }
 
     // MARK: Finding the cover
 
     /// The animated covers of the album `song` is on, or nil when it has none (most don't).
-    public func covers(for song: Song, allowsCellular: Bool) async -> Covers? {
+    public func covers(for song: Song, allowsCellular: Bool, expectedRevision: UInt64? = nil) async -> Covers? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled,
+              expectedRevision == nil || expectedRevision == playbackRevision else { return nil }
         loadLookups()
         // Known by its id first: the same song can reach the player without its album (some
         // lists leave it out), and the answer found when it had one still holds.
         if let known = lookups[song.id], known.until > .now { return known.covers }
-        var song = song
+        let revision = playbackRevision
+        if let running = inFlight[song.id] {
+            let found = await running.task.value
+            return revision == playbackRevision && !isPlaybackSessionFinished && !Task.isCancelled ? found : nil
+        }
+        let task = Task { await resolveCovers(song, allowsCellular: allowsCellular) }
+        inFlight[song.id] = Work(revision: revision, task: task)
+        let found = await task.value
+        if inFlight[song.id]?.revision == revision { inFlight[song.id] = nil }
+        guard revision == playbackRevision, !isPlaybackSessionFinished else { return nil }
+        return Task.isCancelled ? nil : found
+    }
+
+    /// Album lookup is owned by the same cancellable job as the catalogue request.
+    private func resolveCovers(_ original: Song, allowsCellular: Bool) async -> Covers? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled else { return nil }
+        var song = original
         if song.album == nil, !song.isVideo, let findAlbum {
             let found: AlbumRef?
             do { found = try await findAlbum(song.id) } catch { return nil }
+            guard !isPlaybackSessionFinished, !Task.isCancelled else { return nil }
             guard let album = found else {
                 // YouTube has it on no album (a lone upload): there is no album cover to find.
                 remember(song.id, Lookup(covers: nil, until: .now + Self.missingFor))
@@ -88,13 +136,8 @@ public actor MotionArtwork {
             remember(song.id, known)
             return covers
         }
-        if let running = inFlight[song.id] { return await running.value }
         guard Date.now >= quietUntil else { return nil }
-        let task = Task { await lookUp(song, session: allowsCellular ? anyNetwork : unmetered) }
-        inFlight[song.id] = task
-        let found = await task.value
-        inFlight[song.id] = nil
-        return found
+        return await lookUp(song, session: allowsCellular ? anyNetwork : unmetered)
     }
 
     private enum Outcome {
@@ -106,6 +149,7 @@ public actor MotionArtwork {
 
     private func lookUp(_ song: Song, session: URLSession) async -> Covers? {
         let outcome = await search(song, session: session)
+        guard !isPlaybackSessionFinished, !Task.isCancelled else { return nil }
         switch outcome {
         case .found(let covers):
             let lookup = Lookup(covers: covers, until: .now + (covers == nil ? Self.missingFor : Self.foundFor))
@@ -124,17 +168,20 @@ public actor MotionArtwork {
     private func search(_ song: Song, session: URLSession) async -> Outcome {
         guard let url = MotionArtworkCatalog.searchURL(for: song) else { return .found(nil) }
         for attempt in 0..<2 {
+            guard !isPlaybackSessionFinished, !Task.isCancelled else { return .notNow }
             let bearer: String
             switch await webToken(session: session) {
             case .success(let found): bearer = found
             case .failure(let error): return outcome(of: error, while: "reading Music on the web's token")
             }
+            guard !isPlaybackSessionFinished, !Task.isCancelled else { return .notNow }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
             request.setValue("https://music.apple.com", forHTTPHeaderField: "Origin")
             request.setValue("https://music.apple.com/", forHTTPHeaderField: "Referer")
             do {
                 let (data, response) = try await session.data(for: request)
+                guard !isPlaybackSessionFinished, !Task.isCancelled else { return .notNow }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if status == 401 || status == 403 {
                     // The token was withdrawn early: forget it and read the current one, once.
@@ -168,20 +215,28 @@ public actor MotionArtwork {
 
     /// A local file of the album's `shape` loop, at least about `pixels` across, downloading it
     /// if no file that size is kept yet. Nil when it can't be had now.
-    public func loop(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool) async -> URL? {
+    public func loop(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool,
+                     expectedRevision: UInt64? = nil) async -> URL? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled,
+              expectedRevision == nil || expectedRevision == playbackRevision else { return nil }
         if let kept = keptLoop(covers.albumID, shape: shape, pixels: pixels) {
             touch(kept)
             return kept
         }
         guard let master = covers.masters[shape] else { return nil }
         let key = "\(covers.albumID)-\(shape.rawValue)"
-        if let running = downloads[key] { return await running.value }
+        let revision = playbackRevision
+        if let running = downloads[key] {
+            let file = await running.task.value
+            return revision == playbackRevision && !isPlaybackSessionFinished && !Task.isCancelled ? file : nil
+        }
         let session = allowsCellular ? anyNetwork : unmetered
         let task = Task { await download(master, albumID: covers.albumID, shape: shape, pixels: pixels, session: session) }
-        downloads[key] = task
+        downloads[key] = Work(revision: revision, task: task)
         let file = await task.value
-        downloads[key] = nil
-        return file
+        if downloads[key]?.revision == revision { downloads[key] = nil }
+        guard revision == playbackRevision, !isPlaybackSessionFinished else { return nil }
+        return Task.isCancelled ? nil : file
     }
 
     /// A loop already kept for the album and shape, if one is about as large as asked or larger.
@@ -203,18 +258,24 @@ public actor MotionArtwork {
     private func download(_ master: URL, albumID: String, shape: Shape, pixels: Int, session: URLSession) async -> URL? {
         do {
             let (ladder, _) = try await session.data(from: master)
+            try Task.checkCancellation()
+            guard !isPlaybackSessionFinished else { return nil }
             let variants = MotionArtworkCatalog.variants(master: master, playlist: String(decoding: ladder, as: UTF8.self))
             guard let variant = MotionArtworkCatalog.pick(variants, pixels: pixels) else {
                 log.error("Animated cover's ladder had no usable rung")
                 return nil
             }
             let (media, _) = try await session.data(from: variant.url)
+            try Task.checkCancellation()
+            guard !isPlaybackSessionFinished else { return nil }
             guard let file = MotionArtworkCatalog.singleFile(media: variant.url, playlist: String(decoding: media, as: UTF8.self)) else {
                 log.error("Animated cover isn't one file; keeping the still cover")
                 return nil
             }
             let (temporary, response) = try await session.download(from: file)
             defer { try? FileManager.default.removeItem(at: temporary) }
+            try Task.checkCancellation()
+            guard !isPlaybackSessionFinished else { return nil }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let size = (try? temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             // The largest rung taken is about 25 MB; anything far past that isn't a cover.
@@ -239,7 +300,11 @@ public actor MotionArtwork {
 
     /// The loop's first frame as an image, for the Lock Screen to show while the loop loads:
     /// kept beside the loops, so it is fetched once per album and shape.
-    public func previewImage(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool) async -> Data? {
+    public func previewImage(_ covers: Covers, shape: Shape, pixels: Int, allowsCellular: Bool,
+                             expectedRevision: UInt64? = nil) async -> Data? {
+        guard !isPlaybackSessionFinished, !Task.isCancelled,
+              expectedRevision == nil || expectedRevision == playbackRevision else { return nil }
+        let revision = playbackRevision
         let file = directory.appending(path: "\(covers.albumID)-\(shape.rawValue)-preview.jpg")
         if let kept = try? Data(contentsOf: file), !kept.isEmpty {
             touch(file)
@@ -248,6 +313,7 @@ public actor MotionArtwork {
         guard let url = covers.preview(shape, pixels: min(max(pixels, 1), MotionArtworkCatalog.largestWidth)) else { return nil }
         let session = allowsCellular ? anyNetwork : unmetered
         guard let (data, response) = try? await session.data(from: url),
+              !Task.isCancelled, !isPlaybackSessionFinished, revision == playbackRevision,
               (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0), !data.isEmpty else { return nil }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
@@ -316,6 +382,7 @@ public actor MotionArtwork {
     }
 
     private func webToken(session: URLSession) async -> Result<String, Error> {
+        guard !isPlaybackSessionFinished, !Task.isCancelled else { return .failure(CancellationError()) }
         if let token, MotionArtworkCatalog.isUsableToken(token, now: .now) { return .success(token) }
         if let saved = try? String(contentsOf: tokenFile, encoding: .utf8), MotionArtworkCatalog.isUsableToken(saved, now: .now) {
             token = saved
@@ -323,12 +390,16 @@ public actor MotionArtwork {
         }
         do {
             let page = try await webPage(URL(string: "https://music.apple.com")!, session: session)
+            try Task.checkCancellation()
+            guard !isPlaybackSessionFinished else { return .failure(CancellationError()) }
             guard let path = MotionArtworkCatalog.scriptPath(inPage: page),
                   let scriptURL = URL(string: "https://music.apple.com" + path) else {
                 log.error("Music on the web named no script bundle; no animated covers")
                 return .failure(URLError(.cannotParseResponse))
             }
             let script = try await webPage(scriptURL, session: session)
+            try Task.checkCancellation()
+            guard !isPlaybackSessionFinished else { return .failure(CancellationError()) }
             guard let found = MotionArtworkCatalog.webToken(inScript: script, now: .now) else {
                 log.error("Music on the web's script held no usable token; no animated covers")
                 return .failure(URLError(.cannotParseResponse))

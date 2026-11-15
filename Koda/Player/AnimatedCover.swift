@@ -17,6 +17,7 @@ struct AnimatedCover: View {
     var onShow: ((Bool) -> Void)? = nil
     @Environment(AppModel.self) private var app
     @Environment(\.accessibilityPlayAnimatedImages) private var playsAnimatedImages
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var loop: Loop?
     @State private var isReady = false
@@ -33,39 +34,51 @@ struct AnimatedCover: View {
         var art: AppSettings.AnimatedArt
         var allowed: Bool
         var shape: MotionArtwork.Shape
+        var sessionRevision: UInt64
     }
 
+    private var allowed: Bool { playsAnimatedImages && !app.player.isPlaybackSessionFinished }
+
     var body: some View {
+        let request = Request(songID: song?.id, album: song?.album?.id, art: app.settings.animatedArt,
+                              allowed: allowed, shape: shape, sessionRevision: app.artworkSessionRevision)
         ZStack {
-            if let loop {
+            if let loop, allowed {
                 LoopingVideo(file: loop.file, isPlaying: isPlaying && scenePhase == .active) { isReady = true }
                     .id(loop.file)
                     .opacity(isReady ? 1 : 0)
             }
         }
-        .animation(.smooth(duration: 0.6), value: isReady)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: isReady)
         .allowsHitTesting(false)
-        .task(id: Request(songID: song?.id, album: song?.album?.id, art: app.settings.animatedArt, allowed: playsAnimatedImages, shape: shape)) {
-            await find()
+        .task(id: request) {
+            await find(sessionRevision: request.sessionRevision)
         }
-        .onChange(of: loop != nil && isReady, initial: true) { _, showing in onShow?(showing) }
+        .onChange(of: allowed && loop != nil && isReady, initial: true) { _, showing in onShow?(showing) }
     }
 
-    private func find() async {
+    private func find(sessionRevision: UInt64) async {
+        guard !Task.isCancelled, app.artworkSessionRevision == sessionRevision else { return }
         let setting = app.settings.animatedArt
-        guard let song, setting != .off, playsAnimatedImages else {
+        guard let song, setting != .off, allowed else {
             show(nil)
             return
         }
         // Another album's loop never lingers over this song's cover while its own is looked for.
         // A song that arrived without its album may still have a cover known by its id.
         if song.album?.id == nil || loop?.album != song.album?.id { show(nil) }
-        guard let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular),
+        // Player and the artwork actor cross the session boundary independently. Wait for
+        // this revision's admission before even reading a cached cover after manual resume.
+        guard await app.waitForArtworkSession(expectedRevision: sessionRevision), !Task.isCancelled else { return }
+        guard let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular,
+                                                         expectedRevision: sessionRevision),
+              !Task.isCancelled, allowed, app.artworkSessionRevision == sessionRevision,
               covers.masters[shape] != nil,
               let file = await app.motionArtwork.loop(covers, shape: shape, pixels: AnimatedCover.pixels,
-                                                       allowsCellular: setting.allowsCellular),
-              !Task.isCancelled else {
-            if !Task.isCancelled { show(nil) }
+                                                       allowsCellular: setting.allowsCellular,
+                                                       expectedRevision: sessionRevision),
+              !Task.isCancelled, allowed, app.artworkSessionRevision == sessionRevision else {
+            if !Task.isCancelled, app.artworkSessionRevision == sessionRevision { show(nil) }
             return
         }
         show(Loop(album: song.album?.id ?? "apple:\(covers.albumID)", file: file))
@@ -238,30 +251,39 @@ private struct LoopingVideo: UIViewRepresentable {
 enum LockScreenAnimatedArt {
     static func artwork(for song: Song, app: AppModel) async -> [String: MPMediaItemAnimatedArtwork] {
         let setting = app.settings.animatedArt
-        guard setting != .off,
-              let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular) else { return [:] }
+        let sessionRevision = app.artworkSessionRevision
+        guard setting != .off, !app.player.isPlaybackSessionFinished,
+              await app.waitForArtworkSession(expectedRevision: sessionRevision), !Task.isCancelled,
+              let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular,
+                                                         expectedRevision: sessionRevision),
+              !Task.isCancelled, !app.player.isPlaybackSessionFinished,
+              app.artworkSessionRevision == sessionRevision else { return [:] }
         var out: [String: MPMediaItemAnimatedArtwork] = [:]
-        out[MPNowPlayingInfoProperty1x1AnimatedArtwork] = make(covers, shape: .square, motion: app.motionArtwork, allowsCellular: setting.allowsCellular)
+        out[MPNowPlayingInfoProperty1x1AnimatedArtwork] = make(covers, shape: .square, motion: app.motionArtwork,
+                                                             allowsCellular: setting.allowsCellular, sessionRevision: sessionRevision)
         if covers.masters[.tall] != nil {
-            out[MPNowPlayingInfoProperty3x4AnimatedArtwork] = make(covers, shape: .tall, motion: app.motionArtwork, allowsCellular: setting.allowsCellular)
+            out[MPNowPlayingInfoProperty3x4AnimatedArtwork] = make(covers, shape: .tall, motion: app.motionArtwork,
+                                                                 allowsCellular: setting.allowsCellular, sessionRevision: sessionRevision)
         }
         return out
     }
 
     /// The system calls both handlers on its own queues, so they are made outside the main actor.
     nonisolated private static func make(_ covers: MotionArtwork.Covers, shape: MotionArtwork.Shape, motion: MotionArtwork,
-                                         allowsCellular: Bool) -> MPMediaItemAnimatedArtwork {
-        MPMediaItemAnimatedArtwork(artworkID: "\(covers.albumID)-\(shape.rawValue)") { size, completion in
+                                         allowsCellular: Bool, sessionRevision: UInt64) -> MPMediaItemAnimatedArtwork {
+        MPMediaItemAnimatedArtwork(artworkID: "\(covers.albumID)-\(shape.rawValue)-\(sessionRevision)") { size, completion in
             let reply = Reply(send: completion)
             let pixels = Int(max(size.width, size.height * shape.aspect).rounded())
             Task {
-                let data = await motion.previewImage(covers, shape: shape, pixels: pixels, allowsCellular: allowsCellular)
+                let data = await motion.previewImage(covers, shape: shape, pixels: pixels, allowsCellular: allowsCellular,
+                                                     expectedRevision: sessionRevision)
                 reply.send(data.flatMap(UIImage.init(data:)))
             }
         } videoAssetFileURLRequestHandler: { size, completion in
             let reply = Reply(send: completion)
             Task {
-                reply.send(await motion.loop(covers, shape: shape, pixels: Int(size.width.rounded()), allowsCellular: allowsCellular))
+                reply.send(await motion.loop(covers, shape: shape, pixels: Int(size.width.rounded()), allowsCellular: allowsCellular,
+                                              expectedRevision: sessionRevision))
             }
         }
     }

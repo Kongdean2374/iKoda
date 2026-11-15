@@ -61,6 +61,8 @@ public final class Library {
     @ObservationIgnored private var pendingHistory = false
     @ObservationIgnored private let libraryClock = SaveClock()
     @ObservationIgnored private let historyClock = SaveClock()
+    @ObservationIgnored private var playlistProfileGeneration = UUID()
+    @ObservationIgnored private var availablePlaylistUndos: [UUID] = []
 
     public init(directory: URL?) {
         self.directory = directory
@@ -71,6 +73,8 @@ public final class Library {
     public func open(directory: URL?) {
         guard directory != self.directory else { return }
         flush(force: true)
+        playlistProfileGeneration = UUID()
+        availablePlaylistUndos.removeAll()
         self.directory = directory
         apply(Snapshot())
         history = []
@@ -119,6 +123,7 @@ public final class Library {
         songStats[song.id] = stats
         dailyListening[Self.dayKey(date), default: 0] += seconds
         hasUnsavedListening = true
+        _ = libraryClock.next()
     }
 
     /// Write, now and on this thread, whatever hasn't reached the disk yet: for when the app is
@@ -314,6 +319,170 @@ public final class Library {
     // MARK: Playlists made here
 
     public func userPlaylist(_ id: UUID) -> UserPlaylist? { userPlaylists.first { $0.id == id } }
+
+    public func playlistSnapshot(_ id: UUID) -> PlaylistSnapshot? {
+        userPlaylist(id).map { PlaylistSnapshot(id: $0.id, songs: $0.songs, profileGeneration: playlistProfileGeneration) }
+    }
+
+    /// All local edits are one durable transaction. No account API or LibraryChange is sent.
+    /// Sources are immutable occurrence snapshots; a changed profile/list must be reviewed again.
+    public func applyPlaylistEdit(_ edit: PlaylistEdit, validating sources: [PlaylistSnapshot] = []) async throws -> PlaylistEditReceipt {
+        let prepared = try await preparePlaylistEdit(edit, validating: sources)
+        return try commitPlaylistEdit(prepared)
+    }
+
+    func preparePlaylistEdit(_ edit: PlaylistEdit, validating sources: [PlaylistSnapshot] = []) async throws -> PreparedPlaylistEdit {
+        try Task.checkCancellation()
+        let generation = playlistProfileGeneration
+        let version = libraryClock.current
+        let original = snapshot()
+        let destination = file
+        let worker = Task.detached(priority: .userInitiated) {
+            var next = original
+            let receipt = try Self.planPlaylistEdit(edit, validating: sources, snapshot: &next, generation: generation)
+            try Task.checkCancellation()
+            let prepared = try destination.map { try PreparedLibraryFile.prepare(JSONEncoder().encode(next), for: $0) }
+            return PreparedPlaylistEdit(version: version, generation: generation, playlists: next.userPlaylists,
+                                        temporary: prepared, destination: destination, receipt: receipt)
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: { worker.cancel() }
+    }
+
+    func commitPlaylistEdit(_ prepared: PreparedPlaylistEdit) throws -> PlaylistEditReceipt {
+        try Task.checkCancellation()
+        guard prepared.generation == playlistProfileGeneration else { throw PlaylistEditError.wrongProfile }
+        let committed = try libraryClock.commit(prepared.version, advancing: true) {
+            if let temporary = prepared.temporary, let destination = prepared.destination {
+                try PreparedLibraryFile.publish(temporary, to: destination)
+            }
+        }
+        guard committed else { throw PlaylistEditError.libraryChanged }
+        // No suspension or cancellation after the durable commit point.
+        userPlaylists = prepared.playlists
+        if let undo = prepared.receipt.undo {
+            availablePlaylistUndos.append(undo.id)
+            if availablePlaylistUndos.count > 64 { availablePlaylistUndos.removeFirst(availablePlaylistUndos.count - 64) }
+        }
+        pendingLibrary = false
+        hasUnsavedListening = false
+        return prepared.receipt
+    }
+
+    /// A later append is preserved. Reordering/deleting would make an inverse ambiguous, so
+    /// those changes produce an explicit error instead of replacing the user's newer work.
+    public func undoPlaylistEdit(_ token: PlaylistUndoToken) async throws {
+        try Task.checkCancellation()
+        guard token.profileGeneration == playlistProfileGeneration else { throw PlaylistEditError.wrongProfile }
+        guard availablePlaylistUndos.contains(token.id) else { throw PlaylistEditError.cannotUndo }
+        let version = libraryClock.current
+        let original = snapshot()
+        let destination = file
+        let worker = Task.detached(priority: .userInitiated) {
+            var next = original
+            for (before, after) in zip(token.before, token.after) {
+                guard let index = next.userPlaylists.firstIndex(where: { $0.id == after.id }) else { throw PlaylistEditError.playlistMissing }
+                let current = next.userPlaylists[index].songs
+                guard current.starts(with: after.songs) else { throw PlaylistEditError.cannotUndo }
+                next.userPlaylists[index].songs = before.songs + current.dropFirst(after.songs.count)
+                next.userPlaylists[index].modified = Date()
+            }
+            try Task.checkCancellation()
+            let prepared = try destination.map { try PreparedLibraryFile.prepare(JSONEncoder().encode(next), for: $0) }
+            return (next.userPlaylists, prepared)
+        }
+        let (playlists, prepared) = try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: { worker.cancel() }
+        defer { if let prepared { try? FileManager.default.removeItem(at: prepared) } }
+        try Task.checkCancellation()
+        guard token.profileGeneration == playlistProfileGeneration else { throw PlaylistEditError.wrongProfile }
+        let committed = try libraryClock.commit(version, advancing: true) {
+            if let prepared, let destination { try PreparedLibraryFile.publish(prepared, to: destination) }
+        }
+        guard committed else { throw PlaylistEditError.libraryChanged }
+        userPlaylists = playlists
+        availablePlaylistUndos.removeAll { $0 == token.id }
+        pendingLibrary = false
+        hasUnsavedListening = false
+    }
+
+    nonisolated private static func planPlaylistEdit(_ edit: PlaylistEdit, validating sources: [PlaylistSnapshot],
+                                                     snapshot: inout Snapshot, generation: UUID) throws -> PlaylistEditReceipt {
+        func checked(_ source: PlaylistSnapshot) throws -> Int {
+            guard source.profileGeneration == generation else { throw PlaylistEditError.wrongProfile }
+            guard let index = snapshot.userPlaylists.firstIndex(where: { $0.id == source.id }) else { throw PlaylistEditError.playlistMissing }
+            guard snapshot.userPlaylists[index].songs == source.songs else { throw PlaylistEditError.libraryChanged }
+            return index
+        }
+        for source in sources { _ = try checked(source) }
+        var before: [UserPlaylist] = []
+        var affected = 0
+        let playlistID: UUID
+        switch edit {
+        case .copy(let songs, let target):
+            guard !songs.isEmpty else { throw PlaylistEditError.invalidSelection }
+            guard let index = snapshot.userPlaylists.firstIndex(where: { $0.id == target }) else { throw PlaylistEditError.playlistMissing }
+            before = [snapshot.userPlaylists[index]]
+            var known = Set(snapshot.userPlaylists[index].songs.map(\.id))
+            var added: [Song] = []
+            for (offset, song) in songs.enumerated() {
+                if offset.isMultiple(of: 128) { try Task.checkCancellation() }
+                if song.id.isEmpty || known.insert(song.id).inserted { added.append(song) }
+            }
+            snapshot.userPlaylists[index].songs += added
+            snapshot.userPlaylists[index].modified = Date()
+            affected = added.count; playlistID = target
+        case .move(let source, let indices, let target):
+            guard target != source.id else { throw PlaylistEditError.samePlaylist }
+            let sourceIndex = try checked(source)
+            guard let targetIndex = snapshot.userPlaylists.firstIndex(where: { $0.id == target }) else { throw PlaylistEditError.playlistMissing }
+            guard !indices.isEmpty, indices.allSatisfy(source.songs.indices.contains) else { throw PlaylistEditError.invalidSelection }
+            before = [snapshot.userPlaylists[sourceIndex], snapshot.userPlaylists[targetIndex]]
+            var known = Set(snapshot.userPlaylists[targetIndex].songs.map(\.id))
+            var kept: [Song] = [], added: [Song] = []
+            for (index, song) in source.songs.enumerated() {
+                if index.isMultiple(of: 128) { try Task.checkCancellation() }
+                if indices.contains(index) {
+                    if song.id.isEmpty || known.insert(song.id).inserted { added.append(song) }
+                } else { kept.append(song) }
+            }
+            snapshot.userPlaylists[sourceIndex].songs = kept
+            snapshot.userPlaylists[targetIndex].songs += added
+            snapshot.userPlaylists[sourceIndex].modified = Date()
+            snapshot.userPlaylists[targetIndex].modified = Date()
+            affected = indices.count; playlistID = target
+        case .remove(let source, let indices):
+            let index = try checked(source)
+            guard !indices.isEmpty, indices.allSatisfy(source.songs.indices.contains) else { throw PlaylistEditError.invalidSelection }
+            before = [snapshot.userPlaylists[index]]
+            var kept: [Song] = []
+            for (offset, song) in source.songs.enumerated() {
+                if offset.isMultiple(of: 128) { try Task.checkCancellation() }
+                if !indices.contains(offset) { kept.append(song) }
+            }
+            snapshot.userPlaylists[index].songs = kept
+            snapshot.userPlaylists[index].modified = Date()
+            affected = indices.count; playlistID = source.id
+        case .create(let name, let songs, let exclude):
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { throw PlaylistEditError.emptyName }
+            var seen = Set<String>()
+            var kept: [Song] = []
+            kept.reserveCapacity(songs.count)
+            for (offset, song) in songs.enumerated() {
+                if offset.isMultiple(of: 128) { try Task.checkCancellation() }
+                if !exclude || song.id.isEmpty || seen.insert(song.id).inserted { kept.append(song) }
+            }
+            let playlist = UserPlaylist(name: trimmed, songs: kept)
+            snapshot.userPlaylists.insert(playlist, at: 0)
+            affected = kept.count; playlistID = playlist.id
+        }
+        let after = before.compactMap { previous in snapshot.userPlaylists.first { $0.id == previous.id } }
+        let undo = before.isEmpty || affected == 0 ? nil : PlaylistUndoToken(id: UUID(), profileGeneration: generation, before: before, after: after)
+        return PlaylistEditReceipt(playlistID: playlistID, affectedCount: affected, undo: undo)
+    }
 
     @discardableResult
     public func createPlaylist(named name: String, songs: [Song] = [], at date: Date = Date()) -> UserPlaylist {
@@ -575,19 +744,21 @@ public final class Library {
     /// every like and every song.
     private func save() {
         hasUnsavedListening = false
+        let version = libraryClock.next()
         guard let file else { return }
         pendingLibrary = true
-        let version = libraryClock.next()
         let snapshot = snapshot()
         let clock = libraryClock
-        Task.detached(priority: .utility) {
+        let writing = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(400))
-            guard clock.isNewest(version), let data = try? JSONEncoder().encode(snapshot), clock.isNewest(version) else { return }
-            try? data.write(to: file, options: .atomic)
+            guard clock.isNewest(version), let data = try? JSONEncoder().encode(snapshot),
+                  let prepared = try? PreparedLibraryFile.prepare(data, for: file) else { return false }
+            defer { try? FileManager.default.removeItem(at: prepared) }
+            return (try? clock.commit(version) { try PreparedLibraryFile.publish(prepared, to: file) }) ?? false
         }
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            if self?.libraryClock.isNewest(version) == true { self?.pendingLibrary = false }
+            let success = await writing.value
+            if success, self?.libraryClock.isNewest(version) == true { self?.pendingLibrary = false }
         }
     }
 
@@ -597,32 +768,40 @@ public final class Library {
         let version = historyClock.next()
         let events = history
         let clock = historyClock
-        Task.detached(priority: .utility) {
+        let writing = Task.detached(priority: .utility) {
             try? await Task.sleep(for: .milliseconds(400))
-            guard clock.isNewest(version), let data = try? JSONEncoder().encode(events), clock.isNewest(version) else { return }
-            try? data.write(to: historyFile, options: .atomic)
+            guard clock.isNewest(version), let data = try? JSONEncoder().encode(events),
+                  let prepared = try? PreparedLibraryFile.prepare(data, for: historyFile) else { return false }
+            defer { try? FileManager.default.removeItem(at: prepared) }
+            return (try? clock.commit(version) { try PreparedLibraryFile.publish(prepared, to: historyFile) }) ?? false
         }
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            if self?.historyClock.isNewest(version) == true { self?.pendingHistory = false }
+            let success = await writing.value
+            if success, self?.historyClock.isNewest(version) == true { self?.pendingHistory = false }
         }
     }
 
     /// Synchronous writes; each bumps its clock so a background write already scheduled for an
     /// older state can't land after it.
     private func writeLibrary(_ snapshot: Snapshot) {
-        _ = libraryClock.next()
-        pendingLibrary = false
-        hasUnsavedListening = false
+        let version = libraryClock.next()
         guard let file, let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: file, options: .atomic)
+        guard let prepared = try? PreparedLibraryFile.prepare(data, for: file) else { return }
+        defer { try? FileManager.default.removeItem(at: prepared) }
+        if (try? libraryClock.commit(version, { try PreparedLibraryFile.publish(prepared, to: file) })) == true {
+            pendingLibrary = false
+            hasUnsavedListening = false
+        }
     }
 
     private func writeHistory(_ events: [PlayEvent]) {
-        _ = historyClock.next()
-        pendingHistory = false
+        let version = historyClock.next()
         guard let historyFile, let data = try? JSONEncoder().encode(events) else { return }
-        try? data.write(to: historyFile, options: .atomic)
+        guard let prepared = try? PreparedLibraryFile.prepare(data, for: historyFile) else { return }
+        defer { try? FileManager.default.removeItem(at: prepared) }
+        if (try? historyClock.commit(version, { try PreparedLibraryFile.publish(prepared, to: historyFile) })) == true {
+            pendingHistory = false
+        }
     }
 
     private func snapshot() -> Snapshot {
@@ -679,6 +858,8 @@ public final class Library {
         guard let backup = try? decoder.decode(Backup.self, from: data), backup.format == Self.backupFormat else {
             throw BackupError.notABackup
         }
+        playlistProfileGeneration = UUID()
+        availablePlaylistUndos.removeAll()
         apply(backup.library)
         // A version 1 backup has no dated history; the plays it knows of become one each, at their last play.
         history = backup.history ?? backup.library.recent.compactMap { song in

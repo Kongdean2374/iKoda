@@ -1,5 +1,6 @@
 import KodaCore
 import SwiftUI
+import UIKit
 
 /// One circle owns display toggling; its exclusive long press opens progress/settings.
 /// Keeping this in the fixed footer prevents either interaction from covering lyric rows.
@@ -28,7 +29,7 @@ struct LyricsTranslationControl: View {
             Button { app.settings.showsLyricsTranslation.toggle() } label: {
                 Image(systemName: "translate")
                     .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44)
+                    .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
             }
             .buttonStyle(LyricsTranslationOrbStyle(isOn: enabled, onHold: {
                 holdFeedback &+= 1
@@ -42,6 +43,7 @@ struct LyricsTranslationControl: View {
             .accessibilityAddTraits(enabled ? .isSelected : [])
             .accessibilityAction { app.settings.showsLyricsTranslation.toggle() }
             .accessibilityAction(named: Text("Translation Details")) { showsDetails = true }
+            .accessibilityIdentifier("lyrics.translation.toggle")
 
             Text(status)
                 .font(.caption)
@@ -60,8 +62,8 @@ struct LyricsTranslationControl: View {
     }
 }
 
-/// A primitive style replaces Button's default touch handling. ExclusiveGesture permits
-/// only one successful branch: releasing a recognized hold cannot also trigger a tap.
+/// A primitive style leaves activation to one recognizer pair. A short tap waits for
+/// the hold recognizer to fail; releasing a recognized hold can never activate the button.
 private struct LyricsTranslationOrbStyle: PrimitiveButtonStyle {
     let isOn: Bool
     let onHold: () -> Void
@@ -79,7 +81,8 @@ private struct LyricsTranslationOrbSurface<Label: View>: View {
     let activate: () -> Void
     let onHold: () -> Void
     let showDetails: () -> Void
-    @GestureState private var isPressed = false
+    @State private var isPressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         label
@@ -88,24 +91,92 @@ private struct LyricsTranslationOrbSurface<Label: View>: View {
                 Circle().fill(Color.primary.opacity(isOn ? (isPressed ? 0.85 : 1) : (isPressed ? 0.2 : 0.08)))
             }
             .contentShape(.circle)
-            .scaleEffect(isPressed ? 0.95 : 1)
-            .animation(.snappy(duration: 0.2), value: isPressed)
-            .animation(.smooth(duration: 0.25), value: isOn)
-            .gesture(
-                LongPressGesture(minimumDuration: 0.5, maximumDistance: 12)
-                    .exclusively(before: TapGesture())
-                    .updating($isPressed) { _, pressed, _ in pressed = true }
-                    .onEnded { gesture in
-                        switch gesture {
-                        case .first(true): onHold()
-                        case .second: activate()
-                        default: break
-                        }
-                    }
-            )
+            .scaleEffect(isPressed && !reduceMotion ? 0.95 : 1)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: isPressed)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: isOn)
+            .overlay {
+                LyricsTranslationTouchTarget(activate: activate, onHold: onHold, isPressed: $isPressed)
+                    .accessibilityHidden(true)
+            }
             .focusable()
             .onKeyPress(keys: [.space, .return], phases: .down) { _ in activate(); return .handled }
             .onKeyPress(.downArrow, phases: .down) { _ in showDetails(); return .handled }
+            .onDisappear { isPressed = false }
+    }
+}
+
+/// UIKit owns the failure dependency explicitly. SwiftUI's exclusive long-press/tap
+/// composition inside a primitive Button can consume the short tap on iOS 27.
+/// The enclosing SwiftUI Button remains the accessible and keyboard-operable control.
+private struct LyricsTranslationTouchTarget: UIViewRepresentable {
+    let activate: () -> Void
+    let onHold: () -> Void
+    @Binding var isPressed: Bool
+
+    func makeUIView(context: Context) -> TouchView { TouchView(frame: .zero) }
+
+    func updateUIView(_ view: TouchView, context: Context) {
+        view.activate = activate
+        view.onHold = onHold
+        view.onPressed = { isPressed = $0 }
+        view.isUserInteractionEnabled = context.environment.isEnabled
+    }
+
+    static func dismantleUIView(_ view: TouchView, coordinator: ()) {
+        view.activate = nil
+        view.onHold = nil
+        view.onPressed = nil
+        for gesture in view.gestureRecognizers ?? [] { view.removeGestureRecognizer(gesture) }
+    }
+
+    final class TouchView: UIView {
+        var activate: (() -> Void)?
+        var onHold: (() -> Void)?
+        var onPressed: ((Bool) -> Void)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isOpaque = false
+            isAccessibilityElement = false
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+            hold.minimumPressDuration = 0.5
+            hold.allowableMovement = 12
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            tap.require(toFail: hold)
+            addGestureRecognizer(hold)
+            addGestureRecognizer(tap)
+        }
+
+        required init?(coder: NSCoder) { return nil }
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            UIBezierPath(ovalIn: bounds).contains(point)
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            onPressed?(true)
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            onPressed?(false)
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            onPressed?(false)
+        }
+
+        @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+            guard isUserInteractionEnabled, gesture.state == .ended else { return }
+            onPressed?(false)
+            activate?()
+        }
+
+        @objc private func held(_ gesture: UILongPressGestureRecognizer) {
+            guard isUserInteractionEnabled, gesture.state == .began else { return }
+            onPressed?(false)
+            onHold?()
+        }
     }
 }
 
@@ -179,6 +250,7 @@ private struct LyricsTranslationDetails: View {
                 } label: {
                     Label("Translation Settings", systemImage: "slider.horizontal.3")
                 }
+                .accessibilityIdentifier("lyrics.translation.settings")
             } footer: {
                 Text("Tap the translation icon to show or hide translations. Completed translations are kept.")
             }
@@ -188,6 +260,7 @@ private struct LyricsTranslationDetails: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
+                    .accessibilityIdentifier("lyrics.translation.done")
             }
         }
     }

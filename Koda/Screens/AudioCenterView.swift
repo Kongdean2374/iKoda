@@ -5,7 +5,7 @@ import SwiftUI
 /// moving a slider never replaces the playing item or restarts the song.
 struct AudioCenterView: View {
     @Environment(Player.self) private var player
-    @State private var profiles = SoundSettingsStore.profiles()
+    private var profiles: [SoundProfile] { player.soundProfiles }
     @State private var namingProfile = false
     @State private var editingProfile: UUID?
     @State private var draftName = ""
@@ -35,6 +35,19 @@ struct AudioCenterView: View {
             } footer: {
                 Text("Turning sound effects off bypasses EQ, bass boost and preamp. Your Koda output limit still applies.")
             }
+            Section {
+                NavigationLink {
+                    DeviceSoundSettingsView()
+                } label: {
+                    Label("Device Sound Settings", systemImage: "headphones")
+                }
+                .accessibilityIdentifier("sound.deviceSettings")
+                if let target = player.appliedDeviceSound {
+                    LabeledContent("Applied Device Sound", value: target.title(profiles: profiles))
+                } else if player.deviceSoundManuallyOverridden {
+                    Text("Sound adjusted manually for this output").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
             equalizerSection
                 .disabled(!player.soundSettings.enabled)
             gainSection
@@ -53,7 +66,7 @@ struct AudioCenterView: View {
         }
         .confirmationDialog("Delete Sound Profile?", isPresented: Binding(get: { deletingProfile != nil }, set: { if !$0 { deletingProfile = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
-                if let id = deletingProfile?.id { profiles.removeAll { $0.id == id }; persistProfiles() }
+                if let id = deletingProfile?.id { player.saveSoundProfiles(profiles.filter { $0.id != id }) }
                 deletingProfile = nil
             }
         } message: {
@@ -61,8 +74,7 @@ struct AudioCenterView: View {
         }
         .confirmationDialog("Reset Sound Settings?", isPresented: $confirmsReset, titleVisibility: .visible) {
             Button("Reset", role: .destructive) {
-                player.equalizer = .off
-                player.soundSettings = SoundSettings()
+                player.applySoundProfile(SoundSettings(), preset: .off)
             }
         } message: {
             Text("EQ, bass boost, preamp and the Koda output limit return to their defaults. Saved profiles are kept.")
@@ -178,9 +190,10 @@ struct AudioCenterView: View {
                     }
                     Button("Replace with Current Settings", systemImage: "square.and.arrow.down") {
                         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
-                            profiles[index].settings = player.soundSettings.normalized
-                            profiles[index].preset = player.equalizer
-                            persistProfiles()
+                            var updated = profiles
+                            updated[index].settings = player.soundSettings.normalized
+                            updated[index].preset = player.equalizer
+                            player.saveSoundProfiles(updated)
                         }
                     }
                     Button("Delete", systemImage: "trash", role: .destructive) { deletingProfile = profile }
@@ -208,20 +221,18 @@ struct AudioCenterView: View {
     }
 
     private func apply(_ profile: SoundProfile) {
-        player.equalizer = profile.preset
-        player.soundSettings = profile.settings.normalized
+        player.applySoundProfile(profile.settings, preset: profile.preset)
     }
 
     private func saveProfile() {
+        var updated = profiles
         if let id = editingProfile, let index = profiles.firstIndex(where: { $0.id == id }) {
-            profiles[index].name = String(draftName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
+            updated[index].name = String(draftName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         } else if profiles.count < SoundSettingsStore.profileLimit {
-            profiles.append(SoundProfile(name: draftName, settings: player.soundSettings, preset: player.equalizer))
+            updated.append(SoundProfile(name: draftName, settings: player.soundSettings, preset: player.equalizer))
         }
-        persistProfiles()
+        player.saveSoundProfiles(updated)
     }
-
-    private func persistProfiles() { SoundSettingsStore.saveProfiles(profiles) }
     private static let frequencyNames = ["32 Hz", "64 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"]
 }
 

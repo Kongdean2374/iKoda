@@ -4,9 +4,10 @@ import SwiftUI
 struct BufferingRing: View {
     var lineWidth: CGFloat = 2.5
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
+        TimelineView(.animation(paused: reduceMotion || scenePhase != .active)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             // The arc turns steadily and breathes in length, so it reads as busy rather than stuck.
             let length = 0.18 + 0.14 * (1 + sin(t * 2.4)) / 2
@@ -29,6 +30,7 @@ struct Shimmer: ViewModifier {
     var isActive: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Seconds for the light to cross, then a rest before the next pass.
     private static let sweep = 1.5
@@ -38,7 +40,7 @@ struct Shimmer: ViewModifier {
     func body(content: Content) -> some View {
         if isActive && !reduceMotion {
             content.overlay {
-                TimelineView(.animation) { context in
+                TimelineView(.animation(paused: scenePhase != .active)) { context in
                     let cycle = Self.sweep + Self.rest
                     let progress = min(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle) / Self.sweep, 1)
                     // The band is one view wide and its centre runs from half a width before the
