@@ -78,8 +78,11 @@ final class KodaComponentSmokeTests: XCTestCase {
         reveal(create, in: app)
         capture(app, "playlist-merge-preview")
         create.tap()
-        // Successful persistence supplies Undo; no fixed sleeps or presumed task timing.
-        reveal(app.buttons["Undo"], in: app, towardTop: true)
+        // Creation reports the saved local playlist. Undo is available for destructive
+        // edits, not for creating a new playlist, which retains its normal Delete action.
+        let saved = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
+            "Created “UI Merged” with ")).firstMatch
+        reveal(saved, in: app, towardTop: true)
         app.navigationBars.buttons["Done"].tap()
         XCTAssertTrue(app.staticTexts["fixture.playlist.UI Merged"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.staticTexts["fixture.playlist.UI Merged"].label, "UI Merged: 3")
