@@ -14,12 +14,31 @@ struct PlaylistView: View {
     @State private var loadingMore = false
     @State private var palette = PaletteModel()
     @State private var toolbox: PlaylistToolboxRequest?
+    @State private var showsFlow = false
+    @State private var showsManagement = false
+    @State private var cloudSnapshot: CloudPlaylistSnapshot?
+    @State private var loadError: String?
+    @State private var refreshing = false
+    @State private var loadGeneration = UUID()
+
+    private var cloudID: String { String(summary.id.trimmingPrefix("VL")) }
+    private var supportsFlow: Bool { !["LM", "WL", "SE"].contains(cloudID) && !cloudID.hasPrefix("RD") && !cloudID.hasPrefix("OLAK") }
+
 
     var body: some View {
         Group {
             if Platform.isMac { macBody } else { phoneBody }
         }
         .sheet(item: $toolbox) { PlaylistToolboxView(request: $0).appEnvironment(app) }
+        .sheet(isPresented: $showsFlow) { KodaFlowView(playlist: cloudSnapshot?.playlist ?? summary).appEnvironment(app) }
+        .sheet(isPresented: $showsManagement) { CloudPlaylistManagementView(playlist: cloudSnapshot?.playlist ?? summary).appEnvironment(app) }
+        .refreshable { await load() }
+        .onChange(of: app.cloudPlaylists.snapshots[cloudID]?.fetchedAt) { _, _ in
+            if let confirmed = app.cloudPlaylists.snapshots[cloudID] { apply(confirmed) }
+        }
+        .onChange(of: app.roster.activeID) { _, _ in
+            loadGeneration = UUID(); state = .loading; songs = []; cloudSnapshot = nil; continuation = nil
+        }
     }
 
     /// The Mac's playlist: the cover beside its details, then songs with their artist and
@@ -42,6 +61,7 @@ struct PlaylistView: View {
             } actions: {
                 macActions
             }
+            cloudFeedback
             if player.current != nil { PlaylistQueueLoadingView(sourceID: summary.id) }
             AsyncContent(state: state, retry: load, placeholder: .placeholder(summary)) { page in
                 let rows = state.value == nil ? page.songs : songs
@@ -55,7 +75,7 @@ struct PlaylistView: View {
         .background { ArtworkGlow(palette: palette.palette) }
         .navigationTitle(title)
         .task { await palette.load(summary.artwork) }
-        .task { if state.value == nil { await load() } }
+        .task(id: app.roster.activeID) { await load() }
     }
 
     @ViewBuilder
@@ -75,7 +95,7 @@ struct PlaylistView: View {
             if !songs.isEmpty {
                 Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(playNext: true) }
                 Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(playNext: false) }
-                AddToPlaylistMenu(songs: songs)
+                Button("Add to Playlist…", systemImage: "text.badge.plus") { addAllToPlaylist() }
             }
             PinMenuItem(pin: .playlist(summary))
             ShareLink(item: URL(string: "https://music.youtube.com/playlist?list=\(summary.id)")!) {
@@ -97,6 +117,7 @@ struct PlaylistView: View {
                     play: { play(shuffled: false) },
                     shuffle: { play(shuffled: true) })
 
+                cloudFeedback.padding(.horizontal, 20)
                 if player.current != nil {
                     PlaylistQueueLoadingView(sourceID: summary.id)
                         .padding(.horizontal, 20)
@@ -141,7 +162,7 @@ struct PlaylistView: View {
                     if !songs.isEmpty {
                         Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(playNext: true) }
                         Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(playNext: false) }
-                        AddToPlaylistMenu(songs: songs)
+                        Button("Add to Playlist…", systemImage: "text.badge.plus") { addAllToPlaylist() }
                     }
                     PinMenuItem(pin: .playlist(summary))
                     ShareLink(item: URL(string: "https://music.youtube.com/playlist?list=\(summary.id)")!) {
@@ -151,7 +172,7 @@ struct PlaylistView: View {
             }
         }
         .task { await palette.load(summary.artwork) }
-        .task { if state.value == nil { await load() } }
+        .task(id: app.roster.activeID) { await load() }
     }
 
     private func play(shuffled: Bool) {
@@ -164,6 +185,14 @@ struct PlaylistView: View {
 
     private var toolboxActions: some View {
         Group {
+            if supportsFlow {
+                Button("Koda Flow", systemImage: "waveform.path") { showsFlow = true }
+                    .accessibilityIdentifier("playlist.flow")
+            }
+            if app.cloudPlaylists.hasSession {
+                Button("Cloud Playlist Details", systemImage: "slider.horizontal.3") { showsManagement = true }
+                    .accessibilityIdentifier("playlist.cloud.manage")
+            }
             Button("Select Songs", systemImage: "checklist") { openToolbox(checksDuplicates: false) }
             Button("Check Duplicate Songs", systemImage: "square.on.square") { openToolbox(checksDuplicates: true) }
             Divider()
@@ -197,17 +226,64 @@ struct PlaylistView: View {
                                completedPageTokens: loadedContinuations)
     }
 
+    @ViewBuilder private var cloudFeedback: some View {
+        if refreshing {
+            ProgressView("Refreshing Cloud Playlist…").font(.footnote)
+            if let count = app.cloudPlaylists.readProgress[cloudID] {
+                Text("\(count) songs loaded").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        if let loadError { Text(loadError).font(.footnote).foregroundStyle(.secondary) }
+        if let snapshot = cloudSnapshot {
+            Text(snapshot.capabilities.canRemove ? String(localized: "Editable Cloud Playlist") : String(localized: "Read-Only Cloud Playlist"))
+                .font(.caption).foregroundStyle(.secondary)
+            if snapshot.unavailableCount > 0 {
+                Text("\(snapshot.unavailableCount) unavailable entries remain unchanged on YouTube Music.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        if app.cloudPlaylists.operation != nil { CloudPlaylistOperationView() }
+    }
+
+    private func apply(_ snapshot: CloudPlaylistSnapshot) {
+        cloudSnapshot = snapshot
+        songs = snapshot.songs; continuation = nil; loadedContinuations = []
+        state = .loaded(snapshot.page)
+    }
+
     private func load() async {
-        state = .loading
+        let expected = app.roster.activeID, token = UUID()
+        let scope = app.cloudPlaylists.captureScope()
+        loadGeneration = token; refreshing = true; loadError = nil
+        if state.value == nil { state = .loading }
+        defer { if loadGeneration == token { refreshing = false } }
         do {
-            let page = try await app.music.playlist(summary.id)
-            songs = page.songs
-            continuation = page.continuation
-            loadedContinuations = []
-            state = .loaded(page)
-            if summary.artwork == nil { await palette.load(page.playlist.artwork) }
+            if let scope {
+                let snapshot = try await app.cloudPlaylists.loadSnapshot(id: summary.id, force: true, expectedScope: scope)
+                guard !Task.isCancelled, expected == app.roster.activeID, token == loadGeneration else { return }
+                apply(snapshot)
+                if summary.artwork == nil { await palette.load(snapshot.playlist.artwork) }
+            } else {
+                let page = try await app.music.playlistFreshForPlayback(summary.id)
+                guard !Task.isCancelled, expected == app.roster.activeID, token == loadGeneration else { return }
+                songs = page.songs; continuation = page.continuation; loadedContinuations = []; cloudSnapshot = nil
+                state = .loaded(page)
+                if summary.artwork == nil { await palette.load(page.playlist.artwork) }
+            }
         } catch {
-            state = .failed(error.friendlyMessage)
+            guard !Task.isCancelled, expected == app.roster.activeID, token == loadGeneration else { return }
+            let message = playlistToolboxErrorMessage(error)
+            loadError = message
+            if state.value == nil { state = .failed(message) }
+        }
+    }
+
+    private func addAllToPlaylist() {
+        let profile = app.roster.activeID, token = loadGeneration
+        Task {
+            let complete = await allSongs()
+            guard !Task.isCancelled, profile == app.roster.activeID, token == loadGeneration, !complete.isEmpty else { return }
+            app.addToPlaylist(complete)
         }
     }
 
@@ -226,15 +302,20 @@ struct PlaylistView: View {
             // still advance to more playable songs, so song count is not a completion test.
             if continuation == before { break }
         }
+        if continuation != nil {
+            loadError = CloudPlaylistError.incompleteResponse.localizedDescription
+            return []
+        }
         return Task.isCancelled ? [] : songs
     }
 
     private func loadMore() async {
         guard toolbox == nil, !loadingMore, let token = continuation, !loadedContinuations.contains(token) else { return }
         loadingMore = true
+        let expected = app.roster.activeID, generation = loadGeneration
         defer { loadingMore = false }
         guard let page = try? await app.music.playlistMoreForPlayback(token), !Task.isCancelled,
-              continuation == token else { return }
+              continuation == token, expected == app.roster.activeID, generation == loadGeneration else { return }
         // A repeated cursor is a failed page, never proof of a complete playlist. Keep the
         // valid prefix/cursor so playback preparation can report the failure without truncation.
         if let next = page.continuation, next == token || loadedContinuations.contains(next) { return }

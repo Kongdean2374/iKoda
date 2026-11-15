@@ -36,6 +36,10 @@ private actor CloudFixture: CloudPlaylistTransport {
     func configurePermissions() { permitted = [.init(id: "PLtest", title: "Original")] }
     func onCreate(_ hook: @escaping @Sendable () async -> Void) { createHook = hook }
     func failReadOnce() { readFailures = 1 }
+    func setUnavailable(_ rows: [CloudPlaylistUnavailableRow], count: Int? = nil) {
+        snapshot.unavailableRows = rows
+        snapshot.unavailableCount = count ?? rows.count
+    }
 
     func readPlaylist(id: String) throws -> CloudPlaylistSnapshot {
         reads += 1
@@ -62,7 +66,12 @@ private actor CloudFixture: CloudPlaylistTransport {
     func remove(playlistID: String, rows: [CloudPlaylistRow]) {
         let ids = rows.compactMap(\.setVideoID)
         removals.append(ids)
-        if !ignoreWrites { snapshot.rows.removeAll { ids.contains($0.setVideoID ?? "") } }
+        if !ignoreWrites {
+            snapshot.rows.removeAll { ids.contains($0.setVideoID ?? "") }
+            let before = snapshot.unavailableRows.count
+            snapshot.unavailableRows.removeAll { ids.contains($0.setVideoID ?? "") }
+            snapshot.unavailableCount -= before - snapshot.unavailableRows.count
+        }
     }
     func rename(playlistID: String, title: String) {
         renames.append(title)
@@ -216,6 +225,63 @@ private actor CloudValidationGate {
         #expect(await api.removals.isEmpty)
     }
 
+    @Test func selectedOccurrenceThatBecameUnavailableStillSendsExactRemoval() async throws {
+        let selected = cloudRow("a", occurrence: "selected")
+        let api = CloudFixture()
+        await api.setUnavailable([.init(setVideoID: "selected", videoID: "a"), .init(setVideoID: "other", videoID: "b")])
+        let result = try await run(.remove(playlistID: "PLtest", rows: [selected]), api)
+        #expect(await api.removals == [["selected"]])
+        #expect(result.unavailableRows == [.init(setVideoID: "other", videoID: "b")])
+        #expect(result.unavailableCount == 1)
+    }
+
+    @Test func unavailableSelectedOccurrenceCannotConfirmAnIgnoredRemove() async throws {
+        let selected = cloudRow("a", occurrence: "selected")
+        let api = CloudFixture()
+        await api.setUnavailable([.init(setVideoID: "selected", videoID: "a")])
+        await api.configureIgnoredWrites()
+        await #expect(throws: CloudPlaylistError.unconfirmedWrite) {
+            try await run(.remove(playlistID: "PLtest", rows: [selected]), api)
+        }
+        #expect(await api.removals == [["selected"]])
+    }
+
+    @Test func unidentifiedUnavailableSelectionDoesNotPretendItWasRemoved() async throws {
+        let selected = cloudRow("a", occurrence: "selected")
+        let api = CloudFixture()
+        await api.setUnavailable([.init(videoID: "a")])
+        await #expect(throws: CloudPlaylistError.missingOccurrenceID) {
+            try await run(.remove(playlistID: "PLtest", rows: [selected]), api)
+        }
+        #expect(await api.removals.isEmpty)
+        await api.setUnavailable([.init()])
+        await #expect(throws: CloudPlaylistError.missingOccurrenceID) {
+            try await run(.remove(playlistID: "PLtest", rows: [selected]), api)
+        }
+    }
+
+    @Test func unrelatedUnavailableVideoDoesNotBlockVerifiedRemoval() async throws {
+        let selected = cloudRow("a", occurrence: "selected")
+        let api = CloudFixture(rows: [selected])
+        // The other unavailable row has no occurrence ID, but its video is known
+        // to be different; it cannot be the selected row after read-back.
+        await api.setUnavailable([.init(videoID: "unrelated")])
+        let result = try await run(.remove(playlistID: "PLtest", rows: [selected]), api)
+        #expect(result.rows.isEmpty)
+        #expect(result.unavailableCount == 1)
+        #expect(await api.removals == [["selected"]])
+    }
+
+    @Test func unidentifiedReadbackKeepsRemovalUnconfirmed() {
+        let selected = cloudRow("a", occurrence: "selected")
+        let pending = CloudPlaylistPendingBatch(kind: .remove, rows: [selected], consumedCount: 1)
+        let unknown = CloudPlaylistSnapshot(playlist: .init(id: "PLtest", title: "Name"), rows: [], unavailableCount: 1)
+        #expect(!CloudPlaylistRunner.confirmed(pending, in: unknown))
+        let sameSongWithoutID = CloudPlaylistSnapshot(playlist: unknown.playlist,
+            rows: [.init(id: "position", song: selected.song)])
+        #expect(!CloudPlaylistRunner.confirmed(pending, in: sameSongWithoutID))
+    }
+
     @Test func missingOccurrenceIDNeverFallsBackToVideoIDRemoval() async throws {
         let row = CloudPlaylistRow(id: "position:0", song: cloudSong("a"))
         let api = CloudFixture(rows: [row])
@@ -334,4 +400,75 @@ private actor CloudValidationGate {
         #expect(try CloudPlaylistPages.rows(value, startingAt: 0).rows.isEmpty)
         #expect(CloudPlaylistPages.continuation(value) == nil)
     }
+
+    @Test func malformedLibraryContainersCannotClearTheCatalog() throws {
+        for value in [#"{"gridRenderer":{}}"#, #"{"musicShelfContinuation":{"contents":null}}"#,
+                      #"{"appendContinuationItemsAction":{"continuationItems":{}}}"#] {
+            let malformed = try root(value)
+            #expect(throws: CloudPlaylistError.incompleteResponse) { try AccountPages.completeLibraryItems(malformed) }
+        }
+    }
+
+    @Test func unreadableLibraryRowCannotDisappearFromTheCatalog() throws {
+        let value = try root(#"{"gridRenderer":{"items":[{"musicTwoRowItemRenderer":{"navigationEndpoint":{"browseEndpoint":{"browseId":"VLPLlost"}}}}]}}"#)
+        #expect(throws: CloudPlaylistError.incompleteResponse) { try AccountPages.completeLibraryItems(value) }
+        let unknown = try root(#"{"gridContinuation":{"items":[{"unknownPlaylistRenderer":{"id":"PLlost"}}]}}"#)
+        #expect(throws: CloudPlaylistError.incompleteResponse) { try AccountPages.completeLibraryItems(unknown) }
+    }
+
+    @Test func completeLibraryAcceptsExplicitEmptyAndKnownControlRows() throws {
+        let empty = try root(#"{"gridRenderer":{"items":[]}}"#)
+        #expect(try AccountPages.completeLibraryItems(empty).isEmpty)
+        let realShape = try fixture("library-playlists")
+        #expect(try AccountPages.completeLibraryItems(realShape).count == 4)
+        let controls = try root(#"{"appendContinuationItemsAction":{"continuationItems":[{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"next"}}}}]}}"#)
+        #expect(try AccountPages.completeLibraryItems(controls).isEmpty)
+        #expect(AccountPages.libraryContinuation(controls) == "next")
+    }
+
+    @Test func missingContinuationTokenCannotTruncateTheLibrary() throws {
+        let value = try root(#"{"gridContinuation":{"items":[{"continuationItemRenderer":{"continuationEndpoint":{}}}]}}"#)
+        #expect(throws: CloudPlaylistError.incompleteResponse) { try AccountPages.completeLibraryItems(value) }
+    }
+
+    @Test func explicitlyDisabledAddOptionsDoNotGrantPermission() throws {
+        let value = try root(#"{"contents":[{"playlistAddToOptionRenderer":{"playlistId":"PLa","title":{"simpleText":"Disabled"},"isDisabled":true}},{"playlistAddToOptionRenderer":{"playlistId":"PLb","title":{"simpleText":"Allowed"},"isDisabled":false}},{"playlistAddToOptionRenderer":{"playlistId":"PLc","title":{"simpleText":"Disabled"},"disabled":true}}]}"#)
+        #expect(AccountPages.addToPlaylistOptions(value).map(\.id) == ["PLb"])
+    }
+
+
+    @Test func malformedLegacyContinuationCannotMarkACloudPlaylistComplete() throws {
+        let playlist = try root(#"{"musicPlaylistShelfContinuation":{"contents":[],"continuations":[{"nextContinuationData":{}}]}}"#)
+        #expect(throws: CloudPlaylistError.incompleteResponse) { try CloudPlaylistPages.rows(playlist, startingAt: 50) }
+        let catalog = try root(#"{"gridContinuation":{"items":[],"continuations":[{"nextContinuationData":{}}]}}"#)
+        #expect(throws: CloudPlaylistError.incompleteResponse) { try AccountPages.completeLibraryItems(catalog) }
+        let modern = try root(#"{"musicPlaylistShelfContinuation":{"contents":[{"continuationItemRenderer":{}}]}}"#)
+        #expect(throws: CloudPlaylistError.incompleteResponse) { try CloudPlaylistPages.rows(modern, startingAt: 50) }
+    }
+
+
+    @Test func unavailableRowsRetainTheirRemoteIdentity() throws {
+        let value = try root(#"{"musicPlaylistShelfContinuation":{"contents":[{"musicResponsiveListItemRenderer":{"isAvailable":false,"playlistItemData":{"videoId":"a","playlistSetVideoId":"set-a"}}},{"musicResponsiveListItemRenderer":{"musicItemRendererDisplayPolicy":"MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT","playlistItemData":{"setVideoId":"set-b"}}}]}}"#)
+        let result = try CloudPlaylistPages.rows(value, startingAt: 0)
+        #expect(result.rows.isEmpty)
+        #expect(result.unavailableRows == [.init(setVideoID: "set-a", videoID: "a"), .init(setVideoID: "set-b")])
+    }
+
+    @Test func completeSnapshotPageRetainsOriginalHeaderMetadata() throws {
+        let value = try fixture("playlist")
+        let original = try #require(Pages.playlist(value, id: "PLmetadata"))
+        let metadata = try #require(CloudPlaylistPages.first(value, id: "PLmetadata"))
+        #expect(metadata.author == original.author)
+        #expect(metadata.detailLine == original.detailLine)
+        #expect(metadata.description == original.description)
+        let snapshot = CloudPlaylistSnapshot(playlist: original.playlist, rows: [cloudRow("a", occurrence: "one")],
+            unavailableRows: [.init(setVideoID: "gone", videoID: "b")], author: "Owner", detailLine: "2 songs", description: "Description")
+        #expect(snapshot.page.author == "Owner")
+        #expect(snapshot.page.description == "Description")
+        #expect(snapshot.page.detailLine == "2 songs")
+        #expect(snapshot.page.songs.map(\.id) == ["a"])
+        #expect(snapshot.page.continuation == nil)
+        #expect(try JSONDecoder().decode(CloudPlaylistSnapshot.self, from: JSONEncoder().encode(snapshot)) == snapshot)
+    }
+
 }

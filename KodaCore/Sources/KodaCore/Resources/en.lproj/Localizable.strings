@@ -134,3 +134,13 @@
 "Choose a sleep timer between 1 and 720 minutes." = "Choose a sleep timer between 1 and 720 minutes.";
 "The sleep timer time is invalid. Try setting it again." = "The sleep timer time is invalid. Try setting it again.";
 "The sleep timer is not running." = "The sleep timer is not running.";
+
+/* Koda 0.6.0 cloud playlist operations. */
+"This playlist is read-only for this account." = "This playlist is read-only for this account.";
+"YouTube Music does not currently provide a verified way to perform this operation." = "YouTube Music does not currently provide a verified way to perform this operation.";
+"YouTube Music did not provide the row identifiers needed to safely remove these songs." = "YouTube Music did not provide the row identifiers needed to safely remove these songs.";
+"This playlist changed on another device. Refresh it before trying again." = "This playlist changed on another device. Refresh it before trying again.";
+"The complete cloud playlist could not be verified. No partial result was accepted." = "The complete cloud playlist could not be verified. No partial result was accepted.";
+"The cloud change is not confirmed yet. Check again before making another change." = "The cloud change is not confirmed yet. Check again before making another change.";
+"YouTube Music may have created this playlist. Refresh your playlists before creating another one." = "YouTube Music may have created this playlist. Refresh your playlists before creating another one.";
+"The cloud playlist operation is invalid. Refresh and try again." = "The cloud playlist operation is invalid. Refresh and try again.";

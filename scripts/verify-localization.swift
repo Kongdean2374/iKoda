@@ -24,11 +24,16 @@ for (key, translated) in [("Sound Center", "音效中心"), ("Smart Shuffle", "�
                           ("Merge Playlists", "合併播放清單"), ("Device Sound Settings", "裝置音效設定"),
                           ("Automatically Switch Sound", "自動切換音效"),
                           ("When Timer Ends", "計時結束時"), ("Time Remaining", "剩餘時間"),
-                          ("Reset Timer", "重新計時"), ("Extend by 15 Minutes", "延長 15 分鐘")] {
+                          ("Reset Timer", "重新計時"), ("Extend by 15 Minutes", "延長 15 分鐘"),
+                          ("Create Cloud Playlist", "建立雲端播放清單"),
+                          ("Recognize Song", "辨識歌曲"), ("Cancel Recognition", "取消辨識"),
+                          ("My YouTube Music Playlists", "我的 YouTube Music 播放清單"),
+                          ("Arrange Flow", "安排 Flow"), ("Flow Preview", "Flow 預覽")] {
     require(app.localizedString(forKey: key, value: nil, table: nil) == translated, "Packaged feature translation missing: \(key)")
 }
 let permissions = app.localizedString(forKey: "NSMicrophoneUsageDescription", value: nil, table: "InfoPlist")
 require(permissions.contains("語音搜尋"), "Localized permission text is missing")
+require(permissions.contains("辨識") && permissions.contains("麥克風"), "Music recognition microphone purpose is missing")
 guard let widget = Bundle(path: path + "/PlugIns/KodaWidgets.appex") else { fatalError("Missing widget extension") }
 require(widget.preferredLocalizations.first == "zh-Hant", "Widget locale fallback failed")
 require(widget.localizedString(forKey: "Quick Play", value: nil, table: nil) == "快速播放", "Widget translation missing")
@@ -47,6 +52,7 @@ for case let relative as String in enumerator where relative.hasSuffix("KodaCore
     require(core.localizedString(forKey: "Pause Playback", value: nil, table: nil) == "一般暫停", "Core sleep pause translation missing")
     require(core.localizedString(forKey: "Finish Playback Session", value: nil, table: nil) == "完全結束播放", "Core deep sleep translation missing")
     require(core.localizedString(forKey: "This local playlist no longer exists.", value: nil, table: nil) == "此本機播放清單已不存在。", "Core playlist management translation missing")
+    require(core.localizedString(forKey: "This playlist is read-only for this account.", value: nil, table: nil) == "這個帳號只能讀取此播放清單。", "Core cloud permission translation missing")
     coreFound = true
 }
 require(coreFound, "Packaged KodaCore resource bundle missing")

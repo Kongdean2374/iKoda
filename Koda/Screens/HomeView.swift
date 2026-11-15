@@ -42,6 +42,7 @@ final class HomeModel {
         static let placeholder = Mix(artists: [String(localized: "Artist name"), String(localized: "Artist")], songs: Song.placeholders(3), isPersonal: true)
     }
 
+    var recommendationsRequested = false
     private(set) var state: LoadState<Content> = .loading
     private(set) var mix: Mix?
     /// Your Mix is still to come: its card keeps its place, redacted, until it does.
@@ -274,39 +275,32 @@ struct HomeView: View {
     @Environment(Library.self) private var library
     private var model: HomeModel { app.home }
 
+    @State private var preferences = HomePlaylistPreferences()
+    @State private var showsRecommendations = false
+    @State private var showsCreatePlaylist = false
+
+    private var cloudPlaylists: [PlaylistSummary] { preferences.sorted(app.cloudPlaylists.catalog) }
+
     var body: some View {
         ScrollView {
-            Group {
-                switch model.state {
-                case .loading:
-                    // Home's own sections from stand-in content, so loading has the page's shape.
-                    LazyVStack(alignment: .leading, spacing: 30) {
-                        sections(.placeholder)
-                    }
-                    .padding(.top, 8)
-                    .padding(.bottom, 28)
-                    .loadingPlaceholder()
-                case .failed(let message):
-                    ContentUnavailableView {
-                        Label(String(localized: "Couldn't Load"), systemImage: "wifi.exclamationmark")
-                    } description: {
-                        Text(message)
-                    } actions: {
-                        Button(String(localized: "Try Again")) { Task { await load() } }
-                            .buttonStyle(.glass)
-                    }
-                    .frame(minHeight: 400)
-                case .loaded(let content):
-                    // Moods and genres live on Search, as tiles; Home leads with what is yours.
-                    LazyVStack(alignment: .leading, spacing: 30) {
-                        sections(content)
-                    }
-                    .padding(.top, 8)
-                    .padding(.bottom, 28)
-                    .transition(.opacity)
+            LazyVStack(alignment: .leading, spacing: 24) {
+                cloudSection
+                PlaylistQueueLoadingView().padding(.horizontal, 20)
+                CloudPlaylistOperationView().padding(.horizontal, 20)
+                DisclosureGroup("Recommendations", isExpanded: $showsRecommendations) {
+                    recommendations
+                        .padding(.top, 16)
+                        .task(id: showsRecommendations) {
+                            guard showsRecommendations, !Task.isCancelled else { return }
+                            model.recommendationsRequested = true
+                            if model.needsRefresh { await load() }
+                        }
                 }
+                .font(.headline)
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("home.recommendations")
             }
-            .animation(.smooth, value: model.state.value == nil)
+            .padding(.vertical, 12)
         }
         .navigationTitle(greeting)
         .toolbar {
@@ -318,11 +312,107 @@ struct HomeView: View {
             }
         }
         .refreshable {
-            await app.music.clearPageCache()
-            await load()
+            await app.cloudPlaylists.refresh(force: true)
+            if showsRecommendations {
+                await app.music.clearPageCache()
+                await load()
+            }
         }
-        // A snapshot from the last launch shows at once; the fresh Home replaces it in place.
-        .task { if model.needsRefresh { await load() } }
+        .task(id: app.roster.activeID) {
+            preferences = HomePlaylistPreferences.load(profileID: app.roster.activeID)
+            showsRecommendations = false
+            model.recommendationsRequested = false
+            await app.cloudPlaylists.refresh(force: true)
+        }
+        .onChange(of: showsRecommendations) { _, shown in
+            model.recommendationsRequested = shown
+        }
+        .onAppear { model.recommendationsRequested = showsRecommendations }
+        .onDisappear { model.recommendationsRequested = false }
+        .sheet(isPresented: $showsCreatePlaylist) {
+            CloudPlaylistCreateView().appEnvironment(app)
+        }
+    }
+
+    private var cloudSection: some View {
+        let playlists = cloudPlaylists
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("My YouTube Music Playlists").font(.title2.bold())
+                    .accessibilityIdentifier("home.cloud.title")
+                Spacer(minLength: 8)
+                if app.cloudPlaylists.hasSession {
+                    Button { showsCreatePlaylist = true } label: {
+                        Image(systemName: "plus").frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("New Cloud Playlist")
+                    .accessibilityIdentifier("home.cloud.create")
+                }
+            }
+            CloudPlaylistSessionNotice()
+            if app.cloudPlaylists.hasSession {
+                if app.cloudPlaylists.isRefreshing {
+                    ProgressView("Refreshing Cloud Playlists…")
+                        .font(.subheadline)
+                }
+                if let error = app.cloudPlaylists.refreshError {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                    Button("Try Again") { Task { await app.cloudPlaylists.refresh(force: true) } }
+                }
+                if app.cloudPlaylists.isFromCache {
+                    Label("Showing Cached Cloud Playlists", systemImage: "clock.arrow.circlepath")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if playlists.isEmpty, !app.cloudPlaylists.isRefreshing,
+                   app.cloudPlaylists.refreshError == nil {
+                    ContentUnavailableView {
+                        Label("No Cloud Playlists Yet", systemImage: "music.note.list")
+                    } description: {
+                        Text("Create a playlist in your YouTube Music account to see it here.")
+                    } actions: {
+                        Button("Create Cloud Playlist") { showsCreatePlaylist = true }
+                            .buttonStyle(.glass)
+                    }
+                    .accessibilityIdentifier("home.cloud.empty")
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 14)], spacing: 14) {
+                    ForEach(Array(playlists.enumerated()), id: \.element.id) { index, playlist in
+                        let pinned = preferences.isPinned(playlist.id)
+                        HomeCloudPlaylistCard(playlist: playlist, isPinned: pinned,
+                            canMoveEarlier: index > 0 && preferences.isPinned(playlists[index - 1].id) == pinned,
+                            canMoveLater: index + 1 < playlists.count && preferences.isPinned(playlists[index + 1].id) == pinned,
+                            play: { player.playPlaylist(id: playlist.id) },
+                            shuffle: { player.playPlaylist(id: playlist.id, shuffled: true) },
+                            pin: { updatePreference { $0.togglePin(playlist.id) } },
+                            move: { offset in updatePreference { $0.move(playlist.id, by: offset, in: app.cloudPlaylists.catalog) } })
+                    }
+                }
+                if !playlists.isEmpty {
+                    Text("Touch and hold a playlist to pin it or change its Home order. This does not change YouTube Music.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private var recommendations: some View {
+        switch model.state {
+        case .loading:
+            ProgressView("Loading…").frame(maxWidth: .infinity)
+        case .failed(let message):
+            Text(message).font(.subheadline).foregroundStyle(.secondary)
+            Button("Try Again") { Task { await load() } }
+        case .loaded(let content):
+            LazyVStack(alignment: .leading, spacing: 24) { sections(content) }
+                .font(.body)
+        }
+    }
+
+    private func updatePreference(_ change: (inout HomePlaylistPreferences) -> Void) {
+        change(&preferences)
+        preferences.save(profileID: app.roster.activeID)
     }
 
     @ViewBuilder
@@ -356,7 +446,7 @@ struct HomeView: View {
             }
         }
         // Signed in, the account's own shelves from YouTube Music's Home.
-        ForEach(content.accountShelves ?? []) { shelf in
+        ForEach(Array((content.accountShelves ?? []).prefix(3))) { shelf in
             ItemShelf(shelf: shelf) { player.startRadio(from: $0) }
         }
         if model.latestReleases.count >= 3 {
@@ -415,6 +505,59 @@ struct HomeView: View {
         case 17..<22: String(localized: "Good evening")
         default: String(localized: "Up late")
         }
+    }
+}
+
+struct HomeCloudPlaylistCard: View {
+    let playlist: PlaylistSummary
+    let isPinned: Bool
+    let canMoveEarlier: Bool
+    let canMoveLater: Bool
+    let play: () -> Void
+    let shuffle: () -> Void
+    let pin: () -> Void
+    let move: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink(value: Route.playlist(playlist)) {
+                HStack(alignment: .top, spacing: 12) {
+                    ArtworkView(artwork: playlist.artwork, size: 64, cornerRadius: 10)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(playlist.title).font(.headline).lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let subtitle = playlist.subtitle {
+                            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                        if isPinned {
+                            Label("Pinned", systemImage: "pin.fill").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home.cloud.open.\(playlist.id)")
+            HStack(spacing: 12) {
+                Button(action: play) { Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 44) }
+                    .accessibilityLabel(String(localized: "Play \(playlist.title)"))
+                    .accessibilityIdentifier("home.cloud.play.\(playlist.id)")
+                Button(action: shuffle) { Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity, minHeight: 44) }
+                    .accessibilityLabel(String(localized: "Shuffle \(playlist.title)"))
+                    .accessibilityIdentifier("home.cloud.shuffle.\(playlist.id)")
+            }
+            .font(.subheadline.weight(.semibold))
+            .buttonStyle(.glass)
+        }
+        .padding(14)
+        .background(.background, in: .rect(cornerRadius: 18))
+        .contextMenu {
+            Button(isPinned ? String(localized: "Unpin from Home") : String(localized: "Pin on Home"),
+                   systemImage: isPinned ? "pin.slash" : "pin") { pin() }
+            Button("Move Earlier", systemImage: "arrow.up") { move(-1) }.disabled(!canMoveEarlier)
+            Button("Move Later", systemImage: "arrow.down") { move(1) }.disabled(!canMoveLater)
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -619,8 +762,6 @@ struct JumpBackIn: View {
         let limit = Self.limit
         var items: [Item] = []
         if !library.liked.isEmpty { items.append(.liked(count: library.liked.count, songs: library.liked)) }
-        let playlists = library.userPlaylists.filter { !$0.songs.isEmpty }.sorted { $0.modified > $1.modified }
-        items += playlists.prefix(2).map(Item.userPlaylist)
         // Albums of songs played lately, newest first, one each.
         var seenAlbums = Set<String>()
         for song in library.recent {

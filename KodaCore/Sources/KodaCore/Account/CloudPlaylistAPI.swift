@@ -68,11 +68,10 @@ extension YouTubeMusic {
         let id = String(id.trimmingPrefix("VL"))
         guard !id.isEmpty else { throw CloudPlaylistError.invalidOperation }
         var rows: [CloudPlaylistRow] = []
-        var summary: PlaylistSummary?
-        var capabilities = CloudPlaylistCapabilities()
+        var metadata: CloudPlaylistSnapshot?
         var continuation: String?
         var seen = Set<String>()
-        var unavailableCount = 0
+        var unavailableRows: [CloudPlaylistUnavailableRow] = []
         for pageNumber in 0..<200 {
             try Task.checkCancellation()
             try await validate()
@@ -83,12 +82,11 @@ extension YouTubeMusic {
             try Task.checkCancellation()
             if pageNumber == 0 {
                 guard let page = CloudPlaylistPages.first(root, id: id) else { throw CloudPlaylistError.incompleteResponse }
-                summary = page.playlist
-                capabilities = page.capabilities
+                metadata = page
             }
             let parsed = try CloudPlaylistPages.rows(root, startingAt: rows.count)
             let pageRows = parsed.rows
-            unavailableCount += parsed.unavailableCount
+            unavailableRows.append(contentsOf: parsed.unavailableRows)
             guard pageRows.count <= 20_000 - rows.count else {
                 throw PlaylistQueueLoader.LoadingError.songLimitExceeded(20_000)
             }
@@ -101,12 +99,15 @@ extension YouTubeMusic {
                 }
                 continuation = next
             } else {
-                guard let summary else { throw CloudPlaylistError.incompleteResponse }
-                // A duplicate setVideoId would make occurrence-targeted removal ambiguous.
-                let occurrenceIDs = rows.compactMap(\.setVideoID)
-                guard Set(occurrenceIDs).count == occurrenceIDs.count else { throw CloudPlaylistError.incompleteResponse }
-                return CloudPlaylistSnapshot(playlist: summary, rows: rows, capabilities: capabilities,
-                                             unavailableCount: unavailableCount)
+                guard var snapshot = metadata else { throw CloudPlaylistError.incompleteResponse }
+                snapshot.rows = rows
+                snapshot.unavailableRows = unavailableRows
+                snapshot.unavailableCount = unavailableRows.count
+                snapshot.fetchedAt = Date()
+                // A duplicate setVideoId would make occurrence-targeted removal ambiguous,
+                // including occurrences which became unplayable after selection.
+                guard Set(snapshot.occurrenceIDs).count == snapshot.occurrenceIDs.count else { throw CloudPlaylistError.incompleteResponse }
+                return snapshot
             }
         }
         throw PlaylistQueueLoader.LoadingError.pageLimitExceeded(200)
@@ -122,12 +123,14 @@ enum CloudPlaylistPages {
         let special = ["LM", "WL", "SE"].contains(id) || id.hasPrefix("RD") || id.hasPrefix("OLAK")
         let owned = editor.exists && !special
         return .init(playlist: page.playlist, rows: [],
-                     capabilities: .init(canAdd: owned, canRemove: owned, canRename: owned))
+                     capabilities: .init(canAdd: owned, canRemove: owned, canRename: owned),
+                     author: page.author, detailLine: page.detailLine, description: page.description)
     }
 
     struct RowPage {
         var rows: [CloudPlaylistRow]
-        var unavailableCount: Int
+        var unavailableRows: [CloudPlaylistUnavailableRow]
+        var unavailableCount: Int { unavailableRows.count }
     }
 
     static func rows(_ root: JSON, startingAt offset: Int) throws -> RowPage {
@@ -137,26 +140,38 @@ enum CloudPlaylistPages {
               containers.allSatisfy({ $0["contents"].raw is [Any] || $0["continuationItems"].raw is [Any] }) else {
             throw CloudPlaylistError.incompleteResponse
         }
-        var unavailable = 0
+        for scope in containers where scope["continuations"].exists {
+            guard scope["continuations"].raw is [Any], scope["continuations"].array.allSatisfy({
+                $0["nextContinuationData"]["continuation"].nonEmpty != nil
+            }) else { throw CloudPlaylistError.incompleteResponse }
+        }
+        var unavailableRows: [CloudPlaylistUnavailableRow] = []
         var rows: [CloudPlaylistRow] = []
         for entry in containers.flatMap({ $0["contents"].array + $0["continuationItems"].array }) {
                 let row = entry["musicResponsiveListItemRenderer"]
                 if !row.exists {
-                    guard entry["continuationItemRenderer"].exists else { throw CloudPlaylistError.incompleteResponse }
+                    guard entry["continuationItemRenderer"].exists,
+                          entry["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty != nil else {
+                        throw CloudPlaylistError.incompleteResponse
+                    }
                     continue
                 }
+                let removeAction = row.objects("playlistEditEndpoint").flatMap { $0["actions"].array }
+                    .first(where: { $0["action"].string == "ACTION_REMOVE_VIDEO" })
+                let setID = row["playlistItemData"]["playlistSetVideoId"].nonEmpty
+                    ?? row["playlistItemData"]["setVideoId"].nonEmpty ?? removeAction?["setVideoId"].nonEmpty
                 if row["isAvailable"].bool == false || row["musicItemRendererDisplayPolicy"].string == "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT" {
-                    unavailable += 1
+                    let videoID = row["playlistItemData"]["videoId"].nonEmpty
+                        ?? row["navigationEndpoint"]["watchEndpoint"]["videoId"].nonEmpty
+                        ?? row["flexColumns"].objects("watchEndpoint").compactMap { $0["videoId"].nonEmpty }.first
+                        ?? removeAction?["removedVideoId"].nonEmpty
+                    unavailableRows.append(.init(setVideoID: setID, videoID: videoID))
                     continue
                 }
                 guard let song = Rows.song(listRow: row) else { throw CloudPlaylistError.incompleteResponse }
-                let setID = row["playlistItemData"]["playlistSetVideoId"].nonEmpty
-                    ?? row["playlistItemData"]["setVideoId"].nonEmpty
-                    ?? row.objects("playlistEditEndpoint").flatMap { $0["actions"].array }
-                        .first(where: { $0["action"].string == "ACTION_REMOVE_VIDEO" })?["setVideoId"].nonEmpty
                 rows.append(CloudPlaylistRow(id: setID ?? "row:\(offset + rows.count):\(song.id)", song: song, setVideoID: setID))
         }
-        return RowPage(rows: rows, unavailableCount: unavailable)
+        return RowPage(rows: rows, unavailableRows: unavailableRows)
     }
 
     static func continuation(_ root: JSON) -> String? {

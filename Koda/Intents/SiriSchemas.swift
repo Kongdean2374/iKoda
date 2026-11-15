@@ -201,7 +201,7 @@ enum SchemaPlaylistOwner {
     case person(IntentPerson)
 }
 
-/// A playlist: one the listener made (its UUID) or one saved from YouTube Music (its id).
+/// A cloud playlist, with UUID lookup retained only for saved legacy shortcuts.
 @available(iOS 27.0, *)
 @AppEntity(schema: .audio.playlist)
 struct SchemaPlaylistEntity: IndexedEntity {
@@ -236,7 +236,8 @@ struct SchemaPlaylistEntity: IndexedEntity {
         totalDuration = 0
         title = playlist.title
         owner = playlist.subtitle.map { .curator($0) }
-        createdByMe = false
+        // A saved playlist or an add permission does not prove ownership.
+        createdByMe = nil
         curatedForMe = nil
     }
 }
@@ -253,23 +254,31 @@ struct SchemaPlaylistQuery: EntityStringQuery {
 
     @MainActor
     func entities(for identifiers: [String]) async throws -> [SchemaPlaylistEntity] {
-        identifiers.compactMap { id in
-            if let uuid = UUID(uuidString: id), let mine = app.library.userPlaylist(uuid) { return SchemaPlaylistEntity(mine) }
-            return app.library.playlists.first { $0.id == id }.map(SchemaPlaylistEntity.init) ?? SchemaPlaylistEntity(PlaylistSummary(id: id, title: ""))
+        let resolved = try await PlaylistEntityQuery().entities(for: identifiers)
+        return resolved.compactMap { entity in
+            if let uuid = UUID(uuidString: entity.id) {
+                return app.library.userPlaylist(uuid).map(SchemaPlaylistEntity.init)
+            }
+            var result = SchemaPlaylistEntity(PlaylistSummary(id: entity.id, title: entity.name))
+            result.trackCount = entity.count ?? 0
+            return result
         }
     }
 
     @MainActor
     func entities(matching string: String) async throws -> [SchemaPlaylistEntity] {
-        let mine = app.library.userPlaylists.filter { $0.name.localizedStandardContains(string) }.map(SchemaPlaylistEntity.init)
-        let saved = app.library.playlists.filter { $0.title.localizedStandardContains(string) }.map(SchemaPlaylistEntity.init)
-        guard mine.isEmpty, saved.isEmpty else { return mine + saved }
-        return try await app.music.search(string, filter: .playlists).playlists.prefix(10).map(SchemaPlaylistEntity.init)
+        let profileID = app.roster.activeID
+        let saved = try await IntentPlaylists.catalog(app)
+            .filter { $0.title.localizedStandardContains(string) }.map(SchemaPlaylistEntity.init)
+        guard saved.isEmpty else { return saved }
+        let found = try await app.music.search(string, filter: .playlists).playlists
+        try IntentPlaylists.validateProfile(profileID, app: app)
+        return found.prefix(10).map(SchemaPlaylistEntity.init)
     }
 
     @MainActor
     func suggestedEntities() async throws -> [SchemaPlaylistEntity] {
-        app.library.userPlaylists.map(SchemaPlaylistEntity.init) + app.library.playlists.map(SchemaPlaylistEntity.init)
+        try await IntentPlaylists.catalog(app).map(SchemaPlaylistEntity.init)
     }
 }
 
@@ -359,8 +368,7 @@ struct SchemaPlayAudioIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        if case .playlist(let playlist) = audioEntity,
-           UUID(uuidString: playlist.id).flatMap({ app.library.userPlaylist($0) }) == nil {
+        if case .playlist(let playlist) = audioEntity, UUID(uuidString: playlist.id) == nil {
             // Online playlists must finish metadata pagination before choosing their
             // first shuffled song. Local playlists already contain their complete source.
             switch queueLocation {
@@ -405,7 +413,12 @@ struct SchemaPlayAudioIntent: AudioPlaybackIntent {
         case .artist(let artist):
             return try await app.music.artist(artist.id).topSongs
         case .playlist(let playlist):
-            if let uuid = UUID(uuidString: playlist.id), let mine = app.library.userPlaylist(uuid) { return mine.songs }
+            if let uuid = UUID(uuidString: playlist.id) {
+                guard let mine = app.library.userPlaylist(uuid) else {
+                    throw AppIntentError(wrapping: SchemaIntentError.nothingFound)
+                }
+                return mine.songs
+            }
             // Also serves Play Next, Play Last and Add to Playlist: retain those actions,
             // but apply them only after the full source has loaded successfully.
             return try await app.music.playlistForPlayback(playlist.id)
@@ -485,14 +498,22 @@ struct SchemaAddToPlaylistIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let uuid = UUID(uuidString: playlist.id), let target = app.library.userPlaylist(uuid) else {
-            throw AppIntentError(wrapping: SchemaIntentError.nothingFound)
+        guard UUID(uuidString: playlist.id) == nil else {
+            throw AppIntentError(wrapping: PlaylistIntentError.legacyRequiresMigration)
+        }
+        let profileID = app.roster.activeID
+        guard let scope = app.cloudPlaylists.captureScope() else {
+            throw app.roster.active.isExpired ? CloudAccountAccessError.expired : .signedOut
         }
         let songs = try await SchemaPlayAudioIntent.songs(for: audioEntity, app: app)
-        try Task.checkCancellation()
-        let added = app.library.add(songs, toPlaylist: target.id)
-        guard added > 0 else { return .result(dialog: "That's already in \(target.name).") }
-        return .result(dialog: "Added to \(target.name).")
+        try IntentPlaylists.validateProfile(profileID, app: app)
+        guard app.cloudPlaylists.captureScope() == scope else { throw CloudAccountAccessError.changed }
+        guard !songs.isEmpty else { throw AppIntentError(wrapping: SchemaIntentError.nothingFound) }
+        // The coordinator checks actual account permissions, journals each batch,
+        // and reads the remote result back before Siri announces success.
+        let confirmed = try await app.cloudPlaylists.add(songs: songs, to: playlist.id, expectedScope: scope)
+        try IntentPlaylists.validateProfile(profileID, app: app)
+        return .result(dialog: "Added to \(confirmed.title).")
     }
 }
 
@@ -501,15 +522,29 @@ struct SchemaAddToPlaylistIntent {
 @available(iOS 27.0, *)
 @MainActor
 enum SchemaIndex {
+    private static var indexingTask: Task<Void, Never>?
+
     /// The library in Spotlight's semantic index, where the new Siri looks for it.
     static func update(_ app: AppModel) {
         let songs = app.library.liked.prefix(500).map(SchemaSongEntity.init)
         let albums = app.library.albums.map(SchemaAlbumEntity.init)
-        let playlists = app.library.userPlaylists.map(SchemaPlaylistEntity.init) + app.library.playlists.map(SchemaPlaylistEntity.init)
-        Task.detached(priority: .utility) {
+        let playlists = app.cloudPlaylists.hasSession ? app.cloudPlaylists.catalog.map(SchemaPlaylistEntity.init) : []
+        let previous = indexingTask
+        previous?.cancel()
+        indexingTask = Task(priority: .utility) {
+            await previous?.value
+            guard !Task.isCancelled else { return }
             let index = CSSearchableIndex.default()
+            try? await index.deleteAppEntities(ofType: SchemaPlaylistEntity.self)
+            guard !Task.isCancelled else { return }
+            try? await index.deleteAppEntities(ofType: SchemaSongEntity.self)
+            guard !Task.isCancelled else { return }
+            try? await index.deleteAppEntities(ofType: SchemaAlbumEntity.self)
+            guard !Task.isCancelled else { return }
             try? await index.indexAppEntities(Array(songs))
+            guard !Task.isCancelled else { return }
             try? await index.indexAppEntities(albums)
+            guard !Task.isCancelled else { return }
             try? await index.indexAppEntities(playlists)
         }
     }

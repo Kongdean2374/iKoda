@@ -12,24 +12,13 @@ struct LibrarySearchResults: View {
     @State private var toolbox: PlaylistToolboxRequest?
 
     var body: some View {
-        let found = library.search(query, extra: downloads.store.completeSongs)
+        let found = cloudLibraryMatches(query, library: library, downloads: downloads, app: app)
         List {
             if !found.songs.isEmpty {
                 Section(String(localized: "Songs")) {
                     ForEach(Array(found.songs.prefix(50).enumerated()), id: \.element.id) { index, song in
                         SongRow(song: song) { player.play(found.songs, startAt: index) }
                             .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
-                    }
-                }
-            }
-            if !found.userPlaylists.isEmpty {
-                Section(String(localized: "Your Playlists")) {
-                    ForEach(found.userPlaylists) { playlist in
-                        NavigationLink(value: Route.userPlaylist(playlist.id)) {
-                            row(title: playlist.name, subtitle: songCount(playlist.songs.count)) {
-                                PlaylistCover(playlist: playlist, size: 52, cornerRadius: 8)
-                            }
-                        }
                     }
                 }
             }
@@ -68,6 +57,7 @@ struct LibrarySearchResults: View {
             }
         }
         .listStyle(.plain)
+        .task(id: app.roster.activeID) { await app.cloudPlaylists.refresh(force: false) }
         .toolbar {
             if !found.songs.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -109,9 +99,10 @@ struct MacLibrarySearchResults: View {
     @Environment(Library.self) private var library
     @Environment(Downloads.self) private var downloads
     @Environment(Player.self) private var player
+    @Environment(AppModel.self) private var app
 
     var body: some View {
-        let found = library.search(query, extra: downloads.store.completeSongs)
+        let found = cloudLibraryMatches(query, library: library, downloads: downloads, app: app)
         if found.isEmpty {
             ContentUnavailableView {
                 Label(String(localized: "Not in Your Library"), systemImage: "magnifyingglass")
@@ -124,19 +115,6 @@ struct MacLibrarySearchResults: View {
                 MacSectionTitle(title: String(localized: "Songs"))
                     .padding(.horizontal, MacMetrics.gutter)
                 MacTrackList(songs: Array(found.songs.prefix(100))) { player.play(found.songs, startAt: $0) }
-            }
-            if !found.userPlaylists.isEmpty {
-                MacShelf(title: String(localized: "Your Playlists")) {
-                    ForEach(found.userPlaylists) { playlist in
-                        NavigationLink(value: Route.userPlaylist(playlist.id)) {
-                            MacCoverCard(title: playlist.name, subtitle: songCount(playlist.songs.count),
-                                         onPlay: playlist.songs.isEmpty ? nil : { player.play(playlist.songs) }) {
-                                PlaylistCover(playlist: playlist, size: MacMetrics.card, cornerRadius: 10)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
             }
             if !found.albums.isEmpty {
                 MacShelf(title: String(localized: "Albums")) { ForEach(found.albums) { MacItemCard(item: .album($0)) } }
@@ -151,6 +129,12 @@ struct MacLibrarySearchResults: View {
     }
 }
 
-private func songCount(_ count: Int) -> String {
-    count == 1 ? String(localized: "1 song") : String(localized: "\(count) songs")
+@MainActor
+private func cloudLibraryMatches(_ query: String, library: Library, downloads: Downloads, app: AppModel) -> LibraryMatches {
+    var found = library.search(query, extra: downloads.store.completeSongs)
+    // Old data and song lookup remain compatible; legacy playlist management lives
+    // in its explicit archive instead of appearing as a second normal library.
+    found.userPlaylists = []
+    found.playlists = LibrarySearch.playlists(app.cloudPlaylists.catalog, matching: query)
+    return found
 }

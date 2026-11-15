@@ -47,7 +47,7 @@ struct KodaApp: App {
                 .preferredColorScheme(model.settings.theme.colorScheme)
                 .frame(minWidth: Platform.isMac ? 700 : nil, minHeight: Platform.isMac ? 520 : nil)
                 // Spotlight and Siri learn the liked songs and playlists, and again when they change.
-                .task(id: IntentsIndexKey(model.library)) { IntentsIndex.update(model) }
+                .task(id: IntentsIndexKey(model)) { IntentsIndex.update(model) }
         }
         // The root view's frame sets the smallest window and nothing sets a largest. No
         // `defaultSize`: on Catalyst it pins the scene's maximum size to the default size, so the
@@ -93,13 +93,15 @@ struct KodaApp: App {
 
 /// Changes when what Siri and Spotlight are told about does.
 private struct IntentsIndexKey: Equatable {
+    var profileID: UUID
     var liked: [String]
     var playlists: [String]
 
     @MainActor
-    init(_ library: Library) {
-        liked = library.liked.map(\.id)
-        playlists = library.userPlaylists.map { "\($0.id)\($0.name)\($0.songs.count)" }
+    init(_ app: AppModel) {
+        profileID = app.roster.activeID
+        liked = app.library.liked.map(\.id)
+        playlists = app.cloudPlaylists.catalog.map { "\($0.id)\u{0}\($0.title)" }
     }
 }
 

@@ -28,24 +28,81 @@ public struct CloudPlaylistCapabilities: Codable, Equatable, Sendable {
     }
 }
 
+/// Unplayable rows still exist remotely. Retain their identity without inventing
+/// playable Song metadata or exposing an unavailable item as a valid audio source.
+public struct CloudPlaylistUnavailableRow: Codable, Equatable, Sendable {
+    public var setVideoID: String?
+    public var videoID: String?
+
+    public init(setVideoID: String? = nil, videoID: String? = nil) {
+        self.setVideoID = setVideoID
+        self.videoID = videoID
+    }
+}
+
 public struct CloudPlaylistSnapshot: Codable, Equatable, Sendable {
     public var playlist: PlaylistSummary
     public var rows: [CloudPlaylistRow]
     public var capabilities: CloudPlaylistCapabilities
     public var fetchedAt: Date
-    /// Explicitly unavailable service rows, excluded from playback but never mistaken for a missing page.
+    /// Explicitly unavailable service rows, excluded from playback but retained for mutation verification.
     public var unavailableCount: Int
+    public var unavailableRows: [CloudPlaylistUnavailableRow]
+    public var author: String?
+    public var detailLine: String?
+    public var description: String?
     public var songs: [Song] { rows.map(\.song) }
     public var id: String { playlist.id }
     public var title: String { playlist.title }
+    public var page: PlaylistPage {
+        PlaylistPage(playlist: playlist, author: author, detailLine: detailLine,
+                     description: description, songs: songs, continuation: nil)
+    }
 
     public init(playlist: PlaylistSummary, rows: [CloudPlaylistRow],
-                capabilities: CloudPlaylistCapabilities = .init(), fetchedAt: Date = Date(), unavailableCount: Int = 0) {
+                capabilities: CloudPlaylistCapabilities = .init(), fetchedAt: Date = Date(), unavailableCount: Int = 0,
+                unavailableRows: [CloudPlaylistUnavailableRow] = [], author: String? = nil,
+                detailLine: String? = nil, description: String? = nil) {
         self.playlist = playlist
         self.rows = rows
         self.capabilities = capabilities
         self.fetchedAt = fetchedAt
-        self.unavailableCount = unavailableCount
+        self.unavailableCount = max(unavailableCount, unavailableRows.count)
+        self.unavailableRows = unavailableRows
+        self.author = author
+        self.detailLine = detailLine
+        self.description = description
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case playlist, rows, capabilities, fetchedAt, unavailableCount, unavailableRows, author, detailLine, description
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        playlist = try values.decode(PlaylistSummary.self, forKey: .playlist)
+        rows = try values.decode([CloudPlaylistRow].self, forKey: .rows)
+        capabilities = try values.decode(CloudPlaylistCapabilities.self, forKey: .capabilities)
+        fetchedAt = try values.decode(Date.self, forKey: .fetchedAt)
+        unavailableRows = try values.decodeIfPresent([CloudPlaylistUnavailableRow].self, forKey: .unavailableRows) ?? []
+        unavailableCount = max(try values.decodeIfPresent(Int.self, forKey: .unavailableCount) ?? 0, unavailableRows.count)
+        author = try values.decodeIfPresent(String.self, forKey: .author)
+        detailLine = try values.decodeIfPresent(String.self, forKey: .detailLine)
+        description = try values.decodeIfPresent(String.self, forKey: .description)
+    }
+
+    var occurrenceIDs: [String] { rows.compactMap(\.setVideoID) + unavailableRows.compactMap(\.setVideoID) }
+    var knownVideoIDs: [String] { songs.map(\.id) + unavailableRows.compactMap(\.videoID) }
+
+    /// A missing visible row is not proof of removal: it may have become unavailable.
+    /// Unknown rows only block confirmation when they could be the selected song.
+    func confirmsAbsence(of selected: CloudPlaylistRow) -> Bool {
+        guard let id = selected.setVideoID, !occurrenceIDs.contains(id),
+              unavailableCount <= unavailableRows.count else { return false }
+        guard !rows.contains(where: { $0.setVideoID == nil && $0.song.id == selected.song.id }) else { return false }
+        return !unavailableRows.contains {
+            $0.setVideoID == nil && ($0.videoID == nil || $0.videoID == selected.song.id)
+        }
     }
 }
 

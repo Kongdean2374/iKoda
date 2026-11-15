@@ -62,7 +62,7 @@ public enum CloudPlaylistRunner {
                 try await check(validate)
                 let batch = Array(songs.dropFirst(state.completedCount).prefix(50))
                 try await requireAddPermission(snapshot, videoIDs: batch.map(\.id), transport: transport, validate: validate)
-                var expected = counts(snapshot.songs.map(\.id))
+                var expected = counts(snapshot.knownVideoIDs)
                 for song in batch { expected[song.id, default: 0] += 1 }
                 let relevant = Set(batch.map(\.id))
                 state.pending = .init(kind: .add, videoIDs: batch.map(\.id),
@@ -82,14 +82,23 @@ public enum CloudPlaylistRunner {
                 try await check(validate)
                 guard snapshot.capabilities.canRemove else { throw CloudPlaylistError.readOnly }
                 let batch = Array(requested.dropFirst(state.completedCount).prefix(50))
-                let remote = Dictionary(uniqueKeysWithValues: snapshot.rows.compactMap { row in
+                let occurrenceIDs = Set(snapshot.occurrenceIDs)
+                var knownVideos = Dictionary(uniqueKeysWithValues: snapshot.rows.compactMap { row in
                     row.setVideoID.map { ($0, row.song.id) }
                 })
+                for row in snapshot.unavailableRows {
+                    if let id = row.setVideoID, let videoID = row.videoID { knownVideos[id] = videoID }
+                }
                 for row in batch {
                     guard let id = row.setVideoID else { throw CloudPlaylistError.missingOccurrenceID }
-                    if let actual = remote[id], actual != row.song.id { throw CloudPlaylistError.externalChange }
+                    if let actual = knownVideos[id], actual != row.song.id { throw CloudPlaylistError.externalChange }
+                    // A selected row may now be unavailable, not removed. If its
+                    // identity disappeared as well, do not claim a no-write success.
+                    if !occurrenceIDs.contains(id), !snapshot.confirmsAbsence(of: row) {
+                        throw CloudPlaylistError.missingOccurrenceID
+                    }
                 }
-                let present = batch.filter { remote[$0.setVideoID!] != nil }
+                let present = batch.filter { occurrenceIDs.contains($0.setVideoID!) }
                 if present.isEmpty {
                     state.completedCount += batch.count
                     try await save(state, didCheckpoint)
@@ -164,14 +173,13 @@ public enum CloudPlaylistRunner {
 
     static func confirmed(_ batch: CloudPlaylistPendingBatch, in snapshot: CloudPlaylistSnapshot) -> Bool {
         switch batch.kind {
-        case .create: false // An unknown remote ID cannot be recovered by matching names.
+        case .create: return false // An unknown remote ID cannot be recovered by matching names.
         case .add:
-            let actual = counts(snapshot.songs.map(\.id))
+            let actual = counts(snapshot.knownVideoIDs)
             return !batch.expectedCounts.isEmpty && batch.expectedCounts.allSatisfy { actual[$0.key, default: 0] >= $0.value }
         case .remove:
-            let actual = Set(snapshot.rows.compactMap(\.setVideoID))
-            return !batch.rows.isEmpty && batch.rows.allSatisfy { $0.setVideoID.map { !actual.contains($0) } == true }
-        case .rename: snapshot.title == batch.title
+            return !batch.rows.isEmpty && batch.rows.allSatisfy { snapshot.confirmsAbsence(of: $0) }
+        case .rename: return snapshot.title == batch.title
         }
     }
 
@@ -210,7 +218,7 @@ public enum CloudPlaylistRunner {
     }
     private static func verifyIdentity(_ snapshot: CloudPlaylistSnapshot, expected: String) throws {
         guard canonical(snapshot.id) == canonical(expected) else { throw CloudPlaylistError.incompleteResponse }
-        let ids = snapshot.rows.compactMap(\.setVideoID)
+        let ids = snapshot.occurrenceIDs
         guard Set(ids).count == ids.count else { throw CloudPlaylistError.incompleteResponse }
     }
     private static func check(_ validate: @Sendable () async throws -> Void) async throws {
@@ -239,7 +247,7 @@ public enum CloudPlaylistRunner {
     }
     private static func definitelyRejected(_ error: Error) -> Bool {
         guard let error = error as? MusicError else { return false }
-        switch error {
+        return switch error {
         case .signedOut: true
         case .badResponse(let status): [400, 401, 403, 404].contains(status)
         default: false

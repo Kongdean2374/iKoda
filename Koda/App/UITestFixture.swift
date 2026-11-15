@@ -11,11 +11,12 @@ struct KodaUITestFixture: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var prepared = false
-    @State private var firstPlaylist: UUID?
+    @State private var firstPlaylist: PlaylistSummary?
+    @State private var songs: [Song] = []
     @State private var sheet: FixtureSheet?
 
     private enum FixtureSheet: String, Identifiable {
-        case selection, merge
+        case selection, merge, cloudCreate, catcher, flow
         var id: Self { self }
     }
 
@@ -45,17 +46,27 @@ struct KodaUITestFixture: View {
                     Text(verbatim: "Sleep timer")
                 }
                 .accessibilityIdentifier("fixture.sleep")
+                NavigationLink { HomeView() } label: { Text(verbatim: "Cloud home") }
+                    .accessibilityIdentifier("fixture.home")
+                Button { sheet = .flow } label: { Text(verbatim: "Koda Flow preview") }
+                    .accessibilityIdentifier("fixture.flow")
                 Button { sheet = .selection } label: {
-                    Text(verbatim: "Select local songs")
+                    Text(verbatim: "Select cloud songs")
                 }
                 .accessibilityIdentifier("fixture.selection")
                 Button { sheet = .merge } label: {
-                    Text(verbatim: "Merge local playlists")
+                    Text(verbatim: "Merge cloud playlists")
                 }
                 .accessibilityIdentifier("fixture.merge")
-                ForEach(app.library.userPlaylists) { playlist in
-                    Text(verbatim: "\(playlist.name): \(playlist.songs.count)")
-                        .accessibilityIdentifier("fixture.playlist.\(playlist.name)")
+                Button { sheet = .cloudCreate } label: { Text(verbatim: "Create cloud playlist") }
+                    .accessibilityIdentifier("fixture.cloud.create")
+                Button { sheet = .catcher } label: { Text(verbatim: "Music recognition") }
+                    .accessibilityIdentifier("fixture.catcher")
+                Text(verbatim: "\(app.library.userPlaylists.count)")
+                    .accessibilityIdentifier("fixture.localPlaylistCount")
+                ForEach(app.cloudPlaylists.catalog) { playlist in
+                    Text(verbatim: "\(playlist.title): \(app.cloudPlaylists.snapshots[playlist.id]?.songs.count ?? 0)")
+                        .accessibilityIdentifier("fixture.playlist.\(playlist.title)")
                 }
                 Text(verbatim: reduceMotion ? "enabled" : "disabled")
                     .accessibilityIdentifier("fixture.accessibility.reduceMotion")
@@ -72,10 +83,18 @@ struct KodaUITestFixture: View {
                 switch value {
                 case .selection:
                     if let firstPlaylist {
-                        PlaylistToolboxView(request: PlaylistToolboxRequest(source: .local(firstPlaylist)))
+                        PlaylistToolboxView(request: PlaylistToolboxRequest(source: .online(firstPlaylist, .init())))
                     }
+                case .flow:
+                    if let firstPlaylist { KodaFlowView(playlist: firstPlaylist) }
                 case .merge:
                     PlaylistMergeView()
+                case .cloudCreate:
+                    CloudPlaylistCreateView(songs: Array(songs.prefix(1)))
+                case .catcher:
+                    if let song = songs.first {
+                        MusicCatcherView(provider: recognizer(for: song), search: { _ in songs }) { _ in }
+                    }
                 }
             }
             .appEnvironment(app)
@@ -115,9 +134,33 @@ struct KodaUITestFixture: View {
         let first = Song(id: "ui-smoke-a", title: "星光與海洋 — 測試歌曲", artistLine: "Fixture Artist", duration: 180)
         let second = Song(id: "ui-smoke-b", title: "Second Song", artistLine: "Fixture Artist", duration: 210)
         let third = Song(id: "ui-smoke-c", title: "Third Song (Live)", artistLine: "Fixture Artist", duration: 240)
-        firstPlaylist = app.library.createPlaylist(named: "Fixture Alpha", songs: [first, second]).id
-        _ = app.library.createPlaylist(named: "Fixture Beta", songs: [second, third])
+        songs = [first, second, third]
+        func snapshot(_ id: String, _ title: String, _ songs: [Song], editable: Bool = true) -> CloudPlaylistSnapshot {
+            .init(playlist: .init(id: id, title: title), rows: songs.enumerated().map {
+                let row = "\(id)-\($0.offset)"
+                return .init(id: row, song: $0.element, setVideoID: row)
+            }, capabilities: .init(canAdd: editable, canRemove: editable, canRename: editable))
+        }
+        let largePlaylist = ProcessInfo.processInfo.arguments.contains("-KodaUITestLargePlaylist")
+        let sourceSongs = largePlaylist ? (0..<600).map {
+            Song(id: "ui-large-\($0)", title: "Cloud Song \($0)", artistLine: "Fixture Artist", duration: 30)
+        } : [first, second]
+        let snapshots = [snapshot("PLui-alpha", "Fixture Alpha", sourceSongs),
+                         snapshot("PLui-beta", "Fixture Beta", [second, third]),
+                         snapshot("PLui-read-only", "Fixture Read Only", [first], editable: false)]
+        firstPlaylist = snapshots[0].playlist
+        app.cloudPlaylists.installUITestData(catalog: snapshots.map(\.playlist), snapshots: snapshots,
+            transport: UITestCloudTransport(snapshots: snapshots, songs: songs + (largePlaylist ? sourceSongs : []),
+                failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure")), like: { $0 })
         prepared = true
+    }
+
+    private func recognizer(for song: Song) -> UITestMusicRecognizer {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-KodaUITestRecognitionDenied") { return UITestMusicRecognizer(.denied) }
+        if arguments.contains("-KodaUITestRecognitionWaiting") { return UITestMusicRecognizer(.waiting) }
+        if arguments.contains("-KodaUITestRecognitionNoMatch") { return UITestMusicRecognizer(.noMatch) }
+        return UITestMusicRecognizer(.match(.init(title: song.title, artist: song.artistLine, duration: song.duration)))
     }
 }
 #endif

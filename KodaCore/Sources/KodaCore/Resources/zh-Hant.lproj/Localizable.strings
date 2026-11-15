@@ -134,3 +134,13 @@
 "Choose a sleep timer between 1 and 720 minutes." = "請設定 1 至 720 分鐘的睡眠計時器。";
 "The sleep timer time is invalid. Try setting it again." = "睡眠計時器的時間無效，請重新設定。";
 "The sleep timer is not running." = "睡眠計時器尚未啟動。";
+
+/* Koda 0.6.0 cloud playlist operations. */
+"This playlist is read-only for this account." = "這個帳號只能讀取此播放清單。";
+"YouTube Music does not currently provide a verified way to perform this operation." = "YouTube Music 目前未提供已確認可安全執行此操作的方式。";
+"YouTube Music did not provide the row identifiers needed to safely remove these songs." = "YouTube Music 未提供安全移除這些歌曲所需的項目識別資訊。";
+"This playlist changed on another device. Refresh it before trying again." = "此播放清單已在其他裝置上變更。請先重新整理再試一次。";
+"The complete cloud playlist could not be verified. No partial result was accepted." = "無法確認完整的雲端播放清單，未採用不完整的結果。";
+"The cloud change is not confirmed yet. Check again before making another change." = "尚未確認雲端變更。請先再次查詢，再進行其他修改。";
+"YouTube Music may have created this playlist. Refresh your playlists before creating another one." = "YouTube Music 可能已建立這份播放清單。請先重新整理播放清單，再建立另一份。";
+"The cloud playlist operation is invalid. Refresh and try again." = "雲端播放清單操作無效。請重新整理後再試一次。";

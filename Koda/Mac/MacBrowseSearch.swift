@@ -282,6 +282,7 @@ struct MacLibraryGrid: View {
     let kind: Kind
     @Environment(Library.self) private var library
     @Environment(Player.self) private var player
+    @Environment(AppModel.self) private var app
     @AppStorage("koda.library.sort") private var sort: LibrarySort = .recent
 
     private var title: String {
@@ -308,30 +309,18 @@ struct MacLibraryGrid: View {
                     MacGrid(items: sortedAlbums) { album, side in MacItemCard(item: .album(album), width: side) }
                 }
             case .playlists:
-                if library.playlists.isEmpty && library.userPlaylists.isEmpty {
+                CloudPlaylistSessionNotice()
+                    .padding(.horizontal, MacMetrics.gutter)
+                CloudPlaylistOperationView()
+                    .padding(.horizontal, MacMetrics.gutter)
+                if let error = app.cloudPlaylists.refreshError, app.cloudPlaylists.hasSession {
+                    Text(error).foregroundStyle(.secondary).padding(.horizontal, MacMetrics.gutter)
+                }
+                if app.cloudPlaylists.isRefreshing { ProgressView() }
+                if app.cloudPlaylists.catalog.isEmpty {
                     empty(String(localized: "No Playlists"), "music.note.list", String(localized: "Make one with New Playlist in the sidebar, or add playlists with the + button on their pages."))
                 } else {
-                    if !library.userPlaylists.isEmpty {
-                        MacSectionTitle(title: String(localized: "Your Playlists"))
-                            .padding(.horizontal, MacMetrics.gutter)
-                        MacGrid(items: sortedUserPlaylists) { playlist, side in
-                            NavigationLink(value: Route.userPlaylist(playlist.id)) {
-                                MacCoverCard(title: playlist.name,
-                                             subtitle: playlist.songs.count == 1 ? String(localized: "1 song") : String(localized: "\(playlist.songs.count) songs"),
-                                             width: side,
-                                             onPlay: playlist.songs.isEmpty ? nil : { player.play(playlist.songs) }) {
-                                    PlaylistCover(playlist: playlist, size: side, cornerRadius: 10)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    if !library.playlists.isEmpty {
-                        MacSectionTitle(title: String(localized: "Saved Playlists"))
-                            .padding(.horizontal, MacMetrics.gutter)
-                            .padding(.top, library.userPlaylists.isEmpty ? 0 : 12)
-                        MacGrid(items: sortedPlaylists) { playlist, side in MacItemCard(item: .playlist(playlist), width: side) }
-                    }
+                    MacGrid(items: sortedPlaylists) { playlist, side in MacItemCard(item: .playlist(playlist), width: side) }
                 }
             case .artists:
                 if library.artists.isEmpty {
@@ -342,6 +331,17 @@ struct MacLibraryGrid: View {
             }
         }
         .navigationTitle(title)
+        .task(id: app.roster.activeID) {
+            if case .playlists = kind { await app.cloudPlaylists.refresh(force: true) }
+        }
+        .toolbar {
+            if case .playlists = kind {
+                Button(String(localized: "Refresh"), systemImage: "arrow.clockwise") {
+                    Task { await app.cloudPlaylists.refresh(force: true) }
+                }
+                .disabled(app.cloudPlaylists.isRefreshing)
+            }
+        }
     }
 
     private func empty(_ title: String, _ symbol: String, _ text: String) -> some View {
@@ -362,15 +362,8 @@ struct MacLibraryGrid: View {
 
     private var sortedPlaylists: [PlaylistSummary] {
         switch sort {
-        case .recent: library.playlists
-        case .title, .artist: library.playlists.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        }
-    }
-
-    private var sortedUserPlaylists: [UserPlaylist] {
-        switch sort {
-        case .recent: library.userPlaylists.sorted { $0.modified > $1.modified }
-        case .title, .artist: library.userPlaylists.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .recent: app.cloudPlaylists.catalog
+        case .title, .artist: app.cloudPlaylists.catalog.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         }
     }
 

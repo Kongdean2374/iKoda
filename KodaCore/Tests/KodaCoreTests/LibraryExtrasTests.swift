@@ -5,6 +5,17 @@ import Testing
 /// Library search, playlist photos and descriptions, the equalizer's curves and Data Saver.
 @MainActor
 @Suite struct LibrarySearchTests {
+    @Test func cloudPlaylistSearchUsesCurrentTitlesWithoutMergingEqualNames() {
+        let playlists = [
+            PlaylistSummary(id: "PL-first", title: "CAFÉ 練習", subtitle: "台灣"),
+            PlaylistSummary(id: "PL-second", title: "CAFÉ 練習", subtitle: "日本"),
+            PlaylistSummary(id: "PL-other", title: "工作用音樂", subtitle: "台灣")
+        ]
+        #expect(LibrarySearch.playlists(playlists, matching: "cafe 台灣").map(\.id) == ["PL-first"])
+        #expect(LibrarySearch.playlists(playlists, matching: "練習").map(\.id) == ["PL-first", "PL-second"])
+        #expect(LibrarySearch.playlists(playlists, matching: "previous title").isEmpty)
+    }
+
     private func song(_ id: String, _ title: String, _ artist: String, album: String? = nil) -> Song {
         Song(id: id, title: title, artistLine: artist, album: album.map { AlbumRef(id: "MPRE\(id)", title: $0) })
     }

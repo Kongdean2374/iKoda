@@ -58,7 +58,41 @@ enum AccountPages {
     }
 
     static func hasLibraryContainer(_ root: JSON) -> Bool {
-        !libraryContainers(root).isEmpty
+        let containers = libraryContainers(root)
+        return !containers.isEmpty && containers.allSatisfy {
+            $0["contents"].raw is [Any] || $0["items"].raw is [Any] || $0["continuationItems"].raw is [Any]
+        }
+    }
+
+    /// An authoritative directory may remove formerly cached entries. An unknown
+    /// row or malformed container must therefore fail, never become an empty catalog.
+    static func completeLibraryItems(_ root: JSON) throws -> [MusicItem] {
+        guard hasLibraryContainer(root) else { throw CloudPlaylistError.incompleteResponse }
+        let containers = libraryContainers(root)
+        for scope in containers where scope["continuations"].exists {
+            guard scope["continuations"].raw is [Any], scope["continuations"].array.allSatisfy({
+                $0["nextContinuationData"]["continuation"].nonEmpty != nil
+            }) else { throw CloudPlaylistError.incompleteResponse }
+        }
+        let entries = containers.flatMap { $0["contents"].array + $0["items"].array + $0["continuationItems"].array }
+        var items: [MusicItem] = []
+        for entry in entries {
+            if let item = Rows.item(entry: entry) {
+                items.append(item)
+            } else if entry["continuationItemRenderer"].exists {
+                // Pagination controls are not playlists, but a missing token cannot
+                // be mistaken for the end of an otherwise complete directory.
+                guard entry["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty != nil else {
+                    throw CloudPlaylistError.incompleteResponse
+                }
+            } else if entry["musicTwoRowItemRenderer"]["navigationEndpoint"]["createPlaylistEndpoint"].exists {
+                // The library's New playlist card does not represent a remote item.
+                continue
+            } else {
+                throw CloudPlaylistError.incompleteResponse
+            }
+        }
+        return Pages.dedupe(items)
     }
 
     static func libraryItems(_ root: JSON) -> [MusicItem] {
@@ -87,7 +121,8 @@ enum AccountPages {
     /// Liked Music are left out: neither takes songs added by hand.
     static func addToPlaylistOptions(_ root: JSON) -> [EditablePlaylist] {
         let options = root.objects("playlistAddToOptionRenderer").compactMap { option -> EditablePlaylist? in
-            guard let id = option["playlistId"].nonEmpty.map({ String($0.trimmingPrefix("VL")) }),
+            guard option["isDisabled"].bool != true, option["disabled"].bool != true,
+                  let id = option["playlistId"].nonEmpty.map({ String($0.trimmingPrefix("VL")) }),
                   id != "WL", id != "LM", let title = option["title"].text.nonEmptyString else { return nil }
             let contains: Bool? = switch option["containsSelectedVideos"].string {
             case "ALL", "SOME": true

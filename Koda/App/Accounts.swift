@@ -112,6 +112,7 @@ extension AppModel {
     /// The account is let go; the profile stays on this device with everything it holds.
     func signOut(_ id: UUID) {
         let wasActive = id == roster.activeID
+        if wasActive { cloudPlaylists.invalidateSession(); MusicCatcher.cancelActiveRecognition() }
         roster.signOut(id)
         forgetAccount(of: id)
         try? FileManager.default.removeItem(at: mirrorFile(id))
@@ -145,12 +146,15 @@ extension AppModel {
     func syncAccount(force: Bool = false) {
         let profile = roster.active
         guard profile.isSignedIn, !profile.isExpired else { return }
+        cloudPlaylists.prepareForAccountSync()
+        guard !cloudPlaylists.isBusy, !cloudPlaylists.isRefreshing else { return }
         if !force, let last = lastAccountSync[profile.id], Date().timeIntervalSince(last) < 15 * 60 { return }
         let id = profile.id
         lastAccountSync[id] = Date()
         syncTask?.cancel()
         syncRound += 1
         let round = syncRound
+        let cloudRevision = cloudPlaylists.catalogRevision
         syncTask = Task { [self] in
             await sendPending(for: id)
             guard !Task.isCancelled, roster.activeID == id else { return }
@@ -164,12 +168,13 @@ extension AppModel {
                 let account = try await AccountLibrary(liked: liked, albums: albums, playlists: playlists, artists: artists)
                 let info = try? await music.accountInfo()
                 // Switched away (or away and back) while it read: these pages may not all be this account's.
-                guard !Task.isCancelled, roster.activeID == id else { return }
+                guard !Task.isCancelled, roster.activeID == id, syncRound == round else { return }
                 let before = mirror(id)
                 let firstSync = before.liked.isEmpty && before.albums.isEmpty && before.playlists.isEmpty && before.artists.isEmpty
                 updateMirror(id) { library.reconcile(with: account, mirror: &$0) }
+                cloudPlaylists.receiveCatalog(account.playlists, for: id, expectedRevision: cloudRevision)
                 // Home was made before the account's likes arrived, so Your Mix had nothing to seed from.
-                if firstSync, home.profile == id { Task { await loadHome(home) } }
+                if firstSync, home.profile == id, home.recommendationsRequested { Task { await loadHome(home) } }
                 if let info {
                     roster.update(id) {
                         $0.handle = info.handle ?? $0.handle
@@ -178,10 +183,15 @@ extension AppModel {
                     }
                 }
             } catch MusicError.signedOut {
+                guard syncRound == round, roster.activeID == id else { return }
                 roster.update(id) { $0.isExpired = true }
+                cloudPlaylists.receiveRefreshError(MusicError.signedOut, for: id, expectedRevision: cloudRevision)
             } catch {
                 // Offline or refused for now: the next chance tries again.
-                lastAccountSync[id] = nil
+                if syncRound == round, roster.activeID == id {
+                    lastAccountSync[id] = nil
+                    cloudPlaylists.receiveRefreshError(error, for: id, expectedRevision: cloudRevision)
+                }
             }
         }
     }
@@ -207,6 +217,7 @@ extension AppModel {
 
     /// A like or save the listener made: remembered until the account has it, and sent now.
     private func send(_ change: LibraryChange) {
+        libraryIntentRevision &+= 1
         let profile = roster.active
         guard profile.isSignedIn else { return }
         let id = profile.id
@@ -384,6 +395,7 @@ extension AppModel {
     private func apply(_ verdict: AccountVerdict) {
         guard roster.profile(verdict.profileID)?.isSignedIn == true else { return }
         roster.update(verdict.profileID) { $0.isExpired = !verdict.signedIn }
+        if !verdict.signedIn, roster.activeID == verdict.profileID { cloudPlaylists.invalidateSession() }
     }
 
     private func enqueueAccountWork(_ work: @escaping @MainActor () async -> Void) {
@@ -403,6 +415,57 @@ extension AppModel {
         }
         accountWork = Task { _ = try? await task.value }
         return try await task.value
+    }
+
+    /// Cloud operations hold the same ordering barrier as session activation. Unlike
+    /// fire-and-forget legacy writes, caller cancellation reaches their queued task.
+    /// Each request also validates its profile/revision through the coordinator.
+    func withCloudAccountWork<T: Sendable>(_ work: @escaping @MainActor () async throws -> T) async throws -> T {
+        let previous = accountWork
+        let task = Task { @MainActor in
+            await previous?.value
+            try Task.checkCancellation()
+            return try await work()
+        }
+        accountWork = Task { _ = try? await task.value }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func cloudMutationBegan() {
+        stopSync()
+        lastAccountSync[roster.activeID] = nil
+    }
+
+    func cloudRefreshBegan() {
+        stopSync()
+        // A cancelled combined sync did not refresh likes/albums/artists. Do not
+        // treat its start time as a successful 15-minute throttle window.
+        lastAccountSync[roster.activeID] = nil
+    }
+
+    /// The cloud directory remains a truthful remote snapshot, while Library's
+    /// save buttons still honor unsent save/unsave intents from this profile.
+    func applyCloudPlaylistCatalogToLibrary(_ values: [PlaylistSummary], previousCloudIDs: Set<String>, profileID: UUID) {
+        guard roster.activeID == profileID else { return }
+        library.applyCloudPlaylistCatalog(values, previousCloudIDs: previousCloudIDs,
+                                          pending: mirror(profileID).pending)
+    }
+
+    /// The remote like has been read back. Do not generate another write or erase
+    /// a newer user intent queued while the request was in flight.
+    func confirmedCloudLike(_ song: Song, profileID: UUID, intentRevision: UInt64) {
+        guard roster.activeID == profileID, libraryIntentRevision == intentRevision else { return }
+        let change = LibraryChange.liked(song, true)
+        updateMirror(profileID) {
+            $0.queue(change)
+            $0.sent(change)
+            $0.liked.insert(song.id)
+        }
+        library.mergeAccount(liked: [song], albums: [], playlists: [], artists: [])
     }
 
     // MARK: The account mirror

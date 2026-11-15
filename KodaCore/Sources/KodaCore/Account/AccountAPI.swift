@@ -45,15 +45,14 @@ extension YouTubeMusic {
     /// A library page and its continuations.
     private func library(_ browseId: String, limit: Int = 5000, requireComplete: Bool = false) async throws -> [MusicItem] {
         var root = try await api.music("browse", ["browseId": browseId], signing: .required)
-        if requireComplete, !AccountPages.hasLibraryContainer(root) { throw CloudPlaylistError.incompleteResponse }
-        var items = AccountPages.libraryItems(root)
+        var items = if requireComplete { try AccountPages.completeLibraryItems(root) } else { AccountPages.libraryItems(root) }
         var seen = Set<String>()
         // 100 rows a page: 80 pages is past any library, so a chain that long isn't ending.
         while items.count < limit, seen.count < 80, let token = AccountPages.libraryContinuation(root), seen.insert(token).inserted {
             try Task.checkCancellation()
             root = try await api.music("browse", ["continuation": token], signing: .required)
-            if requireComplete, !AccountPages.hasLibraryContainer(root) { throw CloudPlaylistError.incompleteResponse }
-            items += AccountPages.libraryItems(root)
+            let pageItems = if requireComplete { try AccountPages.completeLibraryItems(root) } else { AccountPages.libraryItems(root) }
+            items += pageItems
         }
         let completeItems = Pages.dedupe(items)
         if requireComplete, AccountPages.libraryContinuation(root) != nil || completeItems.count > limit {

@@ -106,7 +106,7 @@ public final class Player {
     @ObservationIgnored private var playlistRequest: PlaylistRequest?
     @ObservationIgnored private var playlistLoadingTask: Task<Bool, Never>?
     @ObservationIgnored private var playlistRequestGeneration = 0
-    @ObservationIgnored public private(set) var playbackIntentRevision: UInt64 = 0
+    public private(set) var playbackIntentRevision: UInt64 = 0
     /// Metadata-only test seams; no audio URLs are resolved while preparing the source.
     @ObservationIgnored var playlistFirstPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?
     @ObservationIgnored var playlistPageLoader: (@Sendable (String) async throws -> PlaylistQueueLoader.Page)?

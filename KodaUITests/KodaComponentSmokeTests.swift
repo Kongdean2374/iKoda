@@ -36,8 +36,9 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testLocalSongSelectionAndDeselectAll() {
+    func testCloudSongSelectionAndDeselectAll() {
         let app = launch()
+        reveal(app.buttons["fixture.selection"], in: app)
         app.buttons["fixture.selection"].tap()
         let row = app.buttons["playlist.row.0"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
@@ -56,8 +57,9 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testMergingLocalPlaylistsPreservesSourcesAndExcludesExactDuplicates() {
+    func testMergingCloudPlaylistsPreservesSourcesAndExcludesExactDuplicates() {
         let app = launch()
+        reveal(app.buttons["fixture.merge"], in: app)
         app.buttons["fixture.merge"].tap()
         let field = app.textFields["playlist.merge.name"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
@@ -78,8 +80,11 @@ final class KodaComponentSmokeTests: XCTestCase {
         reveal(create, in: app)
         capture(app, "playlist-merge-preview")
         create.tap()
-        // Creation reports the saved local playlist. Undo is available for destructive
-        // edits, not for creating a new playlist, which retains its normal Delete action.
+        let confirm = app.buttons["playlist.merge.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        confirm.tap()
+        // The production coordinator must complete a remote read-back. The service
+        // boundary is a deterministic actor, not a second local userPlaylist store.
         let saved = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
             "Created “UI Merged” with ")).firstMatch
         reveal(saved, in: app, towardTop: true)
@@ -88,6 +93,206 @@ final class KodaComponentSmokeTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["fixture.playlist.UI Merged"].label, "UI Merged: 3")
         XCTAssertEqual(app.staticTexts["fixture.playlist.Fixture Alpha"].label, "Fixture Alpha: 2")
         XCTAssertEqual(app.staticTexts["fixture.playlist.Fixture Beta"].label, "Fixture Beta: 2")
+        XCTAssertEqual(app.staticTexts["fixture.localPlaylistCount"].label, "0")
+    }
+
+    @MainActor
+    func testCloudCreationConfirmsRemoteResultWithoutLocalPlaylist() {
+        let app = launch()
+        reveal(app.buttons["fixture.cloud.create"], in: app)
+        app.buttons["fixture.cloud.create"].tap()
+        let name = app.textFields["cloud.create.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap()
+        name.typeText("UI Cloud Created\n")
+        let create = app.buttons["cloud.create.submit"]
+        reveal(create, in: app)
+        create.tap()
+        XCTAssertTrue(control("cloud.create.confirmed", in: app).waitForExistence(timeout: 10))
+        capture(app, "cloud-playlist-confirmed")
+        app.navigationBars.buttons["Done"].tap()
+        let saved = app.staticTexts["fixture.playlist.UI Cloud Created"]
+        reveal(saved, in: app)
+        XCTAssertEqual(saved.label, "UI Cloud Created: 1")
+        XCTAssertEqual(app.staticTexts["fixture.localPlaylistCount"].label, "0")
+    }
+
+    @MainActor
+    func testCloudReadbackFailureCanBeConfirmedWithoutDuplicatingSongs() {
+        let app = launch(extraArguments: ["-KodaUITestCloudReadbackFailure"])
+        reveal(app.buttons["fixture.cloud.create"], in: app)
+        app.buttons["fixture.cloud.create"].tap()
+        let name = app.textFields["cloud.create.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap()
+        name.typeText("UI Retry\n")
+        let create = app.buttons["cloud.create.submit"]
+        reveal(create, in: app)
+        create.tap()
+        let retry = app.buttons["cloud.operation.retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        XCTAssertFalse(control("cloud.create.confirmed", in: app).exists,
+                       "A possibly completed write must not look confirmed before read-back")
+        retry.tap()
+        let detail = app.staticTexts["cloud.operation.detail"]
+        expectState(detail, matching: NSPredicate(format: "label == %@", "Confirmed in YouTube Music."))
+        app.navigationBars.buttons["Done"].tap()
+        let saved = app.staticTexts["fixture.playlist.UI Retry"]
+        reveal(saved, in: app)
+        XCTAssertEqual(saved.label, "UI Retry: 1", "A retry verifies the prior write before sending another add")
+        XCTAssertEqual(app.staticTexts["fixture.localPlaylistCount"].label, "0")
+    }
+
+    @MainActor
+    func testCloudHomeShowsDirectPlaybackControlsWithoutLocalPlaylists() {
+        let app = launch()
+        app.buttons["fixture.home"].tap()
+        XCTAssertTrue(control("home.cloud.title", in: app).waitForExistence(timeout: 10))
+        let play = app.buttons["home.cloud.play.PLui-alpha"]
+        let shuffle = app.buttons["home.cloud.shuffle.PLui-alpha"]
+        reveal(play, in: app)
+        XCTAssertTrue(play.isEnabled)
+        XCTAssertTrue(shuffle.isEnabled)
+        XCTAssertGreaterThanOrEqual(play.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(shuffle.frame.height, 44)
+        XCTAssertTrue(app.buttons["home.cloud.create"].exists)
+        capture(app, "cloud-home-direct-controls")
+        // Stream playback is covered by queue/Flow logic tests, not fabricated here.
+    }
+
+    @MainActor
+    func testFlowPreviewUsesOnlyItsCloudSourceAndDoesNotStartPlayback() {
+        let app = launch()
+        reveal(app.buttons["fixture.flow"], in: app)
+        app.buttons["fixture.flow"].tap()
+        XCTAssertTrue(control("flow.source.title", in: app).waitForExistence(timeout: 10))
+        XCTAssertFalse(control("flow.preview.count", in: app).exists)
+        app.buttons["flow.arrange"].tap()
+        XCTAssertTrue(control("flow.preview.count", in: app).waitForExistence(timeout: 10))
+        reveal(control("flow.shortage", in: app), in: app)
+        let start = app.buttons["flow.start"]
+        reveal(start, in: app)
+        XCTAssertTrue(start.isEnabled)
+        reveal(control("flow.song.ui-smoke-a", in: app), in: app)
+        reveal(control("flow.song.ui-smoke-b", in: app), in: app)
+        XCTAssertFalse(control("flow.song.ui-smoke-c", in: app).exists,
+                       "Another playlist's song must not fill a short Flow")
+        capture(app, "flow-source-preview")
+        app.navigationBars.buttons["Done"].tap()
+        reveal(app.staticTexts["fixture.playlist.Fixture Alpha"], in: app)
+        XCTAssertEqual(app.staticTexts["fixture.playlist.Fixture Alpha"].label, "Fixture Alpha: 2")
+        XCTAssertEqual(app.staticTexts["fixture.localPlaylistCount"].label, "0")
+    }
+
+    @MainActor
+    func testCloudHomeAndFlowUseTraditionalChineseAtLargeTextSize() {
+        let app = launch(chinese: true, dark: true, largeText: true)
+        let home = app.buttons["fixture.home"]
+        reveal(home, in: app)
+        home.tap()
+        let title = control("home.cloud.title", in: app)
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertEqual(title.label, "我的 YouTube Music 播放清單")
+        let play = app.buttons["home.cloud.play.PLui-alpha"]
+        reveal(play, in: app)
+        XCTAssertTrue(play.label.contains("播放"))
+        XCTAssertGreaterThanOrEqual(play.frame.height, 44)
+        capture(app, "cloud-home-zh-Hant-large-dark")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        reveal(app.buttons["fixture.flow"], in: app)
+        app.buttons["fixture.flow"].tap()
+        let arrange = app.buttons["flow.arrange"]
+        reveal(arrange, in: app)
+        XCTAssertEqual(arrange.label, "安排 Flow")
+        arrange.tap()
+        let start = app.buttons["flow.start"]
+        reveal(start, in: app)
+        XCTAssertEqual(start.label, "開始播放 Flow")
+        XCTAssertTrue(start.isEnabled)
+        capture(app, "flow-zh-Hant-large-dark")
+    }
+
+    @MainActor
+    func testSelectingLargeCloudPlaylistIncludesAllSixHundredRows() {
+        let app = launch(extraArguments: ["-KodaUITestLargePlaylist"])
+        reveal(app.buttons["fixture.selection"], in: app)
+        app.buttons["fixture.selection"].tap()
+        XCTAssertTrue(app.buttons["playlist.row.0"].waitForExistence(timeout: 10))
+        app.buttons["playlist.selection.menu"].tap()
+        app.buttons["playlist.selectAll"].tap()
+        expectSelectionCount(600, in: app)
+        app.buttons["playlist.selection.menu"].tap()
+        app.buttons["playlist.deselectAll"].tap()
+        expectSelectionCount(0, in: app)
+    }
+
+    @MainActor
+    func testMusicCatcherRequiresVersionSelectionBeforeVerifiedLike() {
+        let app = launch()
+        let entry = app.buttons["fixture.catcher"]
+        reveal(entry, in: app)
+        entry.tap()
+        app.buttons["catcher.start"].tap()
+        let candidate = app.buttons["catcher.candidate.ui-smoke-a"]
+        reveal(candidate, in: app)
+        XCTAssertFalse(app.buttons["catcher.like"].exists, "Recognition alone must not select or save a song")
+        candidate.tap()
+        let like = app.buttons["catcher.like"]
+        reveal(like, in: app)
+        like.tap()
+        XCTAssertTrue(app.staticTexts["Saved to YouTube Music"].waitForExistence(timeout: 10))
+        expectState(like, matching: NSPredicate(format: "enabled == false"))
+        capture(app, "catcher-version-confirmed")
+        let add = app.buttons["catcher.add"]
+        reveal(add, in: app)
+        add.tap()
+        let destination = app.buttons["cloud.destination.PLui-beta"]
+        reveal(destination, in: app)
+        XCTAssertFalse(app.buttons["cloud.destination.PLui-read-only"].exists)
+        destination.tap()
+        let confirm = app.buttons["Add Songs"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        confirm.tap()
+        XCTAssertTrue(app.buttons["catcher.add"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons["Done"].tap()
+        let savedPlaylist = app.staticTexts["fixture.playlist.Fixture Beta"]
+        reveal(savedPlaylist, in: app)
+        XCTAssertEqual(savedPlaylist.label, "Fixture Beta: 3")
+    }
+
+    @MainActor
+    func testMusicCatcherCancellationAndNoMatchRemainRecoverable() {
+        let app = launch(extraArguments: ["-KodaUITestRecognitionWaiting"])
+        reveal(app.buttons["fixture.catcher"], in: app)
+        app.buttons["fixture.catcher"].tap()
+        app.buttons["catcher.start"].tap()
+        let cancel = app.buttons["catcher.cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        cancel.tap()
+        XCTAssertTrue(app.buttons["catcher.start"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["catcher.candidate.ui-smoke-a"].exists)
+        app.terminate()
+
+        let noMatch = launch(extraArguments: ["-KodaUITestRecognitionNoMatch"])
+        reveal(noMatch.buttons["fixture.catcher"], in: noMatch)
+        noMatch.buttons["fixture.catcher"].tap()
+        noMatch.buttons["catcher.start"].tap()
+        XCTAssertTrue(control("catcher.failure", in: noMatch).waitForExistence(timeout: 10))
+        XCTAssertTrue(noMatch.buttons["catcher.start"].isEnabled)
+        XCTAssertFalse(noMatch.buttons["catcher.like"].exists)
+        capture(noMatch, "catcher-no-match")
+        noMatch.navigationBars.buttons["Done"].tap()
+        XCTAssertTrue(noMatch.buttons["fixture.catcher"].waitForExistence(timeout: 10))
+        noMatch.terminate()
+
+        let denied = launch(extraArguments: ["-KodaUITestRecognitionDenied"])
+        reveal(denied.buttons["fixture.catcher"], in: denied)
+        denied.buttons["fixture.catcher"].tap()
+        denied.buttons["catcher.start"].tap()
+        XCTAssertTrue(control("catcher.failure", in: denied).waitForExistence(timeout: 10))
+        XCTAssertTrue(denied.buttons["Open Settings"].exists)
+        XCTAssertFalse(denied.buttons["catcher.cancel"].exists)
+        XCTAssertFalse(denied.buttons["catcher.like"].exists)
     }
 
     @MainActor
@@ -288,12 +493,14 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func launch(chinese: Bool = false, dark: Bool = false, largeText: Bool = false) -> XCUIApplication {
+    private func launch(chinese: Bool = false, dark: Bool = false, largeText: Bool = false,
+                        extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-KodaUISmokeTests", "-AppleLanguages", chinese ? "(zh-Hant)" : "(en)",
                                "-AppleLocale", chinese ? "zh_TW" : "en_US"]
         if dark { app.launchArguments.append("-KodaUITestDark") }
         if largeText { app.launchArguments.append("-KodaUITestLargeText") }
+        app.launchArguments += extraArguments
         app.launch()
         XCTAssertTrue(app.buttons["fixture.translation"].waitForExistence(timeout: 20))
         return app
