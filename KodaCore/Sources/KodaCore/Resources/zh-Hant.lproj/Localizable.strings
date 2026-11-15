@@ -144,3 +144,4 @@
 "The cloud change is not confirmed yet. Check again before making another change." = "尚未確認雲端變更。請先再次查詢，再進行其他修改。";
 "YouTube Music may have created this playlist. Refresh your playlists before creating another one." = "YouTube Music 可能已建立這份播放清單。請先重新整理播放清單，再建立另一份。";
 "The cloud playlist operation is invalid. Refresh and try again." = "雲端播放清單操作無效。請重新整理後再試一次。";
+"Some cloud playlists could not be loaded. Your existing playlists have been kept. Refresh to try again." = "部分雲端播放清單暫時無法載入，已保留現有播放清單。請重新整理後再試一次。";

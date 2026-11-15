@@ -144,3 +144,4 @@
 "The cloud change is not confirmed yet. Check again before making another change." = "The cloud change is not confirmed yet. Check again before making another change.";
 "YouTube Music may have created this playlist. Refresh your playlists before creating another one." = "YouTube Music may have created this playlist. Refresh your playlists before creating another one.";
 "The cloud playlist operation is invalid. Refresh and try again." = "The cloud playlist operation is invalid. Refresh and try again.";
+"Some cloud playlists could not be loaded. Your existing playlists have been kept. Refresh to try again." = "Some cloud playlists could not be loaded. Your existing playlists have been kept. Refresh to try again.";

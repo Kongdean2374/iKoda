@@ -43,6 +43,8 @@ final class HomeModel {
     }
 
     var recommendationsRequested = false
+    private(set) var isLoading = false
+    private var lastLoadAttempt: Date?
     private(set) var state: LoadState<Content> = .loading
     private(set) var mix: Mix?
     /// Your Mix is still to come: its card keeps its place, redacted, until it does.
@@ -89,14 +91,23 @@ final class HomeModel {
         isFromSnapshot = true
     }
 
-    /// Nothing shown yet, only last launch's Home, or a Home half an hour old: load it again,
-    /// in place, over what's on screen.
+    /// A fresh snapshot is immediately usable. A failed request has a short cooldown
+    /// so moving between tabs does not repeatedly ask the same unavailable services.
     var needsRefresh: Bool {
-        state.value == nil || isFromSnapshot || loadedAt.map { Date().timeIntervalSince($0) > 1800 } == true
+        guard !isLoading, lastLoadAttempt.map({ Date().timeIntervalSince($0) >= 60 }) ?? true else { return false }
+        return state.value == nil || loadedAt.map { Date().timeIntervalSince($0) > 1800 } == true
     }
 
     /// `signedIn`: the profile has a YouTube Music account, whose own Home then gives Quick picks.
-    func load(music: YouTubeMusic, library: Library, signedIn: Bool) async {
+    func load(music: YouTubeMusic, library: Library, signedIn: Bool,
+              isCurrent: @escaping @MainActor @Sendable () -> Bool = { true }) async {
+        guard !isLoading, !Task.isCancelled, isCurrent() else { return }
+        isLoading = true
+        lastLoadAttempt = Date()
+        defer {
+            isLoading = false
+            if Task.isCancelled { lastLoadAttempt = nil }
+        }
         // Worked out here, not in the view's body: the body is drawn again every few seconds
         // while music plays, as listening time is added, and this ranks every song ever played.
         yourArtists = topArtists(library)
@@ -113,39 +124,45 @@ final class HomeModel {
         // Home is the listener's own: Your Mix, Quick picks, what they go back to and play. From
         // YouTube it takes the charts, as one row, trending songs for someone new, and signed in,
         // the account's own Quick picks.
-        async let explore = music.explore()
+        async let explore = try? music.explore()
         async let charts = try? music.chartPlaylists()
         async let picks = quickPicks(music: music, recent: recent, liked: liked, signedIn: signedIn)
-        do {
-            var content = Content()
-            let explorePage = try await explore
-            content.trending = trending(explorePage).filter { !hidden.hides($0) }
-            content.charts = await charts ?? []
-            let (title, songs, accountShelves) = await picks
-            content.quickPicksTitle = title
-            let offered = songs.filter { !hidden.hides($0) }
-            content.quickPicks = offered.isEmpty ? content.trending : offered
-            content.accountShelves = accountShelves.compactMap { shelf in
-                var shelf = shelf
-                shelf.items = shelf.items.filter { item in
-                    if case .song(let song) = item { return !hidden.hides(song) }
-                    return true
-                }
-                return shelf.items.count >= 3 ? shelf : nil
+        let explorePage = await explore
+        let chartPlaylists = await charts ?? []
+        let (title, songs, accountShelves) = await picks
+        guard !Task.isCancelled, isCurrent() else { return }
+        var content = Content()
+        content.trending = trending(explorePage).filter { !hidden.hides($0) }
+        content.charts = chartPlaylists
+        content.quickPicksTitle = title
+        let offered = songs.filter { !hidden.hides($0) }
+        content.quickPicks = offered.isEmpty ? content.trending : offered
+        content.accountShelves = accountShelves.compactMap { shelf in
+            var shelf = shelf
+            shelf.items = shelf.items.filter { item in
+                if case .song(let song) = item { return !hidden.hides(song) }
+                return true
             }
+            return shelf.items.count >= 3 ? shelf : nil
+        }
+        // Explore, charts and the account Home are independent. Keep the successful
+        // sources even when one endpoint is unavailable, and keep an older snapshot
+        // if none returned useful content.
+        if !content.quickPicks.isEmpty || !content.charts.isEmpty || !(content.accountShelves ?? []).isEmpty {
             state = .loaded(content)
             loadedAt = Date()
             if mix == nil, taste.isEmpty, !content.trending.isEmpty {
                 mix = Mix(artists: Array(Set(content.trending.map(Taste.leadArtist))).sorted().prefix(3).map { $0 },
                           songs: content.trending, isPersonal: false)
             }
-        } catch {
-            if state.value == nil { state = .failed(error.friendlyMessage) }
+        } else if state.value == nil {
+            state = .failed(String(localized: "Recommendations are temporarily unavailable. Your saved music is still available."))
         }
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.buildMix(music: music, taste: taste, picks: pickedArtists, recent: recent, hidden: hidden) }
-            group.addTask { await self.loadArtists(music: music, picks: pickedArtists, library: library, hidden: hidden) }
+            group.addTask { await self.buildMix(music: music, taste: taste, picks: pickedArtists, recent: recent, hidden: hidden, isCurrent: isCurrent) }
+            group.addTask { await self.loadArtists(music: music, picks: pickedArtists, library: library, hidden: hidden, isCurrent: isCurrent) }
         }
+        guard !Task.isCancelled, isCurrent() else { return }
         // Radios that all failed still leave a card: trending songs, as for someone new.
         if mix == nil, let trending = state.value?.trending, !trending.isEmpty {
             mix = Mix(artists: Array(Set(trending.map(Taste.leadArtist))).sorted().prefix(3).map { $0 }, songs: trending, isPersonal: false)
@@ -159,7 +176,9 @@ final class HomeModel {
     }
 
     /// Your Mix: a radio from each top artist's favourite song, woven together.
-    private func buildMix(music: YouTubeMusic, taste: Taste, picks: [ArtistSummary], recent: [Song], hidden: NotInterested) async {
+    private func buildMix(music: YouTubeMusic, taste: Taste, picks: [ArtistSummary], recent: [Song], hidden: NotInterested,
+                          isCurrent: @escaping @MainActor @Sendable () -> Bool) async {
+        guard !Task.isCancelled, isCurrent() else { return }
         var taste = taste
         if taste.isEmpty, !picks.isEmpty {
             // Nothing played, liked or kept yet: start from the artists picked in taste setup.
@@ -172,6 +191,7 @@ final class HomeModel {
                 for await (index, song) in group { if let song { byIndex[index] = song } }
                 return chosen.indices.compactMap { byIndex[$0] }
             }
+            guard !Task.isCancelled, isCurrent() else { return }
             taste = Taste(artists: chosen.map(\.name), seeds: tops)
         }
         guard !taste.isEmpty else { return }
@@ -186,14 +206,16 @@ final class HomeModel {
         // The seeds and the last few songs played are left out, so the mix is something to go on to.
         let skip = Set(taste.seeds.map(\.id) + recent.prefix(10).map(\.id))
         let songs = Taste.weave(radios.map { $0.filter { !hidden.hides($0) } }, excluding: skip)
-        guard !songs.isEmpty else { return }
+        guard !Task.isCancelled, isCurrent(), !songs.isEmpty else { return }
         withAnimation(.smooth) { mix = Mix(artists: Array(taste.artists.prefix(3)), songs: songs, isPersonal: true) }
     }
 
     /// The top artists' pages: their portraits, and from the first few, their latest releases
     /// and the artists like them. Pages come through the page cache, and only the first
     /// `pagesForPicks` are asked every load; further portraits only while missing.
-    private func loadArtists(music: YouTubeMusic, picks: [ArtistSummary], library: Library, hidden: NotInterested) async {
+    private func loadArtists(music: YouTubeMusic, picks: [ArtistSummary], library: Library, hidden: NotInterested,
+                             isCurrent: @escaping @MainActor @Sendable () -> Bool) async {
+        guard !Task.isCancelled, isCurrent() else { return }
         let played = yourArtists.compactMap(\.id)
         // With nothing played yet, the artists picked in taste setup stand in.
         let leading = Array((played.isEmpty ? picks.map(\.id).filter { $0.hasPrefix("UC") } : played).prefix(Self.pagesForPicks))
@@ -206,6 +228,7 @@ final class HomeModel {
             for await (id, page) in group { if let page { found[id] = page } }
             return found
         }
+        guard !Task.isCancelled, isCurrent() else { return }
         for (id, page) in pages {
             if let artwork = page.artist.artwork { artistPhotos[id] = artwork }
         }
@@ -269,6 +292,43 @@ final class HomeModel {
     }
 }
 
+/// A small real listening shelf is useful even if the cloud directory cannot refresh.
+/// This is only a presentation of the active library / Home snapshot, never a new store.
+@MainActor
+struct HomeListeningSelection {
+    enum Source: Equatable { case recent, liked, recommendations }
+    let source: Source
+    let songs: [Song]
+    let title: String
+    let seeAll: Route
+
+    static func make(library: Library, model: HomeModel) -> Self? {
+        if !library.recent.isEmpty {
+            return .init(source: .recent, songs: Array(library.recent.prefix(50)),
+                         title: String(localized: "Recently played"),
+                         seeAll: .songs(title: String(localized: "Recently Played"), source: .recent))
+        }
+        if !library.liked.isEmpty {
+            return .init(source: .liked, songs: library.liked,
+                         title: String(localized: "Liked Songs"),
+                         seeAll: .songs(title: String(localized: "Liked Songs"), source: .liked))
+        }
+        guard let content = model.state.value, !content.quickPicks.isEmpty else { return nil }
+        let songs = content.quickPicks
+        let title = content.quickPicksTitle == "Quick picks" ? String(localized: "Quick picks") : content.quickPicksTitle
+        return .init(source: .recommendations, songs: songs, title: title,
+                     seeAll: .songList(title: title, subtitle: nil, songs: songs))
+    }
+
+    var accessibilityID: String {
+        switch source {
+        case .recent: "home.recent"
+        case .liked: "home.liked"
+        case .recommendations: "home.recommendations.preview"
+        }
+    }
+}
+
 struct HomeView: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
@@ -280,6 +340,10 @@ struct HomeView: View {
     @State private var showsCreatePlaylist = false
 
     private var cloudPlaylists: [PlaylistSummary] { preferences.sorted(app.cloudPlaylists.catalog) }
+    private var listeningSelection: HomeListeningSelection? { .make(library: library, model: model) }
+    private var needsRecommendationPreview: Bool {
+        app.cloudPlaylists.catalog.isEmpty && library.recent.isEmpty && library.liked.isEmpty
+    }
 
     var body: some View {
         ScrollView {
@@ -287,6 +351,7 @@ struct HomeView: View {
                 cloudSection
                 PlaylistQueueLoadingView().padding(.horizontal, 20)
                 CloudPlaylistOperationView().padding(.horizontal, 20)
+                listeningPreview
                 DisclosureGroup("Recommendations", isExpanded: $showsRecommendations) {
                     recommendations
                         .padding(.top, 16)
@@ -313,21 +378,24 @@ struct HomeView: View {
         }
         .refreshable {
             await app.cloudPlaylists.refresh(force: true)
-            if showsRecommendations {
+            if showsRecommendations || needsRecommendationPreview {
                 await app.music.clearPageCache()
                 await load()
             }
         }
         .task(id: app.roster.activeID) {
             preferences = HomePlaylistPreferences.load(profileID: app.roster.activeID)
-            showsRecommendations = false
-            model.recommendationsRequested = false
-            await app.cloudPlaylists.refresh(force: true)
+            await app.cloudPlaylists.refresh(force: false)
         }
+        .task(id: "\(model.profile)-\(needsRecommendationPreview)") {
+            model.recommendationsRequested = showsRecommendations || needsRecommendationPreview
+            if needsRecommendationPreview, model.needsRefresh { await load() }
+        }
+        .onChange(of: app.roster.activeID) { _, _ in showsRecommendations = false }
         .onChange(of: showsRecommendations) { _, shown in
-            model.recommendationsRequested = shown
+            model.recommendationsRequested = shown || needsRecommendationPreview
         }
-        .onAppear { model.recommendationsRequested = showsRecommendations }
+        .onAppear { model.recommendationsRequested = showsRecommendations || needsRecommendationPreview }
         .onDisappear { model.recommendationsRequested = false }
         .sheet(isPresented: $showsCreatePlaylist) {
             CloudPlaylistCreateView().appEnvironment(app)
@@ -357,7 +425,9 @@ struct HomeView: View {
                 }
                 if let error = app.cloudPlaylists.refreshError {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("home.cloud.error")
                     Button("Try Again") { Task { await app.cloudPlaylists.refresh(force: true) } }
+                        .accessibilityIdentifier("home.cloud.retry")
                 }
                 if app.cloudPlaylists.isFromCache {
                     Label("Showing Cached Cloud Playlists", systemImage: "clock.arrow.circlepath")
@@ -365,11 +435,10 @@ struct HomeView: View {
                 }
                 if playlists.isEmpty, !app.cloudPlaylists.isRefreshing,
                    app.cloudPlaylists.refreshError == nil {
-                    ContentUnavailableView {
-                        Label("No Cloud Playlists Yet", systemImage: "music.note.list")
-                    } description: {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("No Cloud Playlists Yet").font(.headline)
                         Text("Create a playlist in your YouTube Music account to see it here.")
-                    } actions: {
+                            .font(.subheadline).foregroundStyle(.secondary)
                         Button("Create Cloud Playlist") { showsCreatePlaylist = true }
                             .buttonStyle(.glass)
                     }
@@ -381,8 +450,8 @@ struct HomeView: View {
                         HomeCloudPlaylistCard(playlist: playlist, isPinned: pinned,
                             canMoveEarlier: index > 0 && preferences.isPinned(playlists[index - 1].id) == pinned,
                             canMoveLater: index + 1 < playlists.count && preferences.isPinned(playlists[index + 1].id) == pinned,
-                            play: { player.playPlaylist(id: playlist.id) },
-                            shuffle: { player.playPlaylist(id: playlist.id, shuffled: true) },
+                            play: { playCloudPlaylist(playlist) },
+                            shuffle: { playCloudPlaylist(playlist, shuffled: true) },
                             pin: { updatePreference { $0.togglePin(playlist.id) } },
                             move: { offset in updatePreference { $0.move(playlist.id, by: offset, in: app.cloudPlaylists.catalog) } })
                     }
@@ -397,6 +466,46 @@ struct HomeView: View {
     }
 
     @ViewBuilder
+    private var listeningPreview: some View {
+        if let selection = listeningSelection {
+            if selection.source == .recommendations {
+                if !showsRecommendations {
+                    SongColumnsShelf(title: selection.title, strapline: String(localized: "Start with these"),
+                                     songs: Array(selection.songs.prefix(8))) { index in
+                        player.play(selection.songs, startAt: index)
+                    }
+                    .accessibilityIdentifier(selection.accessibilityID)
+                }
+            } else {
+                listeningShelf(selection)
+            }
+        } else if needsRecommendationPreview, !showsRecommendations {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Recommendations").font(.title3.bold())
+                recommendations
+                Text("Play a song to see your recent listening here.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .accessibilityIdentifier("home.recommendations.preview")
+        }
+    }
+
+    private func listeningShelf(_ selection: HomeListeningSelection) -> some View {
+        ShelfView(title: selection.title, seeAll: selection.seeAll) {
+            ForEach(Array(selection.songs.prefix(8).enumerated()), id: \.element.id) { index, song in
+                Button { player.play(selection.songs, startAt: index) } label: {
+                    CoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine, width: 140)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home.listening.song.\(song.id)")
+                .contextMenu { SongMenuItems(song: song) } preview: { SongPreview(song: song) }
+            }
+        }
+        .accessibilityIdentifier(selection.accessibilityID)
+    }
+
+    @ViewBuilder
     private var recommendations: some View {
         switch model.state {
         case .loading:
@@ -407,6 +516,20 @@ struct HomeView: View {
         case .loaded(let content):
             LazyVStack(alignment: .leading, spacing: 24) { sections(content) }
                 .font(.body)
+        }
+    }
+
+    private func playCloudPlaylist(_ playlist: PlaylistSummary, shuffled: Bool = false) {
+        if let snapshot = app.cloudPlaylists.cachedSnapshot(id: playlist.id) {
+            // A complete source remains a complete shuffle pool, including after a
+            // cold launch. Refresh only updates the cache for the next explicit play.
+            player.playPlaylist(snapshot.songs, continuation: nil, shuffled: shuffled, sourceID: snapshot.id)
+            guard let scope = app.cloudPlaylists.captureScope() else { return }
+            Task {
+                _ = try? await app.cloudPlaylists.loadSnapshot(id: snapshot.id, force: false, expectedScope: scope)
+            }
+        } else {
+            player.playPlaylist(id: playlist.id, shuffled: shuffled)
         }
     }
 
@@ -432,17 +555,6 @@ struct HomeView: View {
         if !content.quickPicks.isEmpty {
             SongColumnsShelf(title: content.quickPicksTitle == "Quick picks" ? String(localized: "Quick picks") : content.quickPicksTitle, strapline: content.quickPicks == content.trending ? String(localized: "Trending now") : String(localized: "Start with these"), songs: content.quickPicks) { index in
                 player.play(content.quickPicks, startAt: index)
-            }
-        }
-        if !library.recent.isEmpty {
-            ShelfView(title: String(localized: "Recently played"), seeAll: .songs(title: String(localized: "Recently Played"), source: .recent)) {
-                ForEach(Array(library.recent.prefix(12).enumerated()), id: \.element.id) { index, song in
-                    Button { player.play(Array(library.recent.prefix(50)), startAt: index) } label: {
-                        CoverCard(artwork: song.artwork, title: song.title, subtitle: song.artistLine, width: 140)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu { SongMenuItems(song: song) } preview: { SongPreview(song: song) }
-                }
             }
         }
         // Signed in, the account's own shelves from YouTube Music's Home.

@@ -77,7 +77,7 @@ enum AccountPages {
         let entries = containers.flatMap { $0["contents"].array + $0["items"].array + $0["continuationItems"].array }
         var items: [MusicItem] = []
         for entry in entries {
-            if let item = Rows.item(entry: entry) {
+            if let item = libraryItem(entry) {
                 items.append(item)
             } else if entry["continuationItemRenderer"].exists {
                 // Pagination controls are not playlists, but a missing token cannot
@@ -85,7 +85,7 @@ enum AccountPages {
                 guard entry["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty != nil else {
                     throw CloudPlaylistError.incompleteResponse
                 }
-            } else if entry["musicTwoRowItemRenderer"]["navigationEndpoint"]["createPlaylistEndpoint"].exists {
+            } else if isNewPlaylistCard(entry) {
                 // The library's New playlist card does not represent a remote item.
                 continue
             } else {
@@ -97,7 +97,73 @@ enum AccountPages {
 
     static func libraryItems(_ root: JSON) -> [MusicItem] {
         let entries = libraryContainers(root).flatMap { $0["contents"].array + $0["items"].array + $0["continuationItems"].array }
-        return Pages.dedupe(entries.compactMap(Rows.item(entry:)))
+        return Pages.dedupe(entries.compactMap(libraryItem))
+    }
+
+    /// Unknown cards can coexist with known remote IDs in the browsing directory.
+    /// Unlike completeLibraryItems, this explicitly reports any discarded content;
+    /// it can never be mistaken for an authoritative empty library.
+    static func playlistCatalogPage(_ root: JSON) -> CloudPlaylistCatalogPage {
+        let containers = libraryContainers(root)
+        var issues: [CloudPlaylistCatalogIssue] = []
+        var playlists: [PlaylistSummary] = []
+        var unknownEntries = 0
+        var invalidContinuation = false
+        if containers.isEmpty { issues.append(.unrecognizedPage) }
+        for scope in containers {
+            guard scope["contents"].raw is [Any] || scope["items"].raw is [Any] || scope["continuationItems"].raw is [Any] else {
+                if !issues.contains(.unrecognizedPage) { issues.append(.unrecognizedPage) }
+                continue
+            }
+            if scope["continuations"].exists,
+               !(scope["continuations"].raw is [Any]) || !scope["continuations"].array.allSatisfy({
+                   $0["nextContinuationData"]["continuation"].nonEmpty != nil
+               }) {
+                invalidContinuation = true
+            }
+            for entry in scope["contents"].array + scope["items"].array + scope["continuationItems"].array {
+                if let item = libraryItem(entry) {
+                    if case .playlist(let playlist) = item, playlist.id != "LM", playlist.id != "SE" {
+                        playlists.append(playlist)
+                    }
+                } else if entry["continuationItemRenderer"].exists {
+                    if entry["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty == nil {
+                        invalidContinuation = true
+                    }
+                } else if !isNewPlaylistCard(entry) {
+                    unknownEntries += 1
+                }
+            }
+        }
+        if unknownEntries > 0 { issues.append(.unrecognizedEntries(unknownEntries)) }
+        if invalidContinuation { issues.append(.invalidContinuation) }
+        return .init(playlists: Pages.dedupe(playlists), continuation: libraryContinuation(root), issues: issues)
+    }
+
+    /// The service places navigation on either the card or its title runs. The
+    /// latter is the path used by ytmusicapi/parsers/browsing.py parse_playlist.
+    /// Restrict the fallback to the title; artist links in the subtitle are not
+    /// the identity of the playlist itself.
+    private static func libraryItem(_ entry: JSON) -> MusicItem? {
+        if let item = Rows.item(entry: entry) { return item }
+        let isCard = entry["musicTwoRowItemRenderer"].exists
+        let row = isCard ? entry["musicTwoRowItemRenderer"] : entry["musicResponsiveListItemRenderer"]
+        guard row.exists, !row["navigationEndpoint"]["browseEndpoint"].exists,
+              !row["navigationEndpoint"]["watchEndpoint"].exists else { return nil }
+        let titleRuns = isCard ? row["title"].runs : (Rows.columns(row).first?.runs ?? [])
+        let linked = titleRuns.filter { $0.link != nil }
+        guard let first = linked.first, let id = first.link?.id,
+              linked.allSatisfy({ $0.link?.id == id }), var fields = row.raw as? [String: Any] else { return nil }
+        fields["navigationEndpoint"] = first["navigationEndpoint"].raw
+        return isCard ? Rows.item(twoRow: JSON(fields)) : Rows.item(listRow: JSON(fields))
+    }
+
+    private static func isNewPlaylistCard(_ entry: JSON) -> Bool {
+        let card = entry["musicTwoRowItemRenderer"]
+        guard card.exists else { return false }
+        let endpoints = [card["navigationEndpoint"]] + card["title"].runs.map { $0["navigationEndpoint"] }
+        guard !endpoints.contains(where: { $0["browseEndpoint"].exists || $0["watchEndpoint"].exists }) else { return false }
+        return endpoints.contains { $0["createPlaylistEndpoint"].exists }
     }
 
     static func librarySongs(_ root: JSON) -> [Song] {
@@ -109,8 +175,10 @@ enum AccountPages {
     static func libraryContinuation(_ root: JSON) -> String? {
         for scope in libraryContainers(root) {
             if let token = scope["continuations"].objects("nextContinuationData").first?["continuation"].nonEmpty { return token }
-            if let token = scope.objects("continuationItemRenderer").lazy
-                .compactMap({ $0["continuationEndpoint"]["continuationCommand"]["token"].nonEmpty }).first { return token }
+            let entries = scope["contents"].array + scope["items"].array + scope["continuationItems"].array
+            if let token = entries.lazy.compactMap({
+                $0["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty
+            }).first { return token }
         }
         return nil
     }

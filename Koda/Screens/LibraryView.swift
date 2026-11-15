@@ -100,7 +100,9 @@ struct LibraryView: View {
             if app.roster.active.isSignedIn { await app.refreshAccount() }
             else { await app.cloudPlaylists.refresh(force: true) }
         }
-        .task(id: app.roster.activeID) { await app.cloudPlaylists.refresh(force: true) }
+        // Re-entering the tab uses the shared cache and freshness policy. Only the
+        // explicit pull/retry paths bypass it, so navigation never restarts a refresh.
+        .task(id: app.roster.activeID) { await app.cloudPlaylists.refresh(force: false) }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("Playlist Tools", systemImage: "ellipsis") {
@@ -141,7 +143,14 @@ struct LibraryView: View {
                 if app.cloudPlaylists.isFromCache {
                     Text("Cached cloud playlists. Pull to refresh.").font(.footnote).foregroundStyle(.secondary)
                 }
-                if app.cloudPlaylists.isRefreshing { ProgressView("Loading Playlists…") }
+                if app.cloudPlaylists.isRefreshing {
+                    if app.cloudPlaylists.catalog.isEmpty {
+                        ProgressView("Loading Playlists…")
+                    } else {
+                        Label("Refreshing Cloud Playlists…", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }.padding(.horizontal, 20)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 14) {

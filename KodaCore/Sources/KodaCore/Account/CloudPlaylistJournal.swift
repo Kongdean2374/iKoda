@@ -4,6 +4,7 @@ import Foundation
 /// from being replayed blindly after a relaunch. Each account profile has its own file.
 public actor CloudPlaylistJournal {
     private var catalogVersions: [URL: (session: UUID, revision: UInt64)] = [:]
+    private var snapshotVersions: [URL: (session: UUID, revision: UInt64)] = [:]
     public enum Failure: Error, Equatable, Sendable {
         case unreadableReceipt, unsupportedVersion, storageUnavailable
     }
@@ -83,11 +84,36 @@ public actor CloudPlaylistJournal {
         }
     }
 
+    /// Complete display snapshots only. These are never accepted as proof that a
+    /// cloud mutation succeeded or that its current permissions still allow it.
+    public func loadSnapshots(in directory: URL) -> [CloudPlaylistSnapshot] {
+        guard let data = try? Data(contentsOf: snapshotFile(in: directory)),
+              let values = try? JSONDecoder().decode([CloudPlaylistSnapshot].self, from: data) else { return [] }
+        return CloudPlaylistCachePolicy.retainedSnapshots(values)
+    }
+
+    public func saveSnapshots(_ values: [CloudPlaylistSnapshot], session: UUID, revision: UInt64, in directory: URL) throws {
+        if let accepted = snapshotVersions[directory], accepted.session == session,
+           accepted.revision >= revision { return }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let retained = CloudPlaylistCachePolicy.retainedSnapshots(values)
+            try JSONEncoder().encode(retained).write(to: snapshotFile(in: directory), options: .atomic)
+            snapshotVersions[directory] = (session, revision)
+        } catch {
+            throw Failure.storageUnavailable
+        }
+    }
+
     private func receiptFile(in directory: URL) -> URL {
         directory.appending(path: "cloud-playlist-operation.json")
     }
 
     private func catalogFile(in directory: URL) -> URL {
         directory.appending(path: "cloud-playlists-cache.json")
+    }
+
+    private func snapshotFile(in directory: URL) -> URL {
+        directory.appending(path: "cloud-playlist-snapshots.json")
     }
 }

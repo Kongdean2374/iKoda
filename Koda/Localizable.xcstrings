@@ -24339,6 +24339,61 @@
           }
         }
       }
+    },
+    "Refresh Cloud Playlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新雲端播放清單"
+          }
+        }
+      }
+    },
+    "Refreshing Cloud Playlist…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新雲端播放清單…"
+          }
+        }
+      }
+    },
+    "Showing the cached playlist. Pull to refresh.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前顯示快取播放清單，下拉即可更新。"
+          }
+        }
+      }
+    },
+    "Recommendations are temporarily unavailable. Your saved music is still available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推薦內容暫時無法取得。你已儲存的音樂仍可使用。"
+          }
+        }
+      }
+    },
+    "Play a song to see your recent listening here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放歌曲後，即可在這裡查看最近播放。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

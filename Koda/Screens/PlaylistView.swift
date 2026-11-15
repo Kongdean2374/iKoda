@@ -20,6 +20,8 @@ struct PlaylistView: View {
     @State private var loadError: String?
     @State private var refreshing = false
     @State private var loadGeneration = UUID()
+    @State private var displayedProfileID: UUID?
+    @State private var lastLoadStarted = Date.distantPast
 
     private var cloudID: String { String(summary.id.trimmingPrefix("VL")) }
     private var supportsFlow: Bool { !["LM", "WL", "SE"].contains(cloudID) && !cloudID.hasPrefix("RD") && !cloudID.hasPrefix("OLAK") }
@@ -33,11 +35,15 @@ struct PlaylistView: View {
         .sheet(isPresented: $showsFlow) { KodaFlowView(playlist: cloudSnapshot?.playlist ?? summary).appEnvironment(app) }
         .sheet(isPresented: $showsManagement) { CloudPlaylistManagementView(playlist: cloudSnapshot?.playlist ?? summary).appEnvironment(app) }
         .refreshable { await load() }
+        .onAppear { hydrateCachedSnapshot() }
         .onChange(of: app.cloudPlaylists.snapshots[cloudID]?.fetchedAt) { _, _ in
-            if let confirmed = app.cloudPlaylists.snapshots[cloudID] { apply(confirmed) }
+            if let confirmed = app.cloudPlaylists.cachedSnapshot(id: cloudID) {
+                apply(confirmed)
+                if confirmed.fetchedAt >= lastLoadStarted { loadError = nil }
+            }
         }
-        .onChange(of: app.roster.activeID) { _, _ in
-            loadGeneration = UUID(); state = .loading; songs = []; cloudSnapshot = nil; continuation = nil
+        .onChange(of: app.roster.activeID) { _, profileID in
+            resetForProfileIfNeeded(profileID)
         }
     }
 
@@ -75,7 +81,7 @@ struct PlaylistView: View {
         .background { ArtworkGlow(palette: palette.palette) }
         .navigationTitle(title)
         .task { await palette.load(summary.artwork) }
-        .task(id: app.roster.activeID) { await load() }
+        .task(id: app.roster.activeID) { await load(force: false) }
     }
 
     @ViewBuilder
@@ -129,6 +135,7 @@ struct PlaylistView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(rows.enumerated()), id: \.offset) { index, song in
                             SongRow(song: song) { play(startAt: index) }
+                                .accessibilityIdentifier("playlist.song.\(index)")
                                 .onAppear { if index >= songs.count - 10 { Task { await loadMore() } } }
                         }
                         if loadingMore {
@@ -172,7 +179,7 @@ struct PlaylistView: View {
             }
         }
         .task { await palette.load(summary.artwork) }
-        .task(id: app.roster.activeID) { await load() }
+        .task(id: app.roster.activeID) { await load(force: false) }
     }
 
     private func play(shuffled: Bool) {
@@ -227,14 +234,24 @@ struct PlaylistView: View {
     }
 
     @ViewBuilder private var cloudFeedback: some View {
-        if refreshing {
+        if refreshing || app.cloudPlaylists.readProgress[cloudID] != nil {
             ProgressView("Refreshing Cloud Playlist…").font(.footnote)
             if let count = app.cloudPlaylists.readProgress[cloudID] {
                 Text("\(count) songs loaded").font(.caption).foregroundStyle(.secondary)
             }
         }
-        if let loadError { Text(loadError).font(.footnote).foregroundStyle(.secondary) }
+        if let error = loadError ?? app.cloudPlaylists.snapshotErrors[cloudID] {
+            Text(error).font(.footnote).foregroundStyle(.secondary)
+            Button("Refresh Cloud Playlist") { Task { await load() } }
+                .disabled(refreshing || app.cloudPlaylists.readProgress[cloudID] != nil)
+                .accessibilityIdentifier("playlist.cache.retry")
+        }
         if let snapshot = cloudSnapshot {
+            if snapshot.fetchedAt < lastLoadStarted {
+                Text("Showing the cached playlist. Pull to refresh.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("playlist.cache.notice")
+            }
             Text(snapshot.capabilities.canRemove ? String(localized: "Editable Cloud Playlist") : String(localized: "Read-Only Cloud Playlist"))
                 .font(.caption).foregroundStyle(.secondary)
             if snapshot.unavailableCount > 0 {
@@ -251,19 +268,50 @@ struct PlaylistView: View {
         state = .loaded(snapshot.page)
     }
 
-    private func load() async {
+    /// A cached snapshot always represents a previously completed cloud read, never
+    /// the local mirror's first page. Playback can therefore keep its complete pool.
+    private func hydrateCachedSnapshot() {
+        resetForProfileIfNeeded(app.roster.activeID)
+        if let cached = app.cloudPlaylists.cachedSnapshot(id: cloudID) {
+            if cloudSnapshot == nil { lastLoadStarted = Date() }
+            apply(cached)
+        }
+    }
+
+    private func resetForProfileIfNeeded(_ profileID: UUID) {
+        guard displayedProfileID != profileID else { return }
+        displayedProfileID = profileID
+        loadGeneration = UUID(); state = .loading; songs = []; cloudSnapshot = nil
+        continuation = nil; loadedContinuations = []; loadingMore = false
+        loadError = nil; refreshing = false
+    }
+
+    /// Error recovery and pull-to-refresh must wait for a complete fresh read.
+    private func load() async { await load(force: true) }
+
+    private func load(force: Bool) async {
         let expected = app.roster.activeID, token = UUID()
         let scope = app.cloudPlaylists.captureScope()
-        loadGeneration = token; refreshing = true; loadError = nil
+        hydrateCachedSnapshot()
+        loadGeneration = token; lastLoadStarted = Date(); loadError = nil
+        // Cache hits render without a loading phase. A real background read exposes
+        // its progress through the coordinator while the existing rows stay visible.
+        refreshing = force || state.value == nil
         if state.value == nil { state = .loading }
         defer { if loadGeneration == token { refreshing = false } }
         do {
             if let scope {
-                let snapshot = try await app.cloudPlaylists.loadSnapshot(id: summary.id, force: true, expectedScope: scope)
+                let snapshot = try await app.cloudPlaylists.loadSnapshot(id: summary.id, force: force, expectedScope: scope)
                 guard !Task.isCancelled, expected == app.roster.activeID, token == loadGeneration else { return }
-                apply(snapshot)
-                if summary.artwork == nil { await palette.load(snapshot.playlist.artwork) }
+                // A shared background read can finish before this cached return is
+                // resumed. Prefer the coordinator's latest committed snapshot.
+                let latest = app.cloudPlaylists.cachedSnapshot(id: cloudID) ?? snapshot
+                apply(latest)
+                if summary.artwork == nil { await palette.load(latest.playlist.artwork) }
             } else {
+                // Public playlists can still browse without an account. Reappearing
+                // does not throw away an already loaded public pagination checkpoint.
+                if !force, state.value != nil { return }
                 let page = try await app.music.playlistFreshForPlayback(summary.id)
                 guard !Task.isCancelled, expected == app.roster.activeID, token == loadGeneration else { return }
                 songs = page.songs; continuation = page.continuation; loadedContinuations = []; cloudSnapshot = nil

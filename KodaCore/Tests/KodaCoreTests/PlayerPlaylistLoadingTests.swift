@@ -22,7 +22,9 @@ struct PlayerPlaylistLoadingTests {
             pending.removeValue(forKey: cursor)?.resume(returning: Page(songs: songs, continuation: next))
         }
 
-        func fail(_ cursor: String) { pending.removeValue(forKey: cursor)?.resume(throwing: MusicError.network) }
+        func fail(_ cursor: String, error: any Error = MusicError.network) {
+            pending.removeValue(forKey: cursor)?.resume(throwing: error)
+        }
         func requests() -> [String] { calls }
     }
 
@@ -46,6 +48,11 @@ struct PlayerPlaylistLoadingTests {
                                                                        "wasPlaying": restoringPlayback])
             try snapshot.write(to: directory.appending(path: "queue.json"))
             player = Player(music: YouTubeMusic(defaultsSuite: suite), storageDirectory: directory, defaults: defaults)
+            // Real NWPathMonitor deliveries must not create recovery opportunities in
+            // tests that hold a page deliberately. Lifecycle tests opt into online below.
+            let offline = NetworkSnapshot(status: .offline, interface: .unknown)
+            player.networkSnapshotOverride = offline
+            player.networkChanged(offline)
             player.autoplay = false
             player.crossfades = false
             player.streamLoader = { _, _ in throw MusicError.signedOut }
@@ -70,6 +77,24 @@ struct PlayerPlaylistLoadingTests {
         }
         let calls = await pages.requests()
         #expect(calls.filter { $0 == cursor }.count >= count, "Expected the controlled metadata request to start")
+        throw CancellationError()
+    }
+
+    private func waitForPlaylistFailure(_ player: Player) async throws {
+        for _ in 0..<200 {
+            if player.playlistLoadingError != nil { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(player.playlistLoadingError != nil)
+        throw CancellationError()
+    }
+
+    private func waitForPlaylistCompletion(_ player: Player) async throws {
+        for _ in 0..<200 {
+            if player.playlistLoadingCount == nil { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(player.playlistLoadingCount == nil)
         throw CancellationError()
     }
 
@@ -321,6 +346,235 @@ struct PlayerPlaylistLoadingTests {
         #expect(h.player.playlistLoadingCount == 400)
         #expect(h.player.playlistLoadingError != nil)
         #expect(!h.player.playlistLoadCanRetry)
+    }
+
+    @Test func backgroundMetadataFinishesAndPersistsTheWholePoolWithoutPreloadingAllAudio() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        h.player.audioSessionActivator = { false }
+        var audioRequests = 0
+        h.player.streamLoader = { _, _ in audioRequests += 1; throw MusicError.signedOut }
+        h.player.playlistRandomIndex = { $0 - 1 }
+        let task = h.player.playPlaylist(songs(0..<200), continuation: "second", shuffled: true)
+        try await waitForRequest("second", pages: pages)
+        h.player.applicationBecameInactive()
+        await pages.complete("second", songs: songs(200..<400), next: "third")
+        try await waitForRequest("third", pages: pages)
+        #expect(h.player.playlistLoadingCount == 400)
+        #expect(h.player.queue.items.count == 3)
+        #expect(audioRequests == 0)
+        await pages.complete("third", songs: songs(400..<600), next: nil)
+        #expect(await task.value)
+        #expect(h.player.current?.id == "song-599")
+        #expect(h.player.queue.items.count == 600)
+        #expect(audioRequests == 0)
+        #expect(h.player.loadedItemCount == 0)
+        h.player.persistQueueNow()
+        let restored = Player(music: h.player.music, storageDirectory: h.directory, defaults: h.defaults)
+        defer { restored.stop() }
+        #expect(restored.queue == h.player.queue)
+        #expect(restored.queue.items.count == 600)
+        #expect(restored.loadedItemCount == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func foregroundResumesTheFailedPageIncludingTransportCancellation(cancelledTransfer: Bool) async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let online = NetworkSnapshot(status: .online, interface: .wifi)
+        h.player.networkSnapshotOverride = online
+        h.player.applicationBecameActive()
+        let task = h.player.playPlaylist(songs(0..<200), continuation: "second")
+        try await waitForRequest("second", pages: pages)
+        await pages.complete("second", songs: songs(200..<400), next: "third")
+        try await waitForRequest("third", pages: pages)
+        h.player.applicationBecameInactive()
+        if cancelledTransfer { await pages.fail("third", error: CancellationError()) }
+        else { await pages.fail("third") }
+        #expect(!(await task.value))
+        #expect(h.player.playlistLoadingCount == 400)
+        #expect(h.player.playlistLoadCanRetry)
+        h.player.applicationBecameActive()
+        try await waitForRequest("third", pages: pages, count: 2)
+        await pages.complete("third", songs: songs(400..<600), next: nil)
+        try await waitForPlaylistCompletion(h.player)
+        #expect(h.player.queue.items.map(\.song.id) == songs(0..<600).map(\.id))
+        #expect(await pages.requests() == ["second", "third", "third"])
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func reconnectResumesMetadataEvenWhenFailureArrivesAfterTheNetworkEvent(eventBeforeFailure: Bool, interfaceChange: Bool) async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let initial = interfaceChange ? NetworkSnapshot(status: .online, interface: .wifi)
+            : NetworkSnapshot(status: .offline, interface: .unknown)
+        let online = NetworkSnapshot(status: .online, interface: .cellular)
+        h.player.networkSnapshotOverride = initial
+        h.player.networkChanged(initial)
+        let task = h.player.playPlaylist(songs(0..<400), continuation: "third")
+        try await waitForRequest("third", pages: pages)
+        h.player.applicationBecameInactive()
+        if eventBeforeFailure {
+            h.player.networkSnapshotOverride = online
+            h.player.networkChanged(online)
+        }
+        await pages.fail("third")
+        #expect(!(await task.value))
+        if !eventBeforeFailure {
+            h.player.networkSnapshotOverride = online
+            h.player.networkChanged(online)
+        }
+        try await waitForRequest("third", pages: pages, count: 2)
+        await pages.complete("third", songs: songs(400..<600), next: nil)
+        try await waitForPlaylistCompletion(h.player)
+        #expect(h.player.queue.items.map(\.song.id) == songs(0..<600).map(\.id))
+    }
+
+    @Test func automaticMetadataRecoveryHasTwoAttemptsAndOfflineEventsDoNotSpendThem() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let offline = NetworkSnapshot(status: .offline, interface: .unknown)
+        let online = NetworkSnapshot(status: .online, interface: .wifi)
+        h.player.networkSnapshotOverride = offline
+        h.player.networkChanged(offline)
+        let task = h.player.playPlaylist(songs(0..<400), continuation: "third")
+        try await waitForRequest("third", pages: pages)
+        await pages.fail("third")
+        #expect(!(await task.value))
+        for _ in 0..<5 { h.player.applicationBecameActive(); h.player.networkChanged(offline) }
+        #expect(await pages.requests() == ["third"])
+        h.player.networkSnapshotOverride = online
+        for attempt in 2...3 {
+            h.player.applicationBecameActive()
+            try await waitForRequest("third", pages: pages, count: attempt)
+            await pages.fail("third")
+            try await waitForPlaylistFailure(h.player)
+        }
+        for _ in 0..<5 { h.player.applicationBecameActive() }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(await pages.requests() == ["third", "third", "third"])
+        #expect(h.player.playlistLoadingCount == 400)
+        #expect(h.player.playlistLoadCanRetry)
+        let manual = h.player.retryPlaylistLoading()
+        try await waitForRequest("third", pages: pages, count: 4)
+        await pages.complete("third", songs: songs(400..<600), next: nil)
+        #expect(await manual.value)
+        #expect(h.player.queue.items.count == 600)
+    }
+
+    @Test(arguments: ["pause", "cancel", "new-selection", "deep-sleep"])
+    func lifecycleRecoveryCannotReviveSupersededMetadata(action: String) async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        h.player.networkSnapshotOverride = NetworkSnapshot(status: .online, interface: .wifi)
+        h.player.applicationBecameActive()
+        let task = h.player.playPlaylist(songs(0..<400), continuation: "third")
+        try await waitForRequest("third", pages: pages)
+        await pages.fail("third")
+        #expect(!(await task.value))
+        switch action {
+        case "pause": h.player.pause()
+        case "cancel": h.player.cancelPlaylistLoading()
+        case "new-selection": h.player.play(songs(700..<703))
+        case "deep-sleep": h.player.finishPlaybackSession()
+        default: Issue.record("Unhandled test action")
+        }
+        let intended = h.player.queue
+        h.player.applicationBecameActive()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(await pages.requests() == ["third"])
+        #expect(h.player.queue == intended)
+        #expect(h.player.playlistLoadingCount == nil)
+    }
+
+    @Test(arguments: [MusicError.signedOut, .badResponse(403), .rateLimited])
+    func authenticationAndPermanentMetadataFailuresNeverAutomaticallyRetry(error: MusicError) async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        h.player.networkSnapshotOverride = NetworkSnapshot(status: .online, interface: .wifi)
+        h.player.applicationBecameActive()
+        let task = h.player.playPlaylist(songs(0..<400), continuation: "third")
+        try await waitForRequest("third", pages: pages)
+        await pages.fail("third", error: error)
+        #expect(!(await task.value))
+        for _ in 0..<5 { h.player.applicationBecameActive() }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(await pages.requests() == ["third"])
+        #expect(h.player.playlistLoadingCount == 400)
+        #expect(h.player.playlistLoadCanRetry)
+    }
+
+    @Test(arguments: ["profile", "sign-in", "sign-out"])
+    func changedSessionRejectsAnInflightPageAndNeverFetchesItsContinuation(change: String) async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let session = AccountSession(profileID: UUID(), cookies: YouTubeCookies(header: "SID=fixture; SAPISID=fixture"))
+        await h.player.music.accounts.signIn(session)
+        let before = h.player.queue
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let task = h.player.playPlaylist(songs(0..<200), continuation: "second")
+        try await waitForRequest("second", pages: pages)
+        switch change {
+        case "profile": await h.player.music.accounts.activate(.init(profileID: UUID(), cookies: session.cookies))
+        case "sign-in": await h.player.music.accounts.signIn(session)
+        case "sign-out": await h.player.music.accounts.deactivate()
+        default: Issue.record("Unhandled account change")
+        }
+        await pages.complete("second", songs: songs(200..<400), next: "third")
+        #expect(!(await task.value))
+        #expect(h.player.queue == before)
+        #expect(h.player.playlistLoadingCount == nil)
+        #expect(!h.player.playlistLoadCanRetry)
+        #expect(await pages.requests() == ["second"])
+    }
+
+    @Test func metadataRetryCannotRebindAnOldCheckpointToANewSession() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let before = h.player.queue
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let task = h.player.playPlaylist(songs(0..<400), continuation: "third")
+        try await waitForRequest("third", pages: pages)
+        await pages.fail("third")
+        #expect(!(await task.value))
+        await h.player.music.accounts.signIn(.init(profileID: UUID(), cookies: YouTubeCookies(header: "SID=fixture")))
+        #expect(!(await h.player.retryPlaylistLoading().value))
+        #expect(h.player.queue == before)
+        #expect(h.player.playlistLoadingCount == nil)
+        #expect(await pages.requests() == ["third"])
+    }
+
+    @Test func anInterruptedPreparationNeverPersistsAPartialPoolAsACompleteQueue() async throws {
+        let h = try Harness()
+        defer { h.cleanUp() }
+        let before = h.player.queue
+        let pages = Pages()
+        h.player.playlistPageLoader = { try await pages.load($0) }
+        let task = h.player.playPlaylist(songs(0..<400), continuation: "third")
+        try await waitForRequest("third", pages: pages)
+        h.player.applicationBecameInactive()
+        h.player.persistQueueNow()
+        let restored = Player(music: h.player.music, storageDirectory: h.directory, defaults: h.defaults)
+        defer { restored.stop() }
+        #expect(restored.queue == before)
+        #expect(restored.playlistLoadingCount == nil)
+        h.player.cancelPlaylistLoading()
+        await pages.complete("third", songs: songs(400..<600), next: nil)
+        #expect(!(await task.value))
     }
 
     @Test func restoredPlaybackDoesNotStartAfterTheSceneLeavesForeground() async throws {
