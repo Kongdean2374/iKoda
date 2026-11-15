@@ -161,10 +161,13 @@ struct KodaUITestFixture: View {
                          snapshot("PLui-read-only", "Fixture Read Only", [first], editable: false)]
         firstPlaylist = snapshots[0].playlist
         let catalogFailure = ProcessInfo.processInfo.arguments.contains("-KodaUITestCatalogFailure")
+        let unavailableCatalog: @Sendable () async throws -> [PlaylistSummary] = {
+            throw URLError(.notConnectedToInternet)
+        }
         app.cloudPlaylists.installUITestData(catalog: snapshots.map(\.playlist), snapshots: snapshots,
             transport: UITestCloudTransport(snapshots: snapshots, songs: songs + (largePlaylist ? sourceSongs : []),
                 failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure")), like: { $0 },
-            catalogReader: catalogFailure ? { throw URLError(.notConnectedToInternet) } : nil)
+            catalogReader: catalogFailure ? unavailableCatalog : nil)
         if catalogFailure { await app.cloudPlaylists.refresh(force: true) }
         prepared = true
     }
