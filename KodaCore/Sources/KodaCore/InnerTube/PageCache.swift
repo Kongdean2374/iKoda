@@ -9,6 +9,7 @@ actor PageCache {
     }
 
     private var entries: [String: Entry] = [:]
+    private var revision: UInt64 = 0
     private let lifetime: TimeInterval
     private let limit: Int
 
@@ -23,7 +24,12 @@ actor PageCache {
         if let entry = entries[key], Date().timeIntervalSince(entry.date) < lifetime, let value = entry.value as? T {
             return value
         }
+        let round = revision
         let value = try await load()
+        try Task.checkCancellation()
+        // A force refresh may complete while an older request is suspended. Its
+        // response can return to that caller, but cannot repopulate the cleared cache.
+        guard revision == round else { return value }
         entries[key] = Entry(value: value, date: Date())
         if entries.count > limit, let oldest = entries.min(by: { $0.value.date < $1.value.date })?.key {
             entries[oldest] = nil
@@ -32,6 +38,7 @@ actor PageCache {
     }
 
     func removeAll() {
+        revision &+= 1
         entries = [:]
     }
 }

@@ -291,6 +291,13 @@ public final class YouTubeMusic: Sendable {
         try await page("playlist|\(id)") { try await self.fetchPlaylist(id) }
     }
 
+    /// An explicit collection playback reads the current source, including edits made
+    /// in the official app. Browsing may still use its short-lived presentation cache.
+    public func playlistFreshForPlayback(_ id: String) async throws -> PlaylistPage {
+        try Task.checkCancellation()
+        return try await fetchPlaylist(id)
+    }
+
     private func fetchPlaylist(_ id: String) async throws -> PlaylistPage {
         let browseId = id.hasPrefix("VL") ? id : "VL" + id
         let root = try await api.music("browse", ["browseId": browseId])
@@ -316,7 +323,7 @@ public final class YouTubeMusic: Sendable {
     public func playlistForPlayback(_ id: String) async throws -> [Song] {
         let loaded = try await PlaylistQueueLoader.load(
             fetchFirst: { [self] in
-                let page = try await playlist(id)
+                let page = try await playlistFreshForPlayback(id)
                 return .init(songs: page.songs, continuation: page.continuation)
             },
             fetchMore: { [self] token in
