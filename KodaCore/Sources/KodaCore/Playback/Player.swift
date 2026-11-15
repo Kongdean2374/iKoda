@@ -134,10 +134,12 @@ public final class Player {
     /// turning it on mid-song gives the playing song one at once rather than from the next.
     public var equalizer: EqualizerPreset = .off {
         didSet {
+            guard !applyingSoundSelection else { return }
             persistSettings()
             guard equalizer != oldValue else { return }
+            noteManualSoundChange()
             if soundSettings.customEnabled { soundSettings.customEnabled = false }
-            applySoundSettings()
+            else { applySoundSettings() }
         }
     }
 
@@ -146,10 +148,31 @@ public final class Player {
     /// Sound Center values are independent of the legacy preset key.
     public var soundSettings = SoundSettings() {
         didSet {
+            guard !applyingSoundSelection else { return }
+            noteManualSoundChange()
             SoundSettingsStore.save(soundSettings, defaults: preferenceDefaults)
             applySoundSettings()
         }
     }
+
+    public private(set) var audioOutputRoute = AudioOutputRoute()
+    public private(set) var soundProfiles: [SoundProfile] = []
+    public private(set) var appliedDeviceSound: DeviceSoundTarget?
+    public private(set) var deviceSoundManuallyOverridden = false
+    public private(set) var deviceSoundProfileMissing = false
+    public var deviceSoundSettings = DeviceSoundSettings() {
+        didSet {
+            guard !restoringSoundSettings else { return }
+            DeviceSoundStore.save(deviceSoundSettings, defaults: preferenceDefaults)
+            scheduleDeviceSoundApplication(resetOverride: deviceSoundSettings.enabled && !oldValue.enabled)
+        }
+    }
+    @ObservationIgnored private var soundRoutePolicy = DeviceSoundPolicy()
+    @ObservationIgnored private var deviceSoundTask: Task<Void, Never>?
+    @ObservationIgnored private var soundOutputRampTask: Task<Void, Never>?
+    @ObservationIgnored private var routedOutputLimit: Float?
+    @ObservationIgnored private var applyingSoundSelection = false
+    @ObservationIgnored private var restoringSoundSettings = true
 
     public var smartShuffleSettings = SmartShuffleSettings() {
         didSet {
@@ -408,6 +431,10 @@ public final class Player {
         observePlayer()
         configureRemoteCommands()
         restore()
+        soundProfiles = SoundSettingsStore.profiles(defaults: preferenceDefaults)
+        deviceSoundSettings = DeviceSoundStore.load(defaults: preferenceDefaults)
+        restoringSoundSettings = false
+        refreshAudioOutputRoute()
         observeNetwork()
         refreshAudioInformation()
     }
@@ -419,6 +446,8 @@ public final class Player {
         outputReleaseTask?.cancel()
         radioTask?.cancel()
         scheduledPlaybackTask?.cancel()
+        deviceSoundTask?.cancel()
+        soundOutputRampTask?.cancel()
     }
 
     // MARK: - Reading
@@ -1200,6 +1229,143 @@ public final class Player {
         applyLoudness(currentLoudnessDb)
     }
 
+    /// A complete profile reaches every current/standby/tail channel as one configuration.
+    /// Neither selecting a preset nor changing outputs replaces a player or seeks a song.
+    public func applySoundProfile(_ settings: SoundSettings, preset: EqualizerPreset) {
+        noteManualSoundChange()
+        installSoundProfile(settings, preset: preset, automatically: false)
+    }
+
+    public func saveSoundProfiles(_ profiles: [SoundProfile]) {
+        SoundSettingsStore.saveProfiles(profiles, defaults: preferenceDefaults)
+        soundProfiles = SoundSettingsStore.profiles(defaults: preferenceDefaults)
+        // Editing a saved profile updates its binding; deleting it never silently picks
+        // another profile. A manual override still wins over a background store refresh.
+        scheduleDeviceSoundApplication(resetOverride: false)
+    }
+
+    public func useDeviceSoundBinding() { scheduleDeviceSoundApplication(resetOverride: true) }
+    public func keepCurrentDeviceSound() {
+        noteManualSoundChange(cancelOutputRamp: false)
+        applyLoudness(currentLoudnessDb)
+    }
+
+    private func noteManualSoundChange(cancelOutputRamp: Bool = true) {
+        guard !restoringSoundSettings else { return }
+        soundRoutePolicy.override()
+        deviceSoundTask?.cancel()
+        deviceSoundTask = nil
+        if cancelOutputRamp {
+            soundOutputRampTask?.cancel()
+            soundOutputRampTask = nil
+            routedOutputLimit = nil
+        }
+        deviceSoundManuallyOverridden = deviceSoundSettings.enabled
+        appliedDeviceSound = nil
+        deviceSoundProfileMissing = false
+    }
+
+    private func installSoundProfile(_ settings: SoundSettings, preset: EqualizerPreset, automatically: Bool) {
+        let previousLimit = routedOutputLimit ?? soundSettings.normalized.outputLimit
+        let normalized = settings.normalized
+        soundOutputRampTask?.cancel()
+        soundOutputRampTask = nil
+        routedOutputLimit = automatically ? min(previousLimit, normalized.outputLimit) : nil
+        applyingSoundSelection = true
+        equalizer = preset
+        soundSettings = normalized
+        applyingSoundSelection = false
+        persistSettings()
+        SoundSettingsStore.save(normalized, defaults: preferenceDefaults)
+        applySoundSettings()
+        if automatically, normalized.outputLimit > previousLimit {
+            soundOutputRampTask = Task { [weak self] in
+                await Self.ramp(over: 0.25) { progress in
+                    guard let self else { return }
+                    self.routedOutputLimit = DeviceSoundOutputRamp.limit(from: previousLimit, to: normalized.outputLimit, progress: progress)
+                    self.applyLoudness(self.currentLoudnessDb)
+                }
+                guard !Task.isCancelled, let self else { return }
+                self.routedOutputLimit = nil
+                self.applyLoudness(self.currentLoudnessDb)
+                self.soundOutputRampTask = nil
+            }
+        } else { routedOutputLimit = nil }
+    }
+
+    /// Exposed for refreshing Settings; route notifications use the same debounced path.
+    public func refreshAudioOutputRoute() {
+        #if os(iOS)
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { port in
+            let kind: AudioOutputDevice.Kind
+            switch port.portType {
+            case .builtInSpeaker, .builtInReceiver: kind = .speaker
+            case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE: kind = .bluetooth
+            case .usbAudio: kind = .usb
+            case .headphones, .lineOut: kind = .wired
+            case .airPlay: kind = .airPlay
+            case .HDMI, .displayPort, .carAudio: kind = .other
+            default: kind = .unknown
+            }
+            return AudioOutputDevice(kind: kind, name: port.portName, identifier: port.uid)
+        }
+        receiveAudioOutputRoute(AudioOutputRoute(outputs: outputs))
+        #endif
+    }
+
+    /// Test seam supplies the exact metadata that AVAudioSession reports, without touching
+    /// the shared system route. Duplicate notifications cannot undo a manual override.
+    func receiveAudioOutputRoute(_ route: AudioOutputRoute) {
+        audioOutputRoute = route
+        guard soundRoutePolicy.observe(route) != nil else { return }
+        deviceSoundManuallyOverridden = false
+        appliedDeviceSound = nil
+        deviceSoundProfileMissing = false
+        scheduleDeviceSoundApplication(resetOverride: false)
+    }
+
+    private func scheduleDeviceSoundApplication(resetOverride: Bool) {
+        deviceSoundTask?.cancel()
+        let ticket = soundRoutePolicy.invalidate(resetOverride: resetOverride)
+        if resetOverride { deviceSoundManuallyOverridden = false }
+        if !deviceSoundSettings.enabled {
+            // Switching automation off keeps the profile already installed. Let its
+            // bounded 250 ms gain easing finish rather than jumping or freezing halfway.
+            appliedDeviceSound = nil
+            deviceSoundProfileMissing = false
+            deviceSoundManuallyOverridden = false
+            return
+        }
+        deviceSoundTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
+            guard let self, !Task.isCancelled, self.soundRoutePolicy.accepts(ticket) else { return }
+            self.applyCurrentDeviceSound()
+            self.deviceSoundTask = nil
+        }
+    }
+
+    func applyCurrentDeviceSound() {
+        appliedDeviceSound = nil
+        deviceSoundProfileMissing = false
+        let selection = soundRoutePolicy.selection(settings: deviceSoundSettings.normalized)
+        deviceSoundManuallyOverridden = selection == .manual
+        guard case .apply(let target) = selection else { return }
+        guard let selected = target.resolve(profiles: soundProfiles, current: soundSettings) else {
+            appliedDeviceSound = nil
+            deviceSoundProfileMissing = true
+            return
+        }
+        deviceSoundProfileMissing = false
+        deviceSoundManuallyOverridden = false
+        appliedDeviceSound = target
+        guard soundSettings != selected.settings || equalizer != selected.preset else { return }
+        installSoundProfile(selected.settings, preset: selected.preset, automatically: true)
+    }
+
+    private var limitedOutputGain: Float {
+        min(soundSettings.outputGain(for: volume), routedOutputLimit ?? 1)
+    }
+
     /// Bring loud masters down to YouTube's -14 LUFS target; quiet ones are left alone rather than boosted.
     private func applyLoudness(_ stream: ResolvedStream) {
         applyLoudness(stream.loudnessDb)
@@ -1207,7 +1373,7 @@ public final class Player {
 
     private func applyLoudness(_ loudnessDb: Double?) {
         currentLoudnessDb = loudnessDb
-        let gain = soundSettings.outputGain(for: volume)
+        let gain = limitedOutputGain
         baseVolume = gain * normalizationGain(for: loudnessDb)
         applyOutputBudget()
     }
@@ -1220,7 +1386,7 @@ public final class Player {
     /// All concurrently audible players share one cap, including the old song during a
     /// crossfade/AutoMix handover. Per-channel DSP bounds samples before this mix budget.
     private func applyOutputBudget() {
-        let limit = soundSettings.outputGain(for: volume)
+        let limit = limitedOutputGain
         var players = [avPlayer]
         var desired: [Float] = [tail != nil && avPlayer.currentItem == nil ? 0 : baseVolume * fadeGain * outputReleaseGain]
         if let tail, tail !== avPlayer {
@@ -1428,9 +1594,13 @@ public final class Player {
 
     /// Calls `step` with progress from 0 to 1, about 30 times a second, for `duration` seconds.
     private static func ramp(over duration: TimeInterval, _ step: @MainActor (Double) -> Void) async {
-        let start = Date()
+        guard duration.isFinite, duration > 0 else { step(1); return }
+        let clock = ContinuousClock()
+        let start = clock.now
         while !Task.isCancelled {
-            let progress = min(1, Date().timeIntervalSince(start) / duration)
+            let elapsed = start.duration(to: clock.now).components
+            let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+            let progress = min(1, max(0, seconds / duration))
             step(progress)
             if progress >= 1 { return }
             try? await Task.sleep(for: .milliseconds(33))
@@ -2402,10 +2572,14 @@ public final class Player {
             MainActor.assumeIsolated {
                 // Headphones out: stop rather than play out loud.
                 if reason == .oldDeviceUnavailable { self?.pause(from: "headphones disconnecting") }
+                self?.refreshAudioOutputRoute()
             }
         }
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleMediaServicesReset() }
+            MainActor.assumeIsolated {
+                self?.handleMediaServicesReset()
+                self?.refreshAudioOutputRoute()
+            }
         }
         #endif
     }

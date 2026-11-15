@@ -79,10 +79,12 @@ struct SavedSongsView: View {
     let title: String
     let source: Route.SongSource
     @Environment(Player.self) private var player
+    @Environment(AppModel.self) private var app
     @Environment(Library.self) private var library
     @Environment(Downloads.self) private var downloads
     @AppStorage("koda.likedSort") private var sort: SongSort = .recent
     @State private var query = ""
+    @State private var toolbox: PlaylistToolboxRequest?
 
     private var songs: [Song] {
         switch source {
@@ -106,7 +108,10 @@ struct SavedSongsView: View {
     }
 
     var body: some View {
-        if Platform.isMac { macBody } else { phoneBody }
+        Group {
+            if Platform.isMac { macBody } else { phoneBody }
+        }
+        .sheet(item: $toolbox) { PlaylistToolboxView(request: $0).appEnvironment(app) }
     }
 
     private var symbol: (String, Color) {
@@ -132,6 +137,11 @@ struct SavedSongsView: View {
             ) { side in
                 MacSymbolCover(systemImage: symbol.0, tint: symbol.1, size: side)
             } actions: {
+                if !songs.isEmpty {
+                    Button("Select Songs", systemImage: "checklist") {
+                        toolbox = PlaylistToolboxRequest(source: .songs(title: title, songs: songs))
+                    }.buttonStyle(MacIconButtonStyle())
+                }
                 if source == .liked, !songs.isEmpty {
                     DownloadButton(songs: songs).buttonStyle(MacIconButtonStyle())
                 }
@@ -242,6 +252,16 @@ struct SavedSongsView: View {
             }
         }
         .toolbar {
+            if !songs.isEmpty {
+                Menu("Song Tools", systemImage: "ellipsis") {
+                    Button("Select Songs", systemImage: "checklist") {
+                        toolbox = PlaylistToolboxRequest(source: .songs(title: title, songs: shown))
+                    }
+                    Button("Check Duplicate Songs", systemImage: "square.on.square") {
+                        toolbox = PlaylistToolboxRequest(source: .songs(title: title, songs: shown), checksDuplicates: true)
+                    }
+                }
+            }
             if source == .recent, !songs.isEmpty {
                 Button(String(localized: "Clear"), role: .destructive) {
                         library.clearHistory()

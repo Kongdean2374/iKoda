@@ -28,7 +28,7 @@ struct LyricsTranslationControl: View {
             Button { app.settings.showsLyricsTranslation.toggle() } label: {
                 Image(systemName: "translate")
                     .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 44, height: 44)
+                    .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
             }
             .buttonStyle(LyricsTranslationOrbStyle(isOn: enabled, onHold: {
                 holdFeedback &+= 1
@@ -42,6 +42,7 @@ struct LyricsTranslationControl: View {
             .accessibilityAddTraits(enabled ? .isSelected : [])
             .accessibilityAction { app.settings.showsLyricsTranslation.toggle() }
             .accessibilityAction(named: Text("Translation Details")) { showsDetails = true }
+            .accessibilityIdentifier("lyrics.translation.toggle")
 
             Text(status)
                 .font(.caption)
@@ -80,6 +81,7 @@ private struct LyricsTranslationOrbSurface<Label: View>: View {
     let onHold: () -> Void
     let showDetails: () -> Void
     @GestureState private var isPressed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         label
@@ -88,9 +90,9 @@ private struct LyricsTranslationOrbSurface<Label: View>: View {
                 Circle().fill(Color.primary.opacity(isOn ? (isPressed ? 0.85 : 1) : (isPressed ? 0.2 : 0.08)))
             }
             .contentShape(.circle)
-            .scaleEffect(isPressed ? 0.95 : 1)
-            .animation(.snappy(duration: 0.2), value: isPressed)
-            .animation(.smooth(duration: 0.25), value: isOn)
+            .scaleEffect(isPressed && !reduceMotion ? 0.95 : 1)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: isPressed)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: isOn)
             .gesture(
                 LongPressGesture(minimumDuration: 0.5, maximumDistance: 12)
                     .exclusively(before: TapGesture())
@@ -179,6 +181,7 @@ private struct LyricsTranslationDetails: View {
                 } label: {
                     Label("Translation Settings", systemImage: "slider.horizontal.3")
                 }
+                .accessibilityIdentifier("lyrics.translation.settings")
             } footer: {
                 Text("Tap the translation icon to show or hide translations. Completed translations are kept.")
             }
@@ -188,6 +191,7 @@ private struct LyricsTranslationDetails: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
+                    .accessibilityIdentifier("lyrics.translation.done")
             }
         }
     }

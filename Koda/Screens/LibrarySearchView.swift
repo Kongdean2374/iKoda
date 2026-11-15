@@ -8,6 +8,8 @@ struct LibrarySearchResults: View {
     @Environment(Library.self) private var library
     @Environment(Downloads.self) private var downloads
     @Environment(Player.self) private var player
+    @Environment(AppModel.self) private var app
+    @State private var toolbox: PlaylistToolboxRequest?
 
     var body: some View {
         let found = library.search(query, extra: downloads.store.completeSongs)
@@ -66,6 +68,16 @@ struct LibrarySearchResults: View {
             }
         }
         .listStyle(.plain)
+        .toolbar {
+            if !found.songs.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Select Songs", systemImage: "checklist") {
+                        toolbox = PlaylistToolboxRequest(source: .songs(title: String(localized: "Search Results"), songs: found.songs))
+                    }
+                }
+            }
+        }
+        .sheet(item: $toolbox) { PlaylistToolboxView(request: $0).appEnvironment(app) }
         .scrollDismissesKeyboard(.immediately)
         .overlay {
             if found.isEmpty {

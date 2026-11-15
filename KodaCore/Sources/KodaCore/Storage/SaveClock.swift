@@ -16,4 +16,18 @@ final class SaveClock: @unchecked Sendable {
     func isNewest(_ version: Int) -> Bool {
         lock.withLock { version == newest }
     }
+
+    var current: Int { lock.withLock { newest } }
+
+    /// Only the tiny atomic rename belongs here. Encoding and writing a temporary file
+    /// happen before this lock, so the main actor never waits for a large JSON write.
+    @discardableResult
+    func commit(_ version: Int, advancing: Bool = false, _ publish: () throws -> Void) rethrows -> Bool {
+        try lock.withLock {
+            guard version == newest else { return false }
+            try publish()
+            if advancing { newest += 1 }
+            return true
+        }
+    }
 }

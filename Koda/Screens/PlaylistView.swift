@@ -13,9 +13,13 @@ struct PlaylistView: View {
     @State private var loadedContinuations: Set<String> = []
     @State private var loadingMore = false
     @State private var palette = PaletteModel()
+    @State private var toolbox: PlaylistToolboxRequest?
 
     var body: some View {
-        if Platform.isMac { macBody } else { phoneBody }
+        Group {
+            if Platform.isMac { macBody } else { phoneBody }
+        }
+        .sheet(item: $toolbox) { PlaylistToolboxView(request: $0).appEnvironment(app) }
     }
 
     /// The Mac's playlist: the cover beside its details, then songs with their artist and
@@ -67,6 +71,7 @@ struct PlaylistView: View {
                 .buttonStyle(MacIconButtonStyle())
         }
         MacMoreMenu {
+            toolboxActions
             if !songs.isEmpty {
                 Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(playNext: true) }
                 Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(playNext: false) }
@@ -132,6 +137,7 @@ struct PlaylistView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu(String(localized: "More"), systemImage: "ellipsis") {
+                    toolboxActions
                     if !songs.isEmpty {
                         Button(String(localized: "Play Next"), systemImage: "text.line.first.and.arrowtriangle.forward") { enqueue(playNext: true) }
                         Button(String(localized: "Add to Queue"), systemImage: "text.line.last.and.arrowtriangle.forward") { enqueue(playNext: false) }
@@ -154,6 +160,29 @@ struct PlaylistView: View {
         // determine the candidate pool; shuffle chooses its first song after all pages load.
         player.playPlaylist(songs, continuation: continuation, shuffled: shuffled, sourceID: summary.id,
                             completedPageTokens: loadedContinuations)
+    }
+
+    private var toolboxActions: some View {
+        Group {
+            Button("Select Songs", systemImage: "checklist") { openToolbox(checksDuplicates: false) }
+            Button("Check Duplicate Songs", systemImage: "square.on.square") { openToolbox(checksDuplicates: true) }
+            Divider()
+        }
+        .disabled(state.value == nil || loadingMore)
+    }
+
+    private func openToolbox(checksDuplicates: Bool) {
+        guard state.value != nil, !loadingMore else { return }
+        let checkpoint = PlaylistQueueLoader.Checkpoint(
+            firstPage: .init(songs: songs, continuation: continuation), completedTokens: loadedContinuations)
+        toolbox = PlaylistToolboxRequest(source: .online(state.value?.playlist ?? summary, checkpoint),
+            checksDuplicates: checksDuplicates, onCheckpoint: { loaded in
+                // Keep the successful prefix after a cancelled/failed tool operation so
+                // reopening it does not fetch already prepared pages again.
+                songs = loaded.songs
+                continuation = loaded.continuation
+                loadedContinuations = loaded.completedPageTokens
+            })
     }
 
     private func play(startAt index: Int) {
@@ -201,7 +230,7 @@ struct PlaylistView: View {
     }
 
     private func loadMore() async {
-        guard !loadingMore, let token = continuation, !loadedContinuations.contains(token) else { return }
+        guard toolbox == nil, !loadingMore, let token = continuation, !loadedContinuations.contains(token) else { return }
         loadingMore = true
         defer { loadingMore = false }
         guard let page = try? await app.music.playlistMoreForPlayback(token), !Task.isCancelled,

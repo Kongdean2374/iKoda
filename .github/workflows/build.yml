@@ -151,3 +151,25 @@ jobs:
           name: ${{ steps.version.outputs.artifact_name }}-mac
           path: ${{ steps.version.outputs.dmg_name }}
           retention-days: 30
+
+  simulator:
+    runs-on: xcode-27
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compute release identity
+        id: version
+        run: python3 scripts/build-version.py --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate controls on available iPhone Simulators
+        run: python3 scripts/run-ui-smoke.py
+
+      - name: Upload UI results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.version.outputs.artifact_name }}-ui-smoke
+          path: ui-smoke-results/
+          if-no-files-found: warn
+          retention-days: 30

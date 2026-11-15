@@ -17,6 +17,7 @@ struct AnimatedCover: View {
     var onShow: ((Bool) -> Void)? = nil
     @Environment(AppModel.self) private var app
     @Environment(\.accessibilityPlayAnimatedImages) private var playsAnimatedImages
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var loop: Loop?
     @State private var isReady = false
@@ -43,7 +44,7 @@ struct AnimatedCover: View {
                     .opacity(isReady ? 1 : 0)
             }
         }
-        .animation(.smooth(duration: 0.6), value: isReady)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: isReady)
         .allowsHitTesting(false)
         .task(id: Request(songID: song?.id, album: song?.album?.id, art: app.settings.animatedArt, allowed: playsAnimatedImages, shape: shape)) {
             await find()

@@ -110,3 +110,22 @@
 "The lyrics source URL is too long." = "The lyrics source URL is too long.";
 "Synced lyrics from a public lyrics catalogue" = "Synced lyrics from a public lyrics catalogue";
 "Plain lyrics as an additional fallback" = "Plain lyrics as an additional fallback";
+
+/* Koda 0.5.0 device sound. */
+"Built-in Speaker" = "Built-in Speaker";
+"Bluetooth Audio" = "Bluetooth Audio";
+"USB Audio" = "USB Audio";
+"Wired Headphones" = "Wired Headphones";
+"AirPlay" = "AirPlay";
+"Other Audio Output" = "Other Audio Output";
+"Unknown Audio Output" = "Unknown Audio Output";
+"Sound Profile Unavailable" = "Sound Profile Unavailable";
+
+/* Koda 0.5.0 local playlist tools. */
+"This local playlist no longer exists." = "This local playlist no longer exists.";
+"The library changed during this operation. Review the updated songs and try again." = "The library changed during this operation. Review the updated songs and try again.";
+"The active profile changed. Open the playlist again." = "The active profile changed. Open the playlist again.";
+"Select at least one song from the current playlist." = "Select at least one song from the current playlist.";
+"Enter a name for the new playlist." = "Enter a name for the new playlist.";
+"Choose a different destination playlist." = "Choose a different destination playlist.";
+"This playlist was reordered or edited after the operation. Undo cannot safely replace those changes." = "This playlist was reordered or edited after the operation. Undo cannot safely replace those changes.";

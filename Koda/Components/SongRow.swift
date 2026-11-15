@@ -10,6 +10,7 @@ struct SongRow: View {
     let action: () -> Void
 
     @Environment(Player.self) private var player
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var isCurrent: Bool { player.current?.id == song.id }
 
@@ -21,12 +22,13 @@ struct SongRow: View {
                     Text(song.title)
                         .font(.body)
                         .foregroundStyle(isCurrent ? Color.accentColor : .primary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     Text(subtitle ?? song.artistLine)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 4)
                 DownloadIndicator(song: song)
                 if song.isVideo {
@@ -41,8 +43,8 @@ struct SongRow: View {
         }
         .buttonStyle(RowButtonStyle())
         // The row's tap target stops short of the menu button, which sits in the space kept for it.
-        .padding(.trailing, 32)
-        .overlay(alignment: .trailing) { SongMenuButton(song: song).offset(x: 6) }
+        .padding(.trailing, ControlMetrics.touchTarget)
+        .overlay(alignment: .trailing) { SongMenuButton(song: song) }
         .contextMenu {
             SongMenuItems(song: song)
         } preview: {
@@ -78,18 +80,21 @@ struct SongRow: View {
 /// The animated bars on the song that is playing.
 struct NowPlayingBars: View {
     var isPlaying: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Image(systemName: "waveform")
             .font(.body.weight(.semibold))
             .foregroundStyle(Color.accentColor)
-            .symbolEffect(.variableColor.iterative.reversing, options: .repeat(.continuous), isActive: isPlaying)
+            .symbolEffect(.variableColor.iterative.reversing, options: .repeat(.continuous), isActive: isPlaying && !reduceMotion && scenePhase == .active)
             .accessibilityLabel(isPlaying ? String(localized: "Playing") : String(localized: "Paused"))
     }
 }
 
 /// Dims a row while pressed, like a list cell.
 struct RowButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
@@ -97,7 +102,7 @@ struct RowButtonStyle: ButtonStyle {
                     .fill(.primary.opacity(configuration.isPressed ? 0.08 : 0))
                     .padding(.horizontal, -8)
             }
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 

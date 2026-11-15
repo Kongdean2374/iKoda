@@ -110,3 +110,22 @@
 "The lyrics source URL is too long." = "歌詞來源網址過長。";
 "Synced lyrics from a public lyrics catalogue" = "來自公開歌詞資料庫的同步歌詞";
 "Plain lyrics as an additional fallback" = "找不到歌詞時提供純文字歌詞備援";
+
+/* Koda 0.5.0 device sound. */
+"Built-in Speaker" = "內建揚聲器";
+"Bluetooth Audio" = "藍牙音訊";
+"USB Audio" = "USB 音訊";
+"Wired Headphones" = "有線耳機";
+"AirPlay" = "AirPlay";
+"Other Audio Output" = "其他音訊輸出";
+"Unknown Audio Output" = "無法辨識的音訊輸出";
+"Sound Profile Unavailable" = "音效預設無法使用";
+
+/* Koda 0.5.0 local playlist tools. */
+"This local playlist no longer exists." = "此本機播放清單已不存在。";
+"The library changed during this operation. Review the updated songs and try again." = "操作期間音樂庫已有變更，請確認更新後的歌曲再試一次。";
+"The active profile changed. Open the playlist again." = "使用中的個人檔案已變更，請重新開啟播放清單。";
+"Select at least one song from the current playlist." = "請至少選取目前播放清單中的一首歌曲。";
+"Enter a name for the new playlist." = "請輸入新播放清單的名稱。";
+"Choose a different destination playlist." = "請選擇另一個目的地播放清單。";
+"This playlist was reordered or edited after the operation. Undo cannot safely replace those changes." = "操作後此播放清單已重新排序或編輯，無法安全復原而保留後續變更。";

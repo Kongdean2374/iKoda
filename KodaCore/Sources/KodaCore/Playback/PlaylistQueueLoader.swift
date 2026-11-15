@@ -52,6 +52,8 @@ public enum PlaylistQueueLoader {
         }
 
         public var isComplete: Bool { hasFirstPage && continuation == nil }
+        /// A browser that adopts this successful prefix must also adopt its cycle history.
+        public var completedPageTokens: Set<String> { completedTokens }
     }
 
     public enum LoadingError: Error, Equatable, Sendable, LocalizedError {

@@ -9,15 +9,16 @@ struct MixingBadge: View {
     var compact = false
     var glass = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Label("Mixing", systemImage: "waveform")
-            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeating, isActive: !reduceMotion)
+            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeating, isActive: !reduceMotion && scenePhase == .active)
             .font((compact ? Font.caption : .footnote).weight(.semibold))
             .padding(.horizontal, glass ? (compact ? 9 : 12) : 0)
             .frame(height: compact ? 22 : 30)
             .background {
-                if glass { Capsule().fill(.clear).glassEffect(.regular, in: .capsule) }
+                if glass { Capsule().fill(.clear).kodaGlassSurface(in: .capsule) }
             }
             .help("AutoMix is blending into \(mixing.to)")
             .accessibilityElement(children: .ignore)
@@ -37,9 +38,11 @@ struct MixingCovers: View {
     var animated: Song? = nil
     var isPlaying = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: mixing == nil)) { context in
+        TimelineView(.animation(minimumInterval: reduceMotion ? 1.0 / 15 : 1.0 / 60,
+                                paused: mixing == nil || scenePhase != .active)) { context in
             let progress = mixing?.progress(at: context.date) ?? 1
             // Smoothstep: the handover eases in and out like the audio's own curves.
             let eased = progress * progress * (3 - 2 * progress)

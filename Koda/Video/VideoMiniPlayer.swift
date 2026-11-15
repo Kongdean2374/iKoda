@@ -10,6 +10,7 @@ struct VideoMiniPlayer: View {
     let playback: VideoPlayback
     let open: () -> Void
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isInline: Bool { placement == .inline }
 
@@ -38,7 +39,7 @@ struct VideoMiniPlayer: View {
                 .onTapGesture(perform: open)
 
                 if playback.isLoading {
-                    ProgressView().frame(width: 36, height: 36)
+                    ProgressView().frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
                 } else {
                     Button {
                         if playback.autoplayCountdown != nil { playback.playNext() } else { playback.togglePlay() }
@@ -46,8 +47,8 @@ struct VideoMiniPlayer: View {
                         Image(systemName: playback.hasEnded && playback.autoplayCountdown == nil ? "arrow.counterclockwise"
                               : playback.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 20))
-                            .contentTransition(.symbolEffect(.replace.downUp))
-                            .frame(width: 36, height: 36)
+                            .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace.downUp))
+                            .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
@@ -55,11 +56,11 @@ struct VideoMiniPlayer: View {
                 }
                 if !isInline {
                     Button {
-                        withAnimation(.smooth) { playback.stop() }
+                        withAnimation(reduceMotion ? nil : .smooth) { playback.stop() }
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 36, height: 36)
+                            .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
@@ -97,6 +98,7 @@ struct MacVideoBar: View {
     let playback: VideoPlayback
     let open: () -> Void
     @State private var width: CGFloat = 900
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let video = playback.current {
@@ -142,15 +144,12 @@ struct MacVideoBar: View {
 
                 // A narrow window gives the title the progress line's room.
                 if !playback.isLive, playback.duration > 0, width >= 560 {
-                    ProgressView(value: min(playback.time, playback.duration), total: playback.duration)
-                        .progressViewStyle(.linear)
+                    VideoBarProgress(playback: playback)
                         .frame(width: 140)
-                        .tint(.primary)
-                        .accessibilityLabel(String(localized: "Playback position"))
                 }
 
                 iconButton("xmark", help: String(localized: "Close Video"), size: 14, weight: .semibold, style: .secondary) {
-                    withAnimation(.smooth) { playback.stop() }
+                    withAnimation(reduceMotion ? nil : .smooth) { playback.stop() }
                 }
             }
             .frame(minWidth: 0, maxWidth: .infinity)
@@ -160,7 +159,7 @@ struct MacVideoBar: View {
             // The whole bar takes the click: glass alone doesn't, and a click between its
             // buttons went through to the page scrolled under it.
             .contentShape(.rect(cornerRadius: 22, style: .continuous))
-            .glassEffect(.regular, in: .rect(cornerRadius: 22, style: .continuous))
+            .kodaGlassSurface(in: .rect(cornerRadius: 22, style: .continuous))
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
         }
@@ -175,10 +174,22 @@ struct MacVideoBar: View {
                 .foregroundStyle(style)
                 .frame(width: 32, height: 32)
                 .contentShape(.rect)
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
         }
         .buttonStyle(BarButtonStyle())
         .help(help)
         .accessibilityLabel(help)
+    }
+}
+
+/// Keep the frequently changing clock out of the whole bar, its title and video surface.
+private struct VideoBarProgress: View {
+    let playback: VideoPlayback
+
+    var body: some View {
+        ProgressView(value: min(playback.time, playback.duration), total: playback.duration)
+            .progressViewStyle(.linear)
+            .tint(.primary)
+            .accessibilityLabel(String(localized: "Playback position"))
     }
 }
