@@ -1,24 +1,195 @@
 import KodaCore
 import SwiftUI
 
-/// The player has one translation switch; source and appearance choices live in Settings.
-struct LyricsTranslationToggle: View {
+/// One circle owns display toggling; its exclusive long press opens progress/settings.
+/// Keeping this in the fixed footer prevents either interaction from covering lyric rows.
+struct LyricsTranslationControl: View {
+    let lines: [LyricsTranslationText]
+    var importedCount = 0
+    var information: String?
     @Environment(AppModel.self) private var app
+    @Environment(Player.self) private var player
+    @State private var showsDetails = false
+    @State private var holdFeedback = 0
+
+    private var result: AutomaticLyricsResult {
+        app.lyricsTranslation.result(songID: player.current?.id, lines: lines)
+    }
+    private var enabled: Bool { app.settings.showsLyricsTranslation }
+    private var status: LocalizedStringKey {
+        LyricsTranslationStatus.label(shown: enabled, automatic: app.settings.automaticLyricsTranslation,
+            importsEnabled: app.settings.importedLyricsEnabled, importedCount: importedCount,
+            originalCount: lines.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count,
+            result: result)
+    }
 
     var body: some View {
-        let enabled = app.settings.showsLyricsTranslation
-        Button { app.settings.showsLyricsTranslation.toggle() } label: {
-            Label("Translation", systemImage: "translate")
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 12)
-                .frame(minHeight: 44)
+        HStack(spacing: 10) {
+            Button { app.settings.showsLyricsTranslation.toggle() } label: {
+                Image(systemName: "translate")
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(LyricsTranslationOrbStyle(isOn: enabled, onHold: {
+                holdFeedback &+= 1
+                showsDetails = true
+            }, showDetails: { showsDetails = true }))
+            .sensoryFeedback(.selection, trigger: enabled)
+            .sensoryFeedback(.impact(weight: .medium, intensity: 0.7), trigger: holdFeedback)
+            .accessibilityLabel("Translation")
+            .accessibilityValue(enabled ? String(localized: "On") : String(localized: "Off"))
+            .accessibilityHint("Tap to show or hide translation. Touch and hold for progress and settings.")
+            .accessibilityAddTraits(enabled ? .isSelected : [])
+            .accessibilityAction { app.settings.showsLyricsTranslation.toggle() }
+            .accessibilityAction(named: Text("Translation Details")) { showsDetails = true }
+
+            Text(status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .buttonStyle(PlayerToggleStyle(isOn: enabled, offFill: 0.08))
-        .sensoryFeedback(.selection, trigger: enabled)
-        .accessibilityLabel("Translation")
-        .accessibilityValue(enabled ? String(localized: "On") : String(localized: "Off"))
-        .accessibilityHint("Show or hide Traditional Chinese under the original lyrics.")
-        .accessibilityAddTraits(enabled ? .isSelected : [])
+        .sheet(isPresented: $showsDetails) {
+            NavigationStack {
+                LyricsTranslationDetails(lines: lines, importedCount: importedCount, information: information)
+            }
+            .appEnvironment(app)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+/// A primitive style replaces Button's default touch handling. ExclusiveGesture permits
+/// only one successful branch: releasing a recognized hold cannot also trigger a tap.
+private struct LyricsTranslationOrbStyle: PrimitiveButtonStyle {
+    let isOn: Bool
+    let onHold: () -> Void
+    let showDetails: () -> Void
+
+    func makeBody(configuration: Configuration) -> some View {
+        LyricsTranslationOrbSurface(label: configuration.label, isOn: isOn,
+                                    activate: configuration.trigger, onHold: onHold, showDetails: showDetails)
+    }
+}
+
+private struct LyricsTranslationOrbSurface<Label: View>: View {
+    let label: Label
+    let isOn: Bool
+    let activate: () -> Void
+    let onHold: () -> Void
+    let showDetails: () -> Void
+    @GestureState private var isPressed = false
+
+    var body: some View {
+        label
+            .foregroundStyle(isOn ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
+            .background {
+                Circle().fill(Color.primary.opacity(isOn ? (isPressed ? 0.85 : 1) : (isPressed ? 0.2 : 0.08)))
+            }
+            .contentShape(.circle)
+            .scaleEffect(isPressed ? 0.95 : 1)
+            .animation(.snappy(duration: 0.2), value: isPressed)
+            .animation(.smooth(duration: 0.25), value: isOn)
+            .gesture(
+                LongPressGesture(minimumDuration: 0.5, maximumDistance: 12)
+                    .exclusively(before: TapGesture())
+                    .updating($isPressed) { _, pressed, _ in pressed = true }
+                    .onEnded { gesture in
+                        switch gesture {
+                        case .first(true): onHold()
+                        case .second: activate()
+                        default: break
+                        }
+                    }
+            )
+            .focusable()
+            .onKeyPress(keys: [.space, .return], phases: .down) { _ in activate(); return .handled }
+            .onKeyPress(.downArrow, phases: .down) { _ in showDetails(); return .handled }
+    }
+}
+
+private enum LyricsTranslationStatus {
+    static func label(shown: Bool, automatic: Bool, importsEnabled: Bool, importedCount: Int,
+                      originalCount: Int, result: AutomaticLyricsResult) -> LocalizedStringKey {
+        guard shown else { return "Off" }
+        guard automatic else {
+            guard importsEnabled, importedCount > 0 else { return "No Translation" }
+            return importedCount >= originalCount ? "Translated" : "Partially Translated"
+        }
+        switch result.phase {
+        case .idle, .preparing: return "Preparing…"
+        case .translating: return "Translating…"
+        case .ready: return "Translated"
+        case .needsLanguage: return "Language Needed"
+        case .paused: return "Translation Paused"
+        case .unavailable: return result.lines.isEmpty ? "Unavailable" : "Partially Translated"
+        case .failed: return "Translation Failed"
+        }
+    }
+}
+
+/// Read the shared coordinator here, rather than saving a snapshot when the sheet opens:
+/// progress and model readiness continue updating for as long as the details are visible.
+private struct LyricsTranslationDetails: View {
+    let lines: [LyricsTranslationText]
+    let importedCount: Int
+    let information: String?
+    @Environment(AppModel.self) private var app
+    @Environment(Player.self) private var player
+    @Environment(\.dismiss) private var dismiss
+
+    private var result: AutomaticLyricsResult {
+        app.lyricsTranslation.result(songID: player.current?.id, lines: lines)
+    }
+    private var status: LocalizedStringKey {
+        LyricsTranslationStatus.label(shown: app.settings.showsLyricsTranslation,
+            automatic: app.settings.automaticLyricsTranslation,
+            importsEnabled: app.settings.importedLyricsEnabled, importedCount: importedCount,
+            originalCount: lines.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count,
+            result: result)
+    }
+
+    var body: some View {
+        Form {
+            Section("Translation Progress") {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Text(status).foregroundStyle(.secondary)
+                }
+                if app.settings.automaticLyricsTranslation {
+                    if result.total > 0 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Translated \(result.completed) of \(result.total)").monospacedDigit()
+                            ProgressView(value: Double(result.completed), total: Double(max(1, result.total)))
+                        }
+                    }
+                    if app.settings.showsLyricsTranslation, result.phase != .translating {
+                        AutomaticLyricsNotice(result: result) {
+                            app.lyricsTranslation.retry(songID: player.current?.id)
+                        }
+                    }
+                }
+                if let information { Text(information).font(.footnote).foregroundStyle(.secondary) }
+            }
+            Section {
+                NavigationLink {
+                    LyricsTranslationSettingsView(showsDisplayToggle: false)
+                } label: {
+                    Label("Translation Settings", systemImage: "slider.horizontal.3")
+                }
+            } footer: {
+                Text("Tap the translation icon to show or hide translations. Completed translations are kept.")
+            }
+        }
+        .navigationTitle("Translation Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
     }
 }
 
@@ -80,12 +251,9 @@ struct PlainTranslatedLyricsView: View {
                 scroll.accept(measurement, source: sourceID)
             }
             HStack {
-                LyricsTranslationToggle()
-                if enabled {
-                    LyricsTranslationFooterStatus(result: result) { app.lyricsTranslation.retry(songID: player.current?.id) }
-                } else if app.settings.importedLyricsEnabled, app.settings.showsLyricsTranslation {
-                    LyricsTranslationInfoButton(message: String(localized: "This song has no synced lyrics. The original text is shown; imported translations need timestamps."))
-                }
+                LyricsTranslationControl(lines: lines,
+                    information: app.settings.importedLyricsEnabled
+                        ? String(localized: "This song has no synced lyrics. The original text is shown; imported translations need timestamps.") : nil)
                 Spacer(minLength: 0)
             }
             .frame(height: 44)
@@ -102,65 +270,6 @@ struct PlainTranslatedLyricsView: View {
         guard translated != displayedTranslations else { return }
         scroll.prepareLayoutChange(source: sourceID)
         displayedTranslations = translated
-    }
-}
-
-/// Progress belongs beside the controls, not above the lyrics: changing a status
-/// message must not change the timeline's content height or its reading position.
-struct LyricsTranslationFooterStatus: View {
-    let result: AutomaticLyricsResult
-    let retry: () -> Void
-    @State private var showsDetails = false
-
-    var body: some View {
-        Group {
-            switch result.phase {
-            case .preparing:
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Preparing Translation…")
-                }
-            case .translating:
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Translated \(result.completed) of \(result.total)").monospacedDigit()
-                    ProgressView(value: Double(result.completed), total: Double(max(1, result.total)))
-                        .tint(.primary)
-                }
-            case .needsLanguage:
-                Button("Prepare Translation", systemImage: "arrow.down.circle", action: retry)
-            case .paused:
-                Label("Translation Paused", systemImage: "pause")
-            case .unavailable, .failed:
-                Button("Translation Details", systemImage: "info.circle") { showsDetails = true }
-            case .ready:
-                Label("Translation Ready", systemImage: "checkmark")
-            case .idle:
-                EmptyView()
-            }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(2)
-        .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
-        .popover(isPresented: $showsDetails) {
-            AutomaticLyricsNotice(result: result, retry: retry)
-                .padding()
-                .presentationCompactAdaptation(.popover)
-        }
-    }
-}
-
-struct LyricsTranslationInfoButton: View {
-    let message: String
-    @State private var showsMessage = false
-    var body: some View {
-        Button("Translation Details", systemImage: "info.circle") { showsMessage = true }
-            .font(.caption)
-            .labelStyle(.iconOnly)
-            .frame(width: 36, height: 36)
-            .popover(isPresented: $showsMessage) {
-                Text(message).padding().presentationCompactAdaptation(.popover)
-            }
     }
 }
 

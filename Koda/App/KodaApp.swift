@@ -46,12 +46,16 @@ struct KodaApp: App {
         .commands { KodaCommands(model: model) }
         .onChange(of: scenePhase, initial: true) { _, phase in
             model.lyricsPreparation.setScenePhase(phase)
+            // Inactive also covers Control Center and system sheets. Only a real
+            // background transition pauses inline video; returning never starts it.
+            if phase == .background { model.videos.applicationDidEnterBackground() }
             // The queue and position survive the app being closed from the switcher.
             if phase != .active {
                 model.player.applicationBecameInactive()
                 model.saveState()
             }
             if phase == .active {
+                model.videos.applicationDidBecomeActive()
                 model.player.applicationBecameActive()
                 model.downloads.refreshStoredDownloads()
                 model.lastFM.syncSoon()
