@@ -36,9 +36,11 @@ struct AnimatedCover: View {
         var shape: MotionArtwork.Shape
     }
 
+    private var allowed: Bool { playsAnimatedImages && !app.player.isPlaybackSessionFinished }
+
     var body: some View {
         ZStack {
-            if let loop {
+            if let loop, allowed {
                 LoopingVideo(file: loop.file, isPlaying: isPlaying && scenePhase == .active) { isReady = true }
                     .id(loop.file)
                     .opacity(isReady ? 1 : 0)
@@ -46,15 +48,15 @@ struct AnimatedCover: View {
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: isReady)
         .allowsHitTesting(false)
-        .task(id: Request(songID: song?.id, album: song?.album?.id, art: app.settings.animatedArt, allowed: playsAnimatedImages, shape: shape)) {
+        .task(id: Request(songID: song?.id, album: song?.album?.id, art: app.settings.animatedArt, allowed: allowed, shape: shape)) {
             await find()
         }
-        .onChange(of: loop != nil && isReady, initial: true) { _, showing in onShow?(showing) }
+        .onChange(of: allowed && loop != nil && isReady, initial: true) { _, showing in onShow?(showing) }
     }
 
     private func find() async {
         let setting = app.settings.animatedArt
-        guard let song, setting != .off, playsAnimatedImages else {
+        guard let song, setting != .off, allowed else {
             show(nil)
             return
         }
@@ -62,10 +64,11 @@ struct AnimatedCover: View {
         // A song that arrived without its album may still have a cover known by its id.
         if song.album?.id == nil || loop?.album != song.album?.id { show(nil) }
         guard let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular),
+              !Task.isCancelled, allowed,
               covers.masters[shape] != nil,
               let file = await app.motionArtwork.loop(covers, shape: shape, pixels: AnimatedCover.pixels,
                                                        allowsCellular: setting.allowsCellular),
-              !Task.isCancelled else {
+              !Task.isCancelled, allowed else {
             if !Task.isCancelled { show(nil) }
             return
         }
@@ -239,8 +242,9 @@ private struct LoopingVideo: UIViewRepresentable {
 enum LockScreenAnimatedArt {
     static func artwork(for song: Song, app: AppModel) async -> [String: MPMediaItemAnimatedArtwork] {
         let setting = app.settings.animatedArt
-        guard setting != .off,
-              let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular) else { return [:] }
+        guard setting != .off, !app.player.isPlaybackSessionFinished,
+              let covers = await app.motionArtwork.covers(for: song, allowsCellular: setting.allowsCellular),
+              !Task.isCancelled, !app.player.isPlaybackSessionFinished else { return [:] }
         var out: [String: MPMediaItemAnimatedArtwork] = [:]
         out[MPNowPlayingInfoProperty1x1AnimatedArtwork] = make(covers, shape: .square, motion: app.motionArtwork, allowsCellular: setting.allowsCellular)
         if covers.masters[.tall] != nil {

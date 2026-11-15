@@ -129,3 +129,8 @@
 "Enter a name for the new playlist." = "Enter a name for the new playlist.";
 "Choose a different destination playlist." = "Choose a different destination playlist.";
 "This playlist was reordered or edited after the operation. Undo cannot safely replace those changes." = "This playlist was reordered or edited after the operation. Undo cannot safely replace those changes.";
+"Pause Playback" = "Pause Playback";
+"Finish Playback Session" = "Finish Playback Session";
+"Choose a sleep timer between 1 and 720 minutes." = "Choose a sleep timer between 1 and 720 minutes.";
+"The sleep timer time is invalid. Try setting it again." = "The sleep timer time is invalid. Try setting it again.";
+"The sleep timer is not running." = "The sleep timer is not running.";

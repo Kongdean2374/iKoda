@@ -24,6 +24,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     private var taskEnd: Int64 = 0
     private var taskAccepted = false
     private var failure: Error?
+    private let lifetime = CacheFillLifetime()
 
     /// A waiting request this close ahead of the running one is left to it rather than
     /// starting a request of its own.
@@ -32,7 +33,8 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     private static let slice: Int64 = 512 * 1024
 
     /// Nil when the stream's length isn't known: without it the file can't be laid out.
-    init?(stream: ResolvedStream, song: Song?, store: AudioStore) {
+    init?(stream: ResolvedStream, song: Song?, store: AudioStore,
+          sessionConfiguration: URLSessionConfiguration = .default) {
         guard let length = stream.contentLength, length > 0 else { return nil }
         self.stream = stream
         self.length = length
@@ -43,7 +45,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
         let operations = OperationQueue()
         operations.underlyingQueue = queue
         operations.maxConcurrentOperationCount = 1
-        let configuration = URLSessionConfiguration.default
+        let configuration = sessionConfiguration
         // The file is the cache; URLCache keeping a second copy would only take space.
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -52,7 +54,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
 
     deinit {
         session.invalidateAndCancel()
-        store.endUse(stream.videoId)
+        if lifetime.releaseStoreUse() { store.endUse(stream.videoId) }
     }
 
     /// An asset reading through this loader; the asset keeps the loader alive, since its
@@ -64,10 +66,49 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
         return asset
     }
 
+    /// Deep stop is terminal for this asset's loader. Ordinary AVFoundation request
+    /// cancellation deliberately retains the old fill-the-cache behavior below.
+    static func stop(asset: AVAsset) {
+        (objc_getAssociatedObject(asset, &loaderKey) as? CachingLoader)?.stop()
+    }
+
+    func stop() {
+        guard lifetime.stop() else { return }
+        // URLSession cancellation is thread-safe and does not wait for the delegate queue's
+        // current disk write/eviction. That one already-claimed write may finish while the
+        // queue drains; no callback can claim another write after the terminal flag is set.
+        session.invalidateAndCancel()
+        queue.async { [self] in
+            task?.cancel()
+            task = nil
+            session.invalidateAndCancel()
+            let pending = requests
+            requests.removeAll()
+            for request in pending { request.finishLoading(with: URLError(.cancelled)) }
+            if lifetime.releaseStoreUse() { store.endUse(stream.videoId) }
+        }
+    }
+
+    /// Deterministic test seam exercises the real session/cache path without requiring an
+    /// AVFoundation decoder to ask for bytes. Production starts filling through serve().
+    func beginCacheFillForTesting() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in fetchIfNeeded(); continuation.resume() }
+        }
+    }
+
+    func waitForPendingOperations() async {
+        await withCheckedContinuation { continuation in queue.async { continuation.resume() } }
+    }
+
     // MARK: AVAssetResourceLoaderDelegate
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+        guard !lifetime.isStopped else {
+            loadingRequest.finishLoading(with: URLError(.cancelled))
+            return true
+        }
         requests.append(loadingRequest)
         serve()
         return true
@@ -81,6 +122,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     // MARK: Answering
 
     private func serve() {
+        guard !lifetime.isStopped else { return }
         requests.removeAll { answer($0) }
         fetchIfNeeded()
     }
@@ -98,6 +140,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
         }
         let end = data.requestsAllDataToEndOfResource ? length : min(length, data.requestedOffset + Int64(data.requestedLength))
         while data.currentOffset < end {
+            guard !lifetime.isStopped else { return false }
             let count = min(store.contiguousLength(stream.videoId, from: data.currentOffset), end - data.currentOffset, Self.slice)
             guard count > 0, let bytes = store.read(stream.videoId, at: data.currentOffset, count: count) else { break }
             data.respond(with: bytes)
@@ -116,7 +159,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     // MARK: Fetching
 
     private func fetchIfNeeded() {
-        guard failure == nil else { return }
+        guard !lifetime.isStopped, failure == nil else { return }
         guard let needed = requests.compactMap({ $0.dataRequest?.currentOffset }).min() else {
             // Nobody waiting: fill the song's gaps while there is no request running.
             if task == nil, let gap = store.firstGap(stream.videoId) { start(gap) }
@@ -129,6 +172,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     }
 
     private func start(_ range: Range<Int64>) {
+        guard !lifetime.isStopped else { return }
         var request = URLRequest(url: stream.url)
         request.setValue("bytes=\(range.lowerBound)-\(range.upperBound - 1)", forHTTPHeaderField: "Range")
         request.setValue(stream.userAgent, forHTTPHeaderField: "User-Agent")
@@ -137,7 +181,8 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
         taskAccepted = false
         let task = session.dataTask(with: request)
         self.task = task
-        task.resume()
+        // A deep stop racing this callback must win before any new request is resumed.
+        lifetime.whileActive { task.resume() }
     }
 
     /// Whether the response is audio for the range asked; checked once, on its first bytes.
@@ -148,7 +193,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     }
 
     fileprivate func received(_ data: Data, from task: URLSessionTask) {
-        guard task === self.task, !data.isEmpty else { return }
+        guard !lifetime.isStopped, task === self.task, !data.isEmpty else { return }
         if !taskAccepted {
             do {
                 try accept(task.response)
@@ -164,7 +209,9 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
             return
         }
         do {
-            try store.write(data, at: taskOffset, for: stream.videoId)
+            // Claim one write before the terminal boundary. A write already in progress
+            // may finish during async shutdown; callbacks arriving after stop cannot write.
+            guard try lifetime.whileActive({ try store.write(data, at: taskOffset, for: stream.videoId) }) else { return }
         } catch {
             fail(error)
             return
@@ -174,7 +221,7 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     }
 
     fileprivate func completed(_ task: URLSessionTask, error: Error?) {
-        guard task === self.task else { return }
+        guard !lifetime.isStopped, task === self.task else { return }
         self.task = nil
         if let error, (error as? URLError)?.code != .cancelled {
             // A definite access verdict must not become a retryable transport failure.
@@ -199,10 +246,43 @@ final class CachingLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked S
     }
 
     private func fail(_ error: Error) {
+        guard !lifetime.isStopped else { return }
         failure = error
         task?.cancel()
         task = nil
         serve()
+    }
+}
+
+/// The serial delegate queue owns loading state. Claiming an operation is serialized with
+/// stop, but disk work runs outside this lock: deep stop never waits for disk eviction.
+/// An operation claimed before stop may finish; stop prevents every later claim.
+final class CacheFillLifetime: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stopped = false
+    private var ownsStoreUse = true
+    var isStopped: Bool { lock.withLock { stopped } }
+
+    @discardableResult func stop() -> Bool {
+        lock.withLock {
+            guard !stopped else { return false }
+            stopped = true
+            return true
+        }
+    }
+
+    @discardableResult func whileActive(_ operation: () throws -> Void) rethrows -> Bool {
+        guard lock.withLock({ !stopped }) else { return false }
+        try operation()
+        return true
+    }
+
+    func releaseStoreUse() -> Bool {
+        lock.withLock {
+            guard ownsStoreUse else { return false }
+            ownsStoreUse = false
+            return true
+        }
     }
 }
 

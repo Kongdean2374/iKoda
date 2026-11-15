@@ -85,6 +85,9 @@ public final class AutomaticLyricTranslationPipeline {
     /// It never authorizes speculative work or follows a later song automatically.
     @ObservationIgnored private var backgroundCurrentKey: Key?
     @ObservationIgnored private var suspended = false
+    /// A deliberate end of listening is stronger than background suspension. Scene
+    /// changes and language-download replies cannot reopen this execution gate.
+    @ObservationIgnored private var playbackSessionFinished = false
     @ObservationIgnored private var sequence: UInt64 = 0
     @ObservationIgnored private var active: Active?
     @ObservationIgnored private var retryAfterFinish: Key?
@@ -111,7 +114,7 @@ public final class AutomaticLyricTranslationPipeline {
                             allowsBackgroundCurrent: Bool = false) {
         self.enabled = enabled
         foreground = isForeground
-        if isForeground { suspended = false }
+        if isForeground && !playbackSessionFinished { suspended = false }
         currentKey = current.map(ensureRecord)
         backgroundCurrentKey = allowsBackgroundCurrent ? currentKey : nil
         var seen = Set<Key>()
@@ -138,6 +141,7 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     public func retry(songID: String?) {
+        guard !playbackSessionFinished else { return }
         guard let songID, let key = memo[songID]?.key else { return }
         if key == active?.key {
             // A model-download reply can arrive while this terminal result is still
@@ -165,6 +169,14 @@ public final class AutomaticLyricTranslationPipeline {
         backgroundCurrentKey = nil
         cancelActive()
         checkpointNow()
+    }
+
+    public func setPlaybackSessionFinished(_ finished: Bool) {
+        guard playbackSessionFinished != finished else { return }
+        playbackSessionFinished = finished
+        if finished { suspend() }
+        // Resumption waits for the owner to provide the current song and scene state.
+        // It must not briefly restart a previously selected song here.
     }
 
     /// Wait for all currently pending writes. New progress arriving while this waits is
@@ -206,7 +218,7 @@ public final class AutomaticLyricTranslationPipeline {
 
     private func schedule() {
         // Active work remains the sole engine until cancellation has actually completed.
-        guard active == nil, enabled, !suspended, let currentKey else { return }
+        guard active == nil, enabled, !suspended, !playbackSessionFinished, let currentKey else { return }
         let next: Key?
         if foreground {
             next = needsWork(currentKey) ? currentKey : upcomingKeys.first(where: needsWork)

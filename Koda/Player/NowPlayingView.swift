@@ -22,9 +22,10 @@ struct NowPlayingView: View {
     @State private var size: CGSize = .zero
     @State private var utility: PlayerUtility?
 
-    private enum PlayerUtility: Identifiable {
-        case sound, audio
+    private enum PlayerUtility: Hashable, Identifiable {
+        case sound, audio, sleep(custom: Bool)
         var id: Self { self }
+        var isSleepTimer: Bool { if case .sleep = self { return true }; return false }
     }
 
     /// With a tall loop the album's art moves in place of the square cover, as Music shows it:
@@ -74,21 +75,30 @@ struct NowPlayingView: View {
             setPanel(requested)
         }
         .playlistPicker(whenOnTop: true)
-        .sheet(item: $utility) { destination in
+        .sheet(item: $utility, onDismiss: { app.sleepTimer.clearError() }) { destination in
             NavigationStack {
                 Group {
                     switch destination {
                     case .sound: AudioCenterView()
                     case .audio: AudioInformationView()
+                    case .sleep(let custom): SleepTimerSettingsView(startsWithCustomDuration: custom)
                     }
                 }
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { utility = nil }
+                            .accessibilityIdentifier(destination.isSleepTimer ? "sleep.timer.done" : "player.utility.done")
                     }
                 }
             }
             .appEnvironment(app)
+        }
+        .alert("Couldn't Set Sleep Timer", isPresented: Binding(
+            get: { utility == nil && app.sleepTimer.errorMessage != nil },
+            set: { if !$0 { app.sleepTimer.clearError() } })) {
+            Button("OK", role: .cancel) { app.sleepTimer.clearError() }
+        } message: {
+            Text(app.sleepTimer.errorMessage ?? "")
         }
     }
 
@@ -205,7 +215,7 @@ struct NowPlayingView: View {
             }
             Spacer()
             if app.sleepTimer.isActive {
-                SleepTimerPill()
+                SleepTimerPill { utility = .sleep(custom: $0) }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
             } else {
                 // The phone's grab handle; on the Mac the player closes with its button or Esc.
@@ -221,7 +231,7 @@ struct NowPlayingView: View {
                     }
                     SongMenuItems(song: song)
                     Section {
-                        SleepTimerMenu()
+                        SleepTimerMenu { utility = .sleep(custom: $0) }
                         if panel == .lyrics { LyricsTimingMenu(songId: song.id) }
                     }
                     Section {
@@ -539,17 +549,23 @@ private struct FailureBanner: View {
 
 /// Time left on the sleep timer, at the top of Now Playing; a tap changes or ends it.
 private struct SleepTimerPill: View {
+    let openSettings: (Bool) -> Void
     @Environment(AppModel.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Menu {
-            SleepTimerMenu()
+            SleepTimerActions(openSettings: openSettings)
         } label: {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+            TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { context in
                 Label(app.sleepTimer.label(at: context.date), systemImage: "moon.fill")
                     .font(.footnote.weight(.semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .padding(.horizontal, 12)
                     .frame(height: 30)
+                    .accessibilityLabel("Sleep timer")
+                    .accessibilityValue(app.sleepTimer.label(at: context.date))
             }
             .kodaGlassSurface(in: .capsule, interactive: true)
             .frame(minHeight: ControlMetrics.touchTarget)
@@ -557,7 +573,7 @@ private struct SleepTimerPill: View {
         }
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .accessibilityLabel("Sleep timer")
+        .accessibilityIdentifier("sleep.timer.pill")
     }
 }
 

@@ -4619,6 +4619,23 @@
         }
       }
     },
+    "Couldn't Set Sleep Timer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Set Sleep Timer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法設定睡眠計時器"
+          }
+        }
+      }
+    },
     "Couldn't Sign In": {
       "extractionState": "manual",
       "localizations": {
@@ -4955,6 +4972,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "目前的個人檔案。點兩下以編輯。"
+          }
+        }
+      }
+    },
+    "Custom Duration…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Duration…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂時間…"
           }
         }
       }
@@ -6251,6 +6285,40 @@
         }
       }
     },
+    "Ends At": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ends At"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束時間"
+          }
+        }
+      }
+    },
+    "Enter a whole number from 1 to 720 minutes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a whole number from 1 to 720 minutes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入 1 到 720 分鐘的整數。"
+          }
+        }
+      }
+    },
     "Enter its keys": {
       "extractionState": "manual",
       "localizations": {
@@ -6434,6 +6502,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "探索"
+          }
+        }
+      }
+    },
+    "Extend by 15 Minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extend by 15 Minutes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延長 15 分鐘"
           }
         }
       }
@@ -6638,6 +6723,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 YouTube Music 尋找歌曲、專輯、藝人或播放清單並播放。"
+          }
+        }
+      }
+    },
+    "Finish Playback Session stops Koda's playback work and keeps your queue. Pause keeps the usual paused session. A countdown performs the selected action immediately when time is up; it does not wait for the song to finish.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish Playback Session stops Koda's playback work and keeps your queue. Pause keeps the usual paused session. A countdown performs the selected action immediately when time is up; it does not wait for the song to finish."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「完全結束播放」會停止 Koda 的播放作業，並保留播放佇列；「一般暫停」則維持平常的暫停狀態。倒數時間一到就會立即執行所選行為，不會等待本首歌曲播完。"
           }
         }
       }
@@ -10518,6 +10620,23 @@
         }
       }
     },
+    "No sleep timer is running.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sleep timer is running."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前未啟用睡眠計時器。"
+          }
+        }
+      }
+    },
     "None": {
       "extractionState": "manual",
       "localizations": {
@@ -14360,6 +14479,23 @@
         }
       }
     },
+    "Reset Timer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Timer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新計時"
+          }
+        }
+      }
+    },
     "Reset Timing": {
       "extractionState": "manual",
       "localizations": {
@@ -15393,6 +15529,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "傳送待處理的播放紀錄並重新整理（⌘R）"
+          }
+        }
+      }
+    },
+    "Set Timer Duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Timer Duration"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定計時長度"
           }
         }
       }
@@ -17318,6 +17471,23 @@
         }
       }
     },
+    "Start Timer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Timer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始計時"
+          }
+        }
+      }
+    },
     "Start with these": {
       "extractionState": "manual",
       "localizations": {
@@ -17331,6 +17501,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "從這些歌曲開始"
+          }
+        }
+      }
+    },
+    "Starting a new timer replaces the current schedule. End of Song requires a selected song.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting a new timer replaces the current schedule. End of Song requires a selected song."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始新的計時會取代目前設定；使用「本首播放完畢」前，請先選取歌曲。"
           }
         }
       }
@@ -17811,6 +17998,23 @@
         }
       }
     },
+    "Switch to a 15-Minute Timer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to a 15-Minute Timer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改為倒數 15 分鐘"
+          }
+        }
+      }
+    },
     "Switches between music and videos": {
       "extractionState": "manual",
       "localizations": {
@@ -18236,6 +18440,23 @@
         }
       }
     },
+    "The listening session has ended. Play music to resume translation. Saved translations are kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The listening session has ended. Play music to resume translation. Saved translations are kept."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次聆聽已結束。播放音樂即可繼續翻譯，已儲存的譯文會保留。"
+          }
+        }
+      }
+    },
     "The playing song's colours drift behind Now Playing. They always hold still with Reduce Motion on.": {
       "extractionState": "manual",
       "localizations": {
@@ -18606,6 +18827,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "本週"
+          }
+        }
+      }
+    },
+    "Time Remaining": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time Remaining"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩餘時間"
+          }
+        }
+      }
+    },
+    "Timer Duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer Duration"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計時長度"
+          }
+        }
+      }
+    },
+    "Timer Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer Settings…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計時器設定…"
+          }
+        }
+      }
+    },
+    "Timer Status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timer Status"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計時器狀態"
           }
         }
       }
@@ -20391,6 +20680,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "音樂庫目前的內容將被取代。"
+          }
+        }
+      }
+    },
+    "When Timer Ends": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Timer Ends"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計時結束時"
           }
         }
       }

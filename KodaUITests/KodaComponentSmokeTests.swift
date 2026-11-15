@@ -105,9 +105,163 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testSleepTimerPresetsStartRealCountdownsAndCanBeCancelled() {
+        let app = launch()
+        app.buttons["fixture.sleep"].tap()
+        let duration = app.buttons["sleep.timer.duration"]
+        XCTAssertTrue(duration.waitForExistence(timeout: 10))
+        for minutes in [30, 60, 90, 120, 180] {
+            reveal(duration, in: app, towardTop: true)
+            duration.tap()
+            app.buttons["sleep.timer.duration.\(minutes)"].tap()
+            let start = app.buttons["sleep.timer.start"]
+            reveal(start, in: app)
+            start.tap()
+            let remaining = app.staticTexts["sleep.timer.remaining"]
+            reveal(remaining, in: app, towardTop: true)
+            let seconds = countdownSeconds(remaining.label)
+            XCTAssertLessThanOrEqual(seconds, minutes * 60)
+            XCTAssertGreaterThan(seconds, minutes * 60 - 60)
+            XCTAssertTrue(app.staticTexts["sleep.timer.deadline"].exists)
+            // End-of-song needs a real current occurrence. This fixture never resolves
+            // an audio stream just to make a UI switch look functional.
+            let endOfSong = app.buttons["sleep.timer.endOfSong"]
+            reveal(endOfSong, in: app)
+            XCTAssertFalse(endOfSong.isEnabled)
+            let cancel = app.buttons["sleep.timer.cancel"]
+            reveal(cancel, in: app, towardTop: true)
+            cancel.tap()
+            XCTAssertFalse(app.staticTexts["sleep.timer.remaining"].exists)
+        }
+    }
+
+    @MainActor
+    func testSleepTimerCustomDurationExtendResetAndExpiryChoices() {
+        let app = launch()
+        app.buttons["fixture.sleep"].tap()
+        let expiry = app.buttons["sleep.timer.expiryAction"]
+        reveal(expiry, in: app)
+        XCTAssertEqual(expiry.value as? String, "Finish Playback Session")
+        // Selecting an action changes only expiry behavior, not the schedule mode.
+        expiry.tap()
+        app.buttons["sleep.expiry.pause"].tap()
+        XCTAssertEqual(expiry.value as? String, "Pause Playback")
+        expiry.tap()
+        app.buttons["sleep.expiry.finish"].tap()
+        XCTAssertEqual(expiry.value as? String, "Finish Playback Session")
+        let duration = app.buttons["sleep.timer.duration"]
+        reveal(duration, in: app, towardTop: true)
+        duration.tap()
+        app.buttons["sleep.timer.custom"].tap()
+        let minutes = app.textFields["sleep.timer.custom.minutes"]
+        XCTAssertTrue(minutes.waitForExistence(timeout: 10))
+        minutes.tap()
+        let existing = (minutes.value as? String) ?? ""
+        if !existing.isEmpty { minutes.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count)) }
+        minutes.typeText("17")
+        app.buttons["sleep.timer.keyboard.done"].tap()
+        let start = app.buttons["sleep.timer.start"]
+        reveal(start, in: app)
+        start.tap()
+        let remaining = app.staticTexts["sleep.timer.remaining"]
+        reveal(remaining, in: app, towardTop: true)
+        let initial = countdownSeconds(remaining.label)
+        XCTAssertGreaterThan(initial, 16 * 60)
+        XCTAssertLessThanOrEqual(initial, 17 * 60)
+        let initialDeadline = app.staticTexts["sleep.timer.deadline"].label
+        reveal(expiry, in: app)
+        expiry.tap()
+        app.buttons["sleep.expiry.pause"].tap()
+        XCTAssertEqual(expiry.value as? String, "Pause Playback")
+        reveal(remaining, in: app, towardTop: true)
+        XCTAssertEqual(app.staticTexts["sleep.timer.deadline"].label, initialDeadline)
+        XCTAssertGreaterThan(countdownSeconds(remaining.label), initial - 60,
+                             "Changing expiry behavior must not replace the countdown")
+        let beforeExtension = countdownSeconds(remaining.label)
+        let extend = app.buttons["sleep.timer.extend"]
+        reveal(extend, in: app)
+        extend.tap()
+        reveal(remaining, in: app, towardTop: true)
+        XCTAssertGreaterThan(countdownSeconds(remaining.label), beforeExtension + 14 * 60)
+        let reset = app.buttons["sleep.timer.reset"]
+        reveal(reset, in: app)
+        reset.tap()
+        reveal(remaining, in: app, towardTop: true)
+        XCTAssertGreaterThan(countdownSeconds(remaining.label), 16 * 60)
+        XCTAssertLessThanOrEqual(countdownSeconds(remaining.label), 17 * 60)
+        capture(app, "sleep-custom-countdown")
+        let cancel = app.buttons["sleep.timer.cancel"]
+        reveal(cancel, in: app)
+        cancel.tap()
+        XCTAssertFalse(app.staticTexts["sleep.timer.remaining"].exists)
+    }
+
+    @MainActor
+    func testSleepTimerTraditionalChineseLargeTypeInBothAppearances() {
+        for dark in [false, true] {
+            let app = launch(chinese: true, dark: dark, largeText: true)
+            app.buttons["fixture.sleep"].tap()
+            let start = app.buttons["sleep.timer.start"]
+            reveal(start, in: app)
+            start.tap()
+            let remaining = app.staticTexts["sleep.timer.remaining"]
+            reveal(remaining, in: app, towardTop: true)
+            XCTAssertGreaterThan(countdownSeconds(remaining.label), 0)
+            capture(app, dark ? "zh-Hant-sleep-large-dark" : "zh-Hant-sleep-large-light")
+            let cancel = app.buttons["sleep.timer.cancel"]
+            reveal(cancel, in: app)
+            XCTAssertTrue(cancel.isHittable)
+            cancel.tap()
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testSystemAccessibilityPreferencesReachTheRealControls() throws {
+        // EnvironmentValues exposes these settings read-only. Exercise Apple's real
+        // Settings app instead of injecting an override that cannot represent the system.
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        var originalMotion: Bool?
+        var originalTransparency: Bool?
+        defer {
+            if let originalTransparency {
+                _ = try? setSystemAccessibility("Reduce Transparency", in: "Display & Text Size",
+                                                enabled: originalTransparency, settings: settings)
+            }
+            if let originalMotion {
+                _ = try? setSystemAccessibility("Reduce Motion", in: "Motion", enabled: originalMotion, settings: settings)
+            }
+            settings.terminate()
+        }
+        originalMotion = try setSystemAccessibility("Reduce Motion", in: "Motion", enabled: true, settings: settings)
+        originalTransparency = try setSystemAccessibility("Reduce Transparency", in: "Display & Text Size",
+                                                           enabled: true, settings: settings)
+        let app = launch()
+        let motion = app.staticTexts["fixture.accessibility.reduceMotion"]
+        reveal(motion, in: app)
+        XCTAssertEqual(motion.label, "enabled")
+        let transparency = app.staticTexts["fixture.accessibility.reduceTransparency"]
+        reveal(transparency, in: app)
+        XCTAssertEqual(transparency.label, "enabled")
+        let translation = app.buttons["fixture.translation"]
+        reveal(translation, in: app, towardTop: true)
+        translation.tap()
+        let orb = app.buttons["lyrics.translation.toggle"]
+        XCTAssertTrue(orb.waitForExistence(timeout: 10))
+        orb.tap()
+        XCTAssertEqual(orb.value as? String, "On")
+        orb.press(forDuration: 0.8)
+        XCTAssertTrue(app.buttons["lyrics.translation.done"].waitForExistence(timeout: 10))
+        capture(app, "system-reduced-motion-and-transparency")
+        app.buttons["lyrics.translation.done"].tap()
+        XCTAssertEqual(orb.value as? String, "On")
+        app.terminate()
+    }
+
+    @MainActor
     func testTraditionalChineseLargeTypeInLightAndDarkAppearance() {
         for dark in [false, true] {
-            let app = launch(chinese: true, dark: dark, largeText: true, reducedEffects: true)
+            let app = launch(chinese: true, dark: dark, largeText: true)
             app.buttons["fixture.translation"].tap()
             let orb = app.buttons["lyrics.translation.toggle"]
             XCTAssertTrue(orb.waitForExistence(timeout: 10))
@@ -129,14 +283,12 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func launch(chinese: Bool = false, dark: Bool = false, largeText: Bool = false,
-                        reducedEffects: Bool = false) -> XCUIApplication {
+    private func launch(chinese: Bool = false, dark: Bool = false, largeText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-KodaUISmokeTests", "-AppleLanguages", chinese ? "(zh-Hant)" : "(en)",
                                "-AppleLocale", chinese ? "zh_TW" : "en_US"]
         if dark { app.launchArguments.append("-KodaUITestDark") }
         if largeText { app.launchArguments.append("-KodaUITestLargeText") }
-        if reducedEffects { app.launchArguments.append("-KodaUITestReducedEffects") }
         app.launch()
         XCTAssertTrue(app.buttons["fixture.translation"].waitForExistence(timeout: 20))
         return app
@@ -157,5 +309,50 @@ final class KodaComponentSmokeTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func countdownSeconds(_ value: String, file: StaticString = #filePath, line: UInt = #line) -> Int {
+        let parts = value.split(separator: ":").compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        guard (2...3).contains(parts.count) else {
+            XCTFail("Expected a real minute/second countdown, received: \(value)", file: file, line: line)
+            return 0
+        }
+        return parts.reduce(0) { $0 * 60 + $1 }
+    }
+
+    @MainActor
+    private func setSystemAccessibility(_ title: String, in page: String, enabled: Bool,
+                                        settings: XCUIApplication) throws -> Bool {
+        settings.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        settings.launch()
+        // Settings may restore the previously visited detail page between launches.
+        for _ in 0..<8 {
+            if settings.navigationBars["Settings"].exists { break }
+            let back = settings.navigationBars.buttons.element(boundBy: 0)
+            guard back.exists && back.isHittable else { break }
+            back.tap()
+        }
+        func open(_ label: String) throws {
+            let row = settings.staticTexts.matching(identifier: label).firstMatch
+            for _ in 0..<8 {
+                if row.exists && row.isHittable { row.tap(); return }
+                settings.swipeUp()
+            }
+            throw XCTSkip("This Simulator does not expose the Settings → Accessibility → \(label) page; system preference interaction was not validated.")
+        }
+        try open("Accessibility")
+        try open(page)
+        let toggle = settings.switches.matching(identifier: title).firstMatch
+        for _ in 0..<8 {
+            if toggle.exists && toggle.isHittable { break }
+            settings.swipeUp()
+        }
+        guard toggle.exists && toggle.isHittable else {
+            throw XCTSkip("This Simulator does not expose the \(title) system switch; system preference interaction was not validated.")
+        }
+        let original = toggle.value as? String == "1"
+        if original != enabled { toggle.tap() }
+        XCTAssertEqual(toggle.value as? String, enabled ? "1" : "0")
+        return original
     }
 }

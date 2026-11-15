@@ -8,6 +8,12 @@ import SwiftUI
 @MainActor
 @Observable
 final class VoiceSearch {
+    /// Only successful category acquisition owns the shared session; a pending or denied
+    /// permission request does not block the music player's deliberate shutdown.
+    private static var audioOwners = Set<UUID>()
+    static var ownsAudioSession: Bool { !audioOwners.isEmpty }
+    static var canDeactivateAfterRecording: (() -> Bool)?
+    private let audioOwnerID = UUID()
     enum Phase: Equatable {
         case starting
         case listening
@@ -74,6 +80,7 @@ final class VoiceSearch {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.record, mode: .measurement, options: .duckOthers)
             lifecycle.acquiredAudioSession(for: generation)
+            Self.audioOwners.insert(audioOwnerID)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
 
             let request = SFSpeechAudioBufferRecognitionRequest()
@@ -185,10 +192,14 @@ final class VoiceSearch {
         level = 0
         // Dismissing a pending permission prompt never owned the audio session.
         guard cleanup.restoreAudioSession else { return }
+        Self.audioOwners.remove(audioOwnerID)
+        guard Self.audioOwners.isEmpty else { return }
         // Hand audio back to playback, as Koda had it.
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, policy: .longFormAudio)
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        if Self.canDeactivateAfterRecording?() == true {
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     // These run on audio and speech threads. Built outside the main actor, so

@@ -7,6 +7,8 @@ import SwiftUI
 /// Release builds do not contain this host or the launch-argument branch.
 struct KodaUITestFixture: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var prepared = false
     @State private var firstPlaylist: UUID?
     @State private var sheet: FixtureSheet?
@@ -18,7 +20,6 @@ struct KodaUITestFixture: View {
 
     private var dark: Bool { ProcessInfo.processInfo.arguments.contains("-KodaUITestDark") }
     private var largeText: Bool { ProcessInfo.processInfo.arguments.contains("-KodaUITestLargeText") }
-    private var reducedEffects: Bool { ProcessInfo.processInfo.arguments.contains("-KodaUITestReducedEffects") }
 
     var body: some View {
         NavigationStack {
@@ -35,6 +36,12 @@ struct KodaUITestFixture: View {
                     Text(verbatim: "Sound center")
                 }
                 .accessibilityIdentifier("fixture.sound")
+                NavigationLink {
+                    SleepTimerSettingsView()
+                } label: {
+                    Text(verbatim: "Sleep timer")
+                }
+                .accessibilityIdentifier("fixture.sleep")
                 Button { sheet = .selection } label: {
                     Text(verbatim: "Select local songs")
                 }
@@ -47,13 +54,15 @@ struct KodaUITestFixture: View {
                     Text(verbatim: "\(playlist.name): \(playlist.songs.count)")
                         .accessibilityIdentifier("fixture.playlist.\(playlist.name)")
                 }
+                Text(verbatim: reduceMotion ? "enabled" : "disabled")
+                    .accessibilityIdentifier("fixture.accessibility.reduceMotion")
+                Text(verbatim: reduceTransparency ? "enabled" : "disabled")
+                    .accessibilityIdentifier("fixture.accessibility.reduceTransparency")
             }
             .navigationTitle(Text(verbatim: "Koda UI validation"))
             .disabled(!prepared)
         }
         .dynamicTypeSize(largeText ? .accessibility3 : .large)
-        .environment(\.accessibilityReduceMotion, reducedEffects)
-        .environment(\.accessibilityReduceTransparency, reducedEffects)
         .preferredColorScheme(dark ? .dark : .light)
         .sheet(item: $sheet) { value in
             Group {
@@ -68,8 +77,6 @@ struct KodaUITestFixture: View {
             }
             .appEnvironment(app)
             .dynamicTypeSize(largeText ? .accessibility3 : .large)
-            .environment(\.accessibilityReduceMotion, reducedEffects)
-            .environment(\.accessibilityReduceTransparency, reducedEffects)
             .preferredColorScheme(dark ? .dark : .light)
         }
         .task { prepare() }
@@ -94,6 +101,8 @@ struct KodaUITestFixture: View {
         app.settings.importedLyricsEnabled = true
         app.settings.showsLyricsTranslation = false
         app.player.deviceSoundSettings.enabled = false
+        app.sleepTimer.cancel()
+        app.sleepTimer.action = .finishPlaybackSession
         // No queued/current song exists in the fresh Simulator install. The coordinator
         // consequently has no source to translate even while the display toggle is tested.
         app.library.open(directory: nil)

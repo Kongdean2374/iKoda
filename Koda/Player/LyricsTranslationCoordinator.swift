@@ -43,6 +43,7 @@ final class LyricsTranslationCoordinator {
     private var showsTranslation = false
     private var foreground = true
     private var expirationSuspended = false
+    private var playbackSessionFinished = false
     private var currentLookupActive = false
     private(set) var lyricsRevision = 0
     private var downloadAttempt: UInt64 = 0
@@ -75,9 +76,9 @@ final class LyricsTranslationCoordinator {
                                                      engine: NativeLyricsTranslationEngine.translate)
     }
 
-    var hasActiveWork: Bool { pipeline.isWorking || currentLookupActive }
+    var hasActiveWork: Bool { !playbackSessionFinished && (pipeline.isWorking || currentLookupActive) }
     var hasCurrentWork: Bool {
-        !expirationSuspended && (currentLookupActive || (pipeline.isWorking && pipeline.activeSongID == currentSong?.id))
+        !playbackSessionFinished && !expirationSuspended && (currentLookupActive || (pipeline.isWorking && pipeline.activeSongID == currentSong?.id))
     }
 
     /// Called by app-lifetime observation, never by a disposable lyrics view task.
@@ -92,7 +93,7 @@ final class LyricsTranslationCoordinator {
             backgroundContinuationKey = hasCurrentWork && wasPreparing
                 ? currentSong.flatMap { desiredLookups[$0.id] } : nil
         }
-        if becameActive { expirationSuspended = false }
+        if becameActive && !playbackSessionFinished { expirationSuspended = false }
         currentSong = current
         var seen = Set<String>()
         if let current { seen.insert(current.id) }
@@ -111,7 +112,7 @@ final class LyricsTranslationCoordinator {
             for (id, old) in oldDesired where desiredLookups[id] != old { inputs.removeValue(forKey: id) }
             lookupContext = context
         }
-        let prepares = automaticEnabled && showsTranslation
+        let prepares = automaticEnabled && showsTranslation && !playbackSessionFinished
         let currentLookupKey = current.flatMap { desiredLookups[$0.id] }
         if isForeground || !prepares || expirationSuspended || currentLookupKey != backgroundContinuationKey {
             backgroundContinuationKey = nil
@@ -137,6 +138,9 @@ final class LyricsTranslationCoordinator {
     /// cancels that generation and bypasses both this cache and LyricsClient's positive cache.
     func lyrics(for song: Song, sources: [LyricsSource], customSources: [CustomLyricsSource], refresh: Bool = false) async -> Lyrics? {
         let key = LookupKey(song: song, sources: sources, customSources: customSources)
+        // Opening a panel or changing sources after deep sleep may display already kept
+        // text, but cannot start network work or clear a usable cached result.
+        if playbackSessionFinished { return lookupCache[key] }
         if !refresh, let cached = lookupCache[key] {
             touchLookup(key)
             registerIfDesired(cached, for: key)
@@ -197,7 +201,9 @@ final class LyricsTranslationCoordinator {
     /// This only reads already registered rows/snapshots; no disk access, network, language
     /// detection or fingerprint hashing occurs in the frame-by-frame lyrics presentation.
     func result(songID: String?, lines: [LyricsTranslationText]) -> AutomaticLyricsResult {
-        guard let songID, let prepared = inputs[songID], prepared.lines == lines else { return .init() }
+        guard let songID, let prepared = inputs[songID], prepared.lines == lines else {
+            return .init(phase: playbackSessionFinished ? .paused : .idle, playbackSessionFinished: playbackSessionFinished)
+        }
         let snapshot = pipeline.snapshot(for: prepared.input)
         let phase: AutomaticLyricsResult.Phase
         switch snapshot.phase {
@@ -210,10 +216,13 @@ final class LyricsTranslationCoordinator {
         case .failed: phase = .failed
         case .paused: phase = .paused
         }
-        return AutomaticLyricsResult(phase: phase, lines: snapshot.lines, completed: snapshot.completed, total: snapshot.total)
+        return AutomaticLyricsResult(phase: playbackSessionFinished && phase != .ready ? .paused : phase,
+            lines: snapshot.lines, completed: snapshot.completed, total: snapshot.total,
+            playbackSessionFinished: playbackSessionFinished)
     }
 
     func retry(songID: String?) {
+        guard !playbackSessionFinished else { return }
         if foreground { expirationSuspended = false }
         languageCheckTask?.cancel()
         downloadAttempt &+= 1
@@ -228,6 +237,29 @@ final class LyricsTranslationCoordinator {
         backgroundContinuationKey = nil
         cancelPrefetch(keepingCurrent: false)
         pipeline.suspend()
+    }
+
+    /// Only Player's explicit session boundary may change this gate. Background/active
+    /// notifications and translation toggles keep the completed listening session closed.
+    func setPlaybackSessionFinished(_ finished: Bool) {
+        guard playbackSessionFinished != finished else { return }
+        playbackSessionFinished = finished
+        pipeline.setPlaybackSessionFinished(finished)
+        if finished {
+            backgroundContinuationKey = nil
+            currentRetryKey = nil
+            languageCheckTask?.cancel()
+            languageCheckTask = nil
+            downloadAttempt &+= 1
+            cancelPrefetch(keepingCurrent: false)
+        } else {
+            expirationSuspended = false
+            // Force one normal foreground reconciliation even if song and settings are
+            // unchanged. Stored results remain available and only missing work resumes.
+            lookupContext = []
+            currentRetryKey = currentSong.flatMap { desiredLookups[$0.id] }
+            lyricsRevision &+= 1
+        }
     }
 
     func flush() async { await pipeline.flush() }
@@ -253,12 +285,12 @@ final class LyricsTranslationCoordinator {
         await client.clearCache()
         lyricsRevision &+= 1
         guard prefetchGeneration == generation, foreground, automaticEnabled, showsTranslation,
-              !expirationSuspended else { return }
+              !expirationSuspended, !playbackSessionFinished else { return }
         startPrefetch(lookupContext)
     }
 
     var downloadRequest: DownloadRequest? {
-        guard foreground, automaticEnabled, showsTranslation, let songID = currentSong?.id,
+        guard !playbackSessionFinished, foreground, automaticEnabled, showsTranslation, let songID = currentSong?.id,
               let prepared = inputs[songID] else { return nil }
         let snapshot = pipeline.snapshot(for: prepared.input)
         guard snapshot.phase == .needsLanguage, let pair = snapshot.languagePair else { return nil }
@@ -273,7 +305,7 @@ final class LyricsTranslationCoordinator {
     }
 
     func finishLanguageDownload(_ request: DownloadRequest, installed: Bool) {
-        guard !Task.isCancelled else { cancelLanguageDownload(request); return }
+        guard !Task.isCancelled, !playbackSessionFinished else { cancelLanguageDownload(request); return }
         let pair = AutomaticLyricDownloadPolicy.Pair(source: request.source, target: request.target)
         guard downloadPolicy.finish(pair, requestID: request.id, installed: installed) else { return }
         // A failed/cancelled foreground prompt is not remounted indefinitely. Retry is
@@ -290,10 +322,10 @@ final class LyricsTranslationCoordinator {
             languageCheckTask = Task { [weak self] in
                 for _ in 0..<10 {
                     do { try await Task.sleep(for: .seconds(3)) } catch { return }
-                    guard let self, !Task.isCancelled, self.foreground, self.automaticEnabled,
+                    guard let self, !Task.isCancelled, !self.playbackSessionFinished, self.foreground, self.automaticEnabled,
                           self.showsTranslation, self.downloadAttempt == attempt else { return }
                     let ready = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
-                    guard !Task.isCancelled, self.foreground, self.downloadAttempt == attempt else { return }
+                    guard !Task.isCancelled, !self.playbackSessionFinished, self.foreground, self.downloadAttempt == attempt else { return }
                     if ready {
                         self.pipeline.retry(songID: request.songID)
                         self.retryCurrentLanguage(pair)
@@ -313,7 +345,7 @@ final class LyricsTranslationCoordinator {
     }
 
     private func retryCurrentLanguage(_ pair: AutomaticLyricDownloadPolicy.Pair) {
-        guard let songID = currentSong?.id, let prepared = inputs[songID],
+        guard !playbackSessionFinished, let songID = currentSong?.id, let prepared = inputs[songID],
               let needed = pipeline.snapshot(for: prepared.input).languagePair,
               needed.source == pair.source, needed.target == pair.target else { return }
         pipeline.retry(songID: songID)
@@ -321,18 +353,19 @@ final class LyricsTranslationCoordinator {
 
     private func refreshTranslationRequests() {
         let currentLookupKey = currentSong.flatMap { desiredLookups[$0.id] }
-        let mayContinueCurrent = !foreground && backgroundExecutionAllowed && !expirationSuspended
+        let mayContinueCurrent = !playbackSessionFinished && !foreground && backgroundExecutionAllowed && !expirationSuspended
             && backgroundContinuationKey != nil && currentLookupKey == backgroundContinuationKey
         pipeline.setRequests(current: currentSong.flatMap { inputs[$0.id]?.input },
                              upcoming: upcomingSongs.compactMap { inputs[$0.id]?.input },
-                             enabled: automaticEnabled && showsTranslation, isForeground: foreground && !expirationSuspended,
+                             enabled: automaticEnabled && showsTranslation && !playbackSessionFinished,
+                             isForeground: foreground && !expirationSuspended && !playbackSessionFinished,
                              allowsBackgroundCurrent: mayContinueCurrent)
     }
 
     /// A failed prefetched record may only become known after its cached lyrics arrive.
     /// Consume one retry per current-song admission, not on every observable update.
     private func retryPreparedCurrentIfNeeded() {
-        guard let key = currentRetryKey, currentSong?.id == key.song.id,
+        guard !playbackSessionFinished, let key = currentRetryKey, currentSong?.id == key.song.id,
               desiredLookups[key.song.id] == key, let prepared = inputs[key.song.id] else { return }
         currentRetryKey = nil
         switch pipeline.snapshot(for: prepared.input).phase {
@@ -354,7 +387,7 @@ final class LyricsTranslationCoordinator {
     }
 
     private func startPrefetch(_ context: [LookupKey]) {
-        guard foreground, automaticEnabled, showsTranslation, !expirationSuspended,
+        guard !playbackSessionFinished, foreground, automaticEnabled, showsTranslation, !expirationSuspended,
               let first = context.first else { return }
         let generation = UUID()
         prefetchGeneration = generation
@@ -377,7 +410,7 @@ final class LyricsTranslationCoordinator {
 
     private func prefetchWorker(generation: UUID, sources: [LyricsSource], customSources: [CustomLyricsSource]) async {
         while !Task.isCancelled, prefetchGeneration == generation, foreground,
-              automaticEnabled, showsTranslation, !expirationSuspended, !prefetchRemaining.isEmpty {
+              automaticEnabled, showsTranslation, !expirationSuspended, !playbackSessionFinished, !prefetchRemaining.isEmpty {
             let next = prefetchRemaining.removeFirst()
             _ = await lyrics(for: next.song, sources: sources, customSources: customSources)
         }

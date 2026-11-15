@@ -51,6 +51,8 @@ final class AppModel {
     var linkError: String?
     /// Only the newest album-card or shared-song lookup may replace the queue.
     @ObservationIgnored private var playbackLookupTask: Task<Void, Never>?
+    @ObservationIgnored private var artworkSessionRevision: UInt64 = 0
+    @ObservationIgnored private var artworkSessionFinished: Bool?
     /// The sheet that adds a profile, asked for from a toolbar menu, the profile page or the Mac's sidebar.
     var isAddingProfile = false
     /// The pane the Mac's Settings window should show when it next opens or is already open.
@@ -133,7 +135,6 @@ final class AppModel {
         }
         // Music intent wins immediately, including time spent loading a playlist or stream.
         // Waiting for onSongStarted would let an old video load/countdown reclaim playback.
-        player.onPlaybackRequested = { [videos] in videos.pause() }
         player.onSongStarted = { [library, videos] song in
             // A song and a video never play over each other.
             videos.pause()
@@ -209,7 +210,39 @@ final class AppModel {
                 settings.hasSeenOnboarding = true
             }
         }
+        // A deliberate listening-session finish closes background preparation before
+        // Player considers releasing AVAudioSession. Foregrounding never reopens it.
+        player.onPlaybackRequested = { [weak self] in
+            guard let self, !self.player.isPlaybackSessionFinished else { return }
+            self.videos.pause()
+            self.lyricsPreparation.resumePlaybackSession()
+            self.setArtworkSessionFinished(false)
+        }
+        player.onPlaybackSessionFinished = { [weak self] in
+            guard let self else { return }
+            self.cancelPlaybackLookup()
+            self.lyricsPreparation.finishPlaybackSession()
+            self.setArtworkSessionFinished(true)
+        }
+        player.canDeactivateAudioSession = { [videos] in
+            !videos.ownsAudioSession && !VoiceSearch.ownsAudioSession
+        }
+        VoiceSearch.canDeactivateAfterRecording = { [weak player, weak videos] in
+            guard let player, let videos else { return false }
+            return !player.wantsToPlay && !player.isPlaying && !videos.ownsAudioSession
+        }
+        setArtworkSessionFinished(player.isPlaybackSessionFinished)
         lyricsPreparation.start()
+    }
+
+    private func setArtworkSessionFinished(_ finished: Bool) {
+        guard artworkSessionFinished != finished else { return }
+        artworkSessionFinished = finished
+        artworkSessionRevision &+= 1
+        let revision = artworkSessionRevision
+        Task { [motionArtwork] in
+            await motionArtwork.setPlaybackSessionFinished(finished, revision: revision)
+        }
     }
 
     /// Make another profile the active one: its library replaces this one's everywhere at once,

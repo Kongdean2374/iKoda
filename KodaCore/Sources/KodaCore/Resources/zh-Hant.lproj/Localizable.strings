@@ -129,3 +129,8 @@
 "Enter a name for the new playlist." = "請輸入新播放清單的名稱。";
 "Choose a different destination playlist." = "請選擇另一個目的地播放清單。";
 "This playlist was reordered or edited after the operation. Undo cannot safely replace those changes." = "操作後此播放清單已重新排序或編輯，無法安全復原而保留後續變更。";
+"Pause Playback" = "一般暫停";
+"Finish Playback Session" = "完全結束播放";
+"Choose a sleep timer between 1 and 720 minutes." = "請設定 1 至 720 分鐘的睡眠計時器。";
+"The sleep timer time is invalid. Try setting it again." = "睡眠計時器的時間無效，請重新設定。";
+"The sleep timer is not running." = "睡眠計時器尚未啟動。";
