@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 
 /// On-device translation and optional imports share the same presentation without editing source lyrics.
 struct LyricsTranslationSettingsView: View {
+    /// The player orb is the only display switch in its details/settings route.
+    var showsDisplayToggle = true
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @State private var importing = false
@@ -16,7 +18,9 @@ struct LyricsTranslationSettingsView: View {
         @Bindable var settings = app.settings
         Form {
             Section {
-                Toggle("Show Chinese Translation", isOn: $settings.showsLyricsTranslation)
+                if showsDisplayToggle {
+                    Toggle("Show Chinese Translation", isOn: $settings.showsLyricsTranslation)
+                }
                 Toggle("Automatically Translate to Traditional Chinese", isOn: $settings.automaticLyricsTranslation)
                 Toggle("Use Imported Translations", isOn: $settings.importedLyricsEnabled)
             } footer: {

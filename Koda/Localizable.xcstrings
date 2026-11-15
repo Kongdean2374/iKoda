@@ -7718,6 +7718,23 @@
         }
       }
     },
+    "Language Needed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language Needed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需下載語言"
+          }
+        }
+      }
+    },
     "Large": {
       "extractionState": "manual",
       "localizations": {
@@ -9571,6 +9588,23 @@
         }
       }
     },
+    "No Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無翻譯"
+          }
+        }
+      }
+    },
     "No Videos": {
       "extractionState": "manual",
       "localizations": {
@@ -10689,6 +10723,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "重疊時間"
+          }
+        }
+      }
+    },
+    "Partially Translated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partially Translated"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分完成"
           }
         }
       }
@@ -11862,6 +11913,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在準備翻譯⋯"
+          }
+        }
+      }
+    },
+    "Preparing…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備中"
           }
         }
       }
@@ -16388,6 +16456,40 @@
         }
       }
     },
+    "Tap the translation icon to show or hide translations. Completed translations are kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the translation icon to show or hide translations. Completed translations are kept."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點一下翻譯圖示即可顯示或隱藏翻譯，已完成的譯文會保留。"
+          }
+        }
+      }
+    },
+    "Tap to show or hide translation. Touch and hold for progress and settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to show or hide translation. Touch and hold for progress and settings."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點一下顯示或隱藏翻譯；長按查看進度與設定。"
+          }
+        }
+      }
+    },
     "Tap to shuffle": {
       "extractionState": "manual",
       "localizations": {
@@ -17068,6 +17170,23 @@
         }
       }
     },
+    "Translated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translated"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成"
+          }
+        }
+      }
+    },
     "Translated %lld of %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -17136,6 +17255,23 @@
         }
       }
     },
+    "Translating…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translating…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯中"
+          }
+        }
+      }
+    },
     "Translation": {
       "extractionState": "manual",
       "localizations": {
@@ -17183,6 +17319,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "翻譯狀態"
+          }
+        }
+      }
+    },
+    "Translation Failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Failed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯失敗"
           }
         }
       }
@@ -17238,6 +17391,23 @@
         }
       }
     },
+    "Translation Progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Progress"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯進度"
+          }
+        }
+      }
+    },
     "Translation Ready": {
       "extractionState": "manual",
       "localizations": {
@@ -17251,6 +17421,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "翻譯已完成"
+          }
+        }
+      }
+    },
+    "Translation Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Settings"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯設定"
           }
         }
       }

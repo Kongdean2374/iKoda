@@ -65,8 +65,11 @@ final class VideoPlayback {
     @ObservationIgnored private var legible: AVMediaSelectionGroup?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var rateObserver: NSKeyValueObservation?
+    @ObservationIgnored private var externalPlaybackObserver: NSKeyValueObservation?
     @ObservationIgnored private var pictureInPicture: AVPictureInPictureController?
     @ObservationIgnored private var pictureInPictureDelegate: PictureInPictureDelegate?
+    @ObservationIgnored private var pictureInPictureStarting = false
     /// The layer picture in picture was last set up for. Kept here rather than read back from
     /// the controller, whose `playerLayer` on the Mac isn't the layer it was made with: comparing
     /// against that made a new controller (a slow call into the system) on every redraw.
@@ -104,13 +107,16 @@ final class VideoPlayback {
                                                       using: Self.ticker(for: self))
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main,
                                                              using: Self.endWatcher(for: self))
+        rateObserver = player.observe(\.rate, options: [.old, .new], changeHandler: Self.rateWatcher(for: self))
+        externalPlaybackObserver = player.observe(\.isExternalPlaybackActive, options: [.new],
+                                                  changeHandler: Self.externalPlaybackWatcher(for: self))
     }
 
     /// Built outside the main actor's methods: AVFoundation calls it on the main queue, and it
     /// says so before touching the model.
     nonisolated private static func ticker(for playback: VideoPlayback) -> @Sendable (CMTime) -> Void {
         { [weak playback] _ in
-            MainActor.assumeIsolated { playback?.tick() }
+            MainActor.assumeIsolated { playback?.tick(countPlaybackTime: true) }
         }
     }
 
@@ -121,19 +127,56 @@ final class VideoPlayback {
         }
     }
 
-    private func tick() {
+    nonisolated private static func rateWatcher(for playback: VideoPlayback) -> @Sendable (AVPlayer, NSKeyValueObservedChange<Float>) -> Void {
+        { [weak playback] player, change in
+            let stopped = (change.oldValue ?? 0) > 0 && change.newValue == 0
+            let stoppedItem = stopped ? player.currentItem.map(ObjectIdentifier.init) : nil
+            Task { @MainActor [weak playback] in playback?.tick(stoppedItem: stoppedItem) }
+        }
+    }
+
+    nonisolated private static func externalPlaybackWatcher(for playback: VideoPlayback) -> @Sendable (AVPlayer, NSKeyValueObservedChange<Bool>) -> Void {
+        { [weak playback] _, _ in
+            Task { @MainActor [weak playback] in playback?.externalPresentationChanged() }
+        }
+    }
+
+    private func tick(countPlaybackTime: Bool = false, stoppedItem: ObjectIdentifier? = nil) {
         let status = player.timeControlStatus
-        let playing = status == .playing && player.rate > 0
-        // PiP/AirPlay's native play button can start an already prepared item directly.
-        // A real positive rate is a new video intent; pause() synchronously sets it to zero.
-        if playing, !intent.wantsToPlay, let id = current?.id {
-            intent.begin(videoID: id)
-            pauseMusic?()
+        var playing = status == .playing && player.rate > 0
+        if player.rate > 0 {
+            switch intent.observedPlaying(hasExternalPresentation: hasNativeExternalControls,
+                                          isStartingPictureInPicture: pictureInPictureStarting) {
+            case .continuePlayback: break
+            case .resumeExternalPlayback: pauseMusic?()
+            case .pause:
+                // AV/PiP restoration can publish a rate without a new listener request.
+                // Reject it before it can acquire video intent or pause the music.
+                pausePlatformPlayback(updateState: false)
+                playing = false
+            }
         }
         let wasPlaying = isPlaying
+        let receivedRateStop = stoppedItem != nil && player.rate == 0
+            && player.currentItem.map(ObjectIdentifier.init) == stoppedItem
+        if !playing, status == .paused,
+           intent.observedNativePause(position: player.currentItem?.currentTime().seconds ?? .nan,
+                duration: player.currentItem?.duration.seconds ?? .nan, isLoading: isLoading,
+                hasEnded: hasEnded, hasExternalPresentation: hasNativeExternalControls,
+                wasPlaying: wasPlaying, receivedRateStop: receivedRateStop) {
+            // Native PiP/AirPlay pause must also cancel a pending seek/countdown. Keep
+            // only this external presentation's permission for its native Play control.
+            loading?.cancel()
+            loading = nil
+            cancelAutoplay()
+            boost = nil
+            player.cancelPendingPrerolls()
+            player.currentItem?.cancelPendingSeeks()
+        }
         if isPlaying != playing { isPlaying = playing }
         let buffering = intent.wantsToPlay && status == .waitingToPlayAtSpecifiedRate
         if isBuffering != buffering { isBuffering = buffering }
+        updateAutomaticPictureInPicturePermission()
         let now = player.currentTime().seconds
         if now.isFinite, abs(now - time) > 0.2 { time = now }
         if let item = player.currentItem {
@@ -142,7 +185,7 @@ final class VideoPlayback {
             if item.presentationSize != presentationSize { presentationSize = item.presentationSize }
         }
         guard let id = current?.id, player.currentItem != nil else { return }
-        if playing { playedSeconds += 0.25 }
+        if playing, countPlaybackTime { playedSeconds += 0.25 }
         // Where it got to: every few seconds while it plays, and as it stops.
         if !isLive, duration > 0, abs(time - lastProgressSave) >= 5 || (wasPlaying && !playing) {
             lastProgressSave = time
@@ -171,8 +214,18 @@ final class VideoPlayback {
 
     // MARK: Playing
 
+    /// Presenting or restoring a watch page is not an explicit resume command.
+    func prepareWatchPage(_ video: Video) {
+        guard intent.canStartFromWatchPage(videoID: video.id) else {
+            update(video)
+            return
+        }
+        play(video)
+    }
+
     /// Start `video`, unless it's already the one on.
     func play(_ video: Video) {
+        guard intent.canStartPlayback(hasExternalPresentation: hasExternalPresentation) else { return }
         if current?.id == video.id, player.currentItem != nil || (isLoading && error == nil) {
             // Back on the same video's page, or the page catching up with an autoplay already
             // loading it: keep the details fresher, don't restart it.
@@ -201,6 +254,7 @@ final class VideoPlayback {
         legible = nil
         quality = defaultQuality()
         let ticket = intent.begin(videoID: video.id)
+        if hasExternalPresentation { intent.authorizeExternalControls() }
         spanStart = 0
         playedSeconds = 0
         lastSpanReport = .distantPast
@@ -251,9 +305,10 @@ final class VideoPlayback {
 
     func togglePlay() {
         if intent.wantsToPlay && (isLoading || player.timeControlStatus != .paused) {
-            pause()
+            pause(preservingExternalControls: hasNativeExternalControls)
             return
         }
+        guard intent.canStartPlayback(hasExternalPresentation: hasExternalPresentation) else { return }
         guard let video = current else { return }
         // A load canceled by switching to music has no prepared item. Resume is a fresh,
         // explicit request rather than permission for the old network task to finish.
@@ -265,6 +320,7 @@ final class VideoPlayback {
         loading = nil
         isLoading = false
         let ticket = intent.begin(videoID: video.id)
+        if hasExternalPresentation { intent.authorizeExternalControls() }
         pauseMusic?()
         cancelAutoplay()
         if hasEnded || (duration > 0 && time >= duration - 0.5) { seek(to: 0) }
@@ -278,8 +334,12 @@ final class VideoPlayback {
 
     /// Music selection and mode changes call the same cancellation path as an explicit
     /// video pause. The item/position stay available for a later explicit resume.
-    func pause() {
-        intent.pause()
+    func pause(preservingExternalControls: Bool = false) {
+        intent.pause(preservingExternalControls: preservingExternalControls)
+        pausePlatformPlayback()
+    }
+
+    private func pausePlatformPlayback(updateState: Bool = true) {
         loading?.cancel()
         loading = nil
         cancelAutoplay()
@@ -289,6 +349,24 @@ final class VideoPlayback {
         player.pause()
         player.cancelPendingPrerolls()
         player.currentItem?.cancelPendingSeeks()
+        if updateState { tick() }
+    }
+
+    /// Background inline playback is stopped, including unresolved loads and Up Next.
+    /// Existing PiP/AirPlay stays authorized; coming back never calls Play.
+    func applicationDidEnterBackground() {
+        let external = hasExternalPresentation
+        if external { intent.authorizeExternalControls() }
+        let shouldPause = intent.enterBackground(hasExternalPresentation: external,
+            mayContinueIntoPictureInPicture: pictureInPicture != nil && player.currentItem != nil
+                && player.timeControlStatus == .playing && player.rate > 0,
+            at: ProcessInfo.processInfo.systemUptime)
+        if shouldPause { pausePlatformPlayback() }
+    }
+
+    func applicationDidBecomeActive() {
+        intent.enterForeground()
+        if !hasExternalPresentation { intent.revokeExternalControls() }
         tick()
     }
 
@@ -309,6 +387,7 @@ final class VideoPlayback {
     }
 
     func retry() {
+        guard intent.canStartPlayback(hasExternalPresentation: hasExternalPresentation) else { return }
         guard let video = current else { return }
         current = nil
         play(video)
@@ -423,6 +502,7 @@ final class VideoPlayback {
 
     /// Up Next now, skipping what's left of the countdown.
     func playNext() {
+        guard intent.canStartPlayback(hasExternalPresentation: hasExternalPresentation) else { return }
         guard let next = upNext, let from = current?.id else { return }
         cancelAutoplay()
         play(next)
@@ -493,7 +573,7 @@ final class VideoPlayback {
         let front: SurfaceRole = isFullScreen ? .fullScreen : isOnItsPage ? .page : .mini
         guard let layer = surfaces[front]?.layer ?? surfaces[.page]?.layer else { return }
         // Never pull the source from under a floating video.
-        guard pictureInPicture?.isPictureInPictureActive != true else { return }
+        guard !pictureInPictureStarting, pictureInPicture?.isPictureInPictureActive != true else { return }
         attach(layer)
     }
 
@@ -502,20 +582,89 @@ final class VideoPlayback {
         guard AVPictureInPictureController.isPictureInPictureSupported(), pictureInPictureLayer !== layer else { return }
         pictureInPictureLayer = layer
         let controller = AVPictureInPictureController(playerLayer: layer)
-        controller?.canStartPictureInPictureAutomaticallyFromInline = true
-        let delegate = PictureInPictureDelegate { [weak self] active in self?.isInPictureInPicture = active }
+        let delegate = PictureInPictureDelegate { [weak self] controller, event in
+            self?.pictureInPictureChanged(controller, event: event)
+        }
         controller?.delegate = delegate
         pictureInPicture = controller
         pictureInPictureDelegate = delegate
+        updateAutomaticPictureInPicturePermission()
+    }
+
+    /// Starting PiP protects a real transition while the actual controller is becoming
+    /// active. A rate change alone is never evidence that a presentation exists.
+    private var hasExternalPresentation: Bool {
+        pictureInPictureStarting || hasNativeExternalControls
+    }
+
+    private var hasNativeExternalControls: Bool {
+        pictureInPicture?.isPictureInPictureActive == true || player.isExternalPlaybackActive
+    }
+
+    private func updateAutomaticPictureInPicturePermission() {
+        let allowed = player.currentItem != nil && !hasEnded &&
+            ((intent.wantsToPlay && player.rate > 0)
+             || intent.hasPictureInPictureContinuation(at: ProcessInfo.processInfo.systemUptime))
+        if pictureInPicture?.canStartPictureInPictureAutomaticallyFromInline != allowed {
+            pictureInPicture?.canStartPictureInPictureAutomaticallyFromInline = allowed
+        }
+    }
+
+    private func externalPresentationChanged() {
+        if hasExternalPresentation {
+            intent.authorizeExternalControls()
+        } else {
+            intent.revokeExternalControls()
+            if intent.isBackgrounded { pause() }
+        }
+        tick()
+    }
+
+    private func pictureInPictureChanged(_ controller: AVPictureInPictureController,
+                                        event: PictureInPictureDelegate.Event) {
+        guard pictureInPicture === controller else { return }
+        switch event {
+        case .willStart, .didStart:
+            let continuation = intent.continueIntoPictureInPicture(at: ProcessInfo.processInfo.systemUptime)
+            guard player.currentItem != nil,
+                  intent.wantsToPlay || intent.hasExternalControlAuthorization else {
+                pictureInPictureStarting = false
+                isInPictureInPicture = false
+                controller.stopPictureInPicture()
+                updateAutomaticPictureInPicturePermission()
+                return
+            }
+            pictureInPictureStarting = event == .willStart
+            isInPictureInPicture = true
+            intent.authorizeExternalControls()
+            if continuation, player.currentItem?.status == .readyToPlay {
+                // The handoff was authorized before backgrounding and no later music,
+                // pause, selection or foreground event has superseded that generation.
+                Self.activateVideoSession()
+                player.playImmediately(atRate: speed)
+            }
+        case .stopped, .failed:
+            pictureInPictureStarting = false
+            isInPictureInPicture = false
+            intent.cancelPictureInPictureContinuation()
+            if !player.isExternalPlaybackActive {
+                intent.revokeExternalControls()
+                if intent.isBackgrounded { pause() }
+            }
+        }
+        updateAutomaticPictureInPicturePermission()
     }
 
     var canPictureInPicture: Bool { pictureInPicture != nil }
 
     func togglePictureInPicture() {
         guard let pictureInPicture else { return }
-        if pictureInPicture.isPictureInPictureActive {
+        if pictureInPictureStarting || pictureInPicture.isPictureInPictureActive {
             pictureInPicture.stopPictureInPicture()
         } else {
+            guard pictureInPicture.isPictureInPicturePossible else { return }
+            intent.authorizeExternalControls(explicitPresentation: true)
+            pictureInPictureStarting = true
             pictureInPicture.startPictureInPicture()
         }
     }
@@ -565,18 +714,27 @@ final class VideoPlayback {
 
 /// Tells the model when picture in picture starts and stops.
 private final class PictureInPictureDelegate: NSObject, AVPictureInPictureControllerDelegate {
-    let changed: @MainActor (Bool) -> Void
+    enum Event: Equatable { case willStart, didStart, stopped, failed }
+    let changed: @MainActor (AVPictureInPictureController, Event) -> Void
 
-    init(changed: @escaping @MainActor (Bool) -> Void) {
+    init(changed: @escaping @MainActor (AVPictureInPictureController, Event) -> Void) {
         self.changed = changed
     }
 
     func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        changed(true)
+        changed(controller, .willStart)
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        changed(controller, .didStart)
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
-        changed(false)
+        changed(controller, .stopped)
+    }
+
+    func pictureInPictureController(_ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        changed(controller, .failed)
     }
 }
 

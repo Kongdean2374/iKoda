@@ -211,9 +211,12 @@ struct VideoPlayerView: View {
                     }
                 }
             }
-        } else if !isThis {
-            // Another video is on: this page's starts with a tap.
-            ControlButton(systemImage: "play.fill", label: String(localized: "Play"), size: 64) { playback.play(video) }
+        } else {
+            // A background-cancelled load has no item yet, but still needs an explicit
+            // Play control. Reopening the watch page itself never resumes that request.
+            ControlButton(systemImage: "play.fill", label: String(localized: "Play"), size: 64) {
+                if isThis { playback.togglePlay() } else { playback.play(video) }
+            }
         }
     }
 

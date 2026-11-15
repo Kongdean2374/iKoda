@@ -52,7 +52,7 @@ struct VideoWatchView: View {
             }
         }
         .task(id: video.id) {
-            playback.play(video)
+            playback.prepareWatchPage(video)
             if watch.videoId != video.id {
                 watch = WatchModel(videoId: video.id)
                 comments = nil

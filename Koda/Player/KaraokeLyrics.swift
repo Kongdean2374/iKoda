@@ -73,17 +73,13 @@ struct SyncedLyrics: View {
         VStack(spacing: 0) {
             lyricContent()
             HStack {
-                LyricsTranslationToggle()
-                if automaticallyTranslates {
-                    LyricsTranslationFooterStatus(result: automaticTranslation) {
-                        app.lyricsTranslation.retry(songID: player.current?.id)
-                    }
-                } else if showsChineseTranslation, importsLoaded,
-                          displayedExtras.lines.count < lines.filter({ !$0.text.isEmpty }).count {
-                    LyricsTranslationInfoButton(message: displayedExtras.lines.isEmpty
-                        ? String(localized: "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.")
-                        : String(localized: "Some lines have no translation and show the original lyrics."))
-                }
+                LyricsTranslationControl(lines: lines.map { .init(id: $0.id, text: $0.text) },
+                    importedCount: importsLoaded ? importedTranslations.count : 0,
+                    information: !automaticallyTranslates && showsChineseTranslation && importsLoaded
+                        && displayedExtras.lines.count < lines.filter({ !$0.text.isEmpty }).count
+                        ? (displayedExtras.lines.isEmpty
+                            ? String(localized: "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.")
+                            : String(localized: "Some lines have no translation and show the original lyrics.")) : nil)
                 Spacer(minLength: 8)
                 if userScrolled {
                     Button("Follow", systemImage: "arrow.down.to.line") { userScrolled = false }
