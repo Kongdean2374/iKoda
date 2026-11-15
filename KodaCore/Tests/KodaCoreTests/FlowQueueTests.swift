@@ -11,7 +11,8 @@ struct FlowQueueTests {
     func flowStartsOnceThroughWithoutChangingTheNextOrdinaryQueuePreference(_ prior: RepeatMode) {
         var queue = PlayQueue()
         queue.repeatMode = prior
-        #expect(queue.replaceFlow(with: songs(3), sourceID: "PL-source"))
+        let accepted = queue.replaceFlow(with: songs(3), sourceID: "PL-source")
+        #expect(accepted)
         #expect(queue.repeatMode == .off)
         #expect(queue.flowContext?.previousRepeatMode == prior)
         #expect(queue.advance(automatic: true)?.song.id == "flow-1")
@@ -81,8 +82,10 @@ struct FlowQueueTests {
         var queue = PlayQueue()
         queue.replace(with: songs(3))
         let before = queue
-        #expect(!queue.replaceFlow(with: [], sourceID: "PL-one"))
-        #expect(!queue.replaceFlow(with: songs(2), sourceID: "  "))
+        let acceptedEmpty = queue.replaceFlow(with: [], sourceID: "PL-one")
+        let acceptedBlankSource = queue.replaceFlow(with: songs(2), sourceID: "  ")
+        #expect(!acceptedEmpty)
+        #expect(!acceptedBlankSource)
         #expect(queue == before)
     }
 }

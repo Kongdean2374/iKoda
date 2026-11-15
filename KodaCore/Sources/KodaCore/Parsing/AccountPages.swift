@@ -57,6 +57,10 @@ enum AccountPages {
             + root.objects("appendContinuationItemsAction")
     }
 
+    static func hasLibraryContainer(_ root: JSON) -> Bool {
+        !libraryContainers(root).isEmpty
+    }
+
     static func libraryItems(_ root: JSON) -> [MusicItem] {
         let entries = libraryContainers(root).flatMap { $0["contents"].array + $0["items"].array + $0["continuationItems"].array }
         return Pages.dedupe(entries.compactMap(Rows.item(entry:)))
