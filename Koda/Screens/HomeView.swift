@@ -309,7 +309,7 @@ struct HomeListeningSelection {
                          seeAll: .songs(title: String(localized: "Recently Played"), source: .recent))
         }
         if !library.liked.isEmpty {
-            return .init(source: .liked, songs: Array(library.liked.prefix(50)),
+            return .init(source: .liked, songs: library.liked,
                          title: String(localized: "Liked Songs"),
                          seeAll: .songs(title: String(localized: "Liked Songs"), source: .liked))
         }
