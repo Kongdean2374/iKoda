@@ -24394,6 +24394,23 @@
           }
         }
       }
+    },
+    "Library refresh is still waiting. Your saved music is unchanged and will update when it finishes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Library refresh is still waiting. Your saved music is unchanged and will update when it finishes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音樂庫重新整理仍在等待，已保留原有音樂，完成後會自動更新。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

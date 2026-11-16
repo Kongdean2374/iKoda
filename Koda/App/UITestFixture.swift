@@ -14,6 +14,7 @@ struct KodaUITestFixture: View {
     @State private var firstPlaylist: PlaylistSummary?
     @State private var songs: [Song] = []
     @State private var sheet: FixtureSheet?
+    @State private var accountSync: UITestAccountSyncBoundary?
 
     private enum FixtureSheet: String, Identifiable {
         case selection, merge, cloudCreate, catcher, flow
@@ -54,6 +55,38 @@ struct KodaUITestFixture: View {
                     .accessibilityIdentifier("fixture.home")
                 NavigationLink { LibraryView() } label: { Text(verbatim: "Cloud library") }
                     .accessibilityIdentifier("fixture.library")
+                if let accountSync {
+                    Section {
+                        Text(verbatim: "\(accountSync.readCount)")
+                            .accessibilityIdentifier("fixture.account.readCount")
+                        Text(verbatim: "\(accountSync.joinedWaiters)")
+                            .accessibilityIdentifier("fixture.account.joined")
+                        Text(verbatim: "\(accountSync.completedWaiters)")
+                            .accessibilityIdentifier("fixture.account.completed")
+                        Text(verbatim: app.isSyncingAccount ? "waiting" : "idle")
+                            .accessibilityIdentifier("fixture.account.state")
+                        Text(verbatim: app.library.liked.map(\.id).sorted().joined(separator: ","))
+                            .accessibilityIdentifier("fixture.account.liked")
+                        Text(verbatim: app.player.queue.items.map(\.id) == accountSync.queueIDs ? "unchanged" : "changed")
+                            .accessibilityIdentifier("fixture.account.queue")
+                        Button { accountSync.joinRefresh(in: app) } label: { Text(verbatim: "Join account refresh twice") }
+                            .accessibilityIdentifier("fixture.account.join")
+                        Button { accountSync.isHeld = false } label: { Text(verbatim: "Finish account response") }
+                            .accessibilityIdentifier("fixture.account.release")
+                        Text(verbatim: accountSync.mutationState)
+                            .accessibilityIdentifier("fixture.account.mutationState")
+                        Button { accountSync.startCloudRename(in: app) } label: { Text(verbatim: "Start held cloud rename") }
+                            .accessibilityIdentifier("fixture.account.mutationStart")
+                        Button { accountSync.holdsMutation = false } label: { Text(verbatim: "Finish cloud rename") }
+                            .accessibilityIdentifier("fixture.account.mutationRelease")
+                        Text(verbatim: accountSync.profileCycleState)
+                            .accessibilityIdentifier("fixture.account.profileCycle")
+                        Text(verbatim: app.roster.active.isSignedIn && !app.roster.active.isExpired ? "valid" : "invalid")
+                            .accessibilityIdentifier("fixture.account.profileValid")
+                        Button { accountSync.switchAwayAndBack(in: app) } label: { Text(verbatim: "Switch profiles away and back") }
+                            .accessibilityIdentifier("fixture.account.profileSwitch")
+                    }
+                }
                 NavigationLink {
                     if let firstPlaylist { PlaylistView(summary: firstPlaylist) }
                 } label: { Text(verbatim: "Cached cloud playlist") }
@@ -128,6 +161,26 @@ struct KodaUITestFixture: View {
 
     private func prepare() async {
         guard !prepared else { return }
+        // Keep real session/sync ordering but replace identity and credentials at
+        // the DEBUG fixture boundary, including cleanup of a previous test run.
+        app.testingAccountVisitorRenewal = {}
+        app.testingAccountSessionActivation = { [weak app] profile in
+            guard let app else { return }
+            if profile.isSignedIn {
+                await app.music.accounts.activate(AccountSession(profileID: profile.id,
+                    cookies: YouTubeCookies(header: "SID=ui-fixture; SAPISID=ui-fixture")))
+                app.roster.update(profile.id) { $0.isExpired = false }
+            } else {
+                await app.music.accounts.deactivate()
+            }
+        }
+        // A prior sync test used a fake account in this same Simulator install.
+        // Clear only that fixture identity through the normal sign-out boundary.
+        if app.roster.active.datasyncId == "koda-ui-sync" {
+            app.signOut(app.roster.activeID)
+            await app.accountWork?.value
+        }
+        if !app.player.queue.isEmpty { app.player.stop() }
         app.onboarding = nil
         // KodaApp applies this setting at the window, above the fixture. Set the
         // real preference so dark-mode screenshots cannot silently remain light.
@@ -160,13 +213,39 @@ struct KodaUITestFixture: View {
                          snapshot("PLui-beta", "Fixture Beta", [second, third]),
                          snapshot("PLui-read-only", "Fixture Read Only", [first], editable: false)]
         firstPlaylist = snapshots[0].playlist
+        if ProcessInfo.processInfo.arguments.contains("-KodaUITestAccountSync") {
+            await app.accountWork?.value
+            let id = app.roster.activeID
+            app.library.mergeAccount(liked: songs, albums: [], playlists: snapshots.map(\.playlist), artists: [])
+            var mirror = AccountMirror()
+            mirror.liked = [first.id, second.id]
+            mirror.playlists = Set(snapshots.map(\.id))
+            app.mirrors[id] = mirror
+            // Existing queue APIs seed a stopped queue without opening any stream.
+            app.player.stop()
+            app.player.restoreClearedUpcoming(songs)
+            let boundary = UITestAccountSyncBoundary(
+                response: AccountLibrary(liked: [first], playlists: snapshots.map(\.playlist)),
+                queueIDs: app.player.queue.items.map(\.id),
+                fails: ProcessInfo.processInfo.arguments.contains("-KodaUITestAccountSyncFailure"))
+            accountSync = boundary
+            app.testingAccountLibraryRead = { try await boundary.read() }
+            app.lastAccountSync[id] = Date()
+            app.roster.addAccount(name: "UI account", handle: nil, photo: nil, datasyncId: "koda-ui-sync", into: id)
+            await app.music.accounts.activate(AccountSession(profileID: id,
+                cookies: YouTubeCookies(header: "SID=ui-fixture; SAPISID=ui-fixture")))
+        }
         let catalogFailure = ProcessInfo.processInfo.arguments.contains("-KodaUITestCatalogFailure")
         let unavailableCatalog: @Sendable () async throws -> [PlaylistSummary] = {
             throw URLError(.notConnectedToInternet)
         }
+        let beforeRename: (@Sendable () async throws -> Void)?
+        if let accountSync { beforeRename = { try await accountSync.holdCloudRename() } }
+        else { beforeRename = nil }
         app.cloudPlaylists.installUITestData(catalog: snapshots.map(\.playlist), snapshots: snapshots,
             transport: UITestCloudTransport(snapshots: snapshots, songs: songs + (largePlaylist ? sourceSongs : []),
-                failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure")), like: { $0 },
+                failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure"),
+                beforeRename: beforeRename), like: { $0 },
             catalogReader: catalogFailure ? unavailableCatalog : nil)
         if catalogFailure { await app.cloudPlaylists.refresh(force: true) }
         prepared = true

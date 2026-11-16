@@ -145,3 +145,4 @@
 "YouTube Music may have created this playlist. Refresh your playlists before creating another one." = "YouTube Music 可能已建立這份播放清單。請先重新整理播放清單，再建立另一份。";
 "The cloud playlist operation is invalid. Refresh and try again." = "雲端播放清單操作無效。請重新整理後再試一次。";
 "Some cloud playlists could not be loaded. Your existing playlists have been kept. Refresh to try again." = "部分雲端播放清單暫時無法載入，已保留現有播放清單。請重新整理後再試一次。";
+"The complete cloud music library could not be loaded. Your saved library has been kept. Try syncing again later." = "無法載入完整的雲端音樂庫，已保留儲存的音樂庫。請稍後再試同步。";

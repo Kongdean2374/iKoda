@@ -69,6 +69,7 @@ final class AppModel {
     let keychain: AccountKeychain
     /// The active profile's library is being brought in step with its account.
     var isSyncingAccount = false
+    var accountSyncError: String?
     /// Session changes and writes to the account, one at a time and in the order asked, so a
     /// like is always sent as the profile it was made in, even after a quick switch.
     @ObservationIgnored var accountWork: Task<Void, Never>?
@@ -76,6 +77,15 @@ final class AppModel {
     @ObservationIgnored var needsSessionRead = false
     @ObservationIgnored var lastAccountSync: [UUID: Date] = [:]
     @ObservationIgnored var syncTask: Task<Void, Never>?
+    @ObservationIgnored var syncScope: CloudPlaylistAccountScope?
+    @ObservationIgnored var syncMutationBoundary: UUID?
+    @ObservationIgnored var syncNeedsFollowUp = false
+    #if DEBUG
+    @ObservationIgnored var testingAccountLibraryRead: (@MainActor @Sendable () async throws -> AccountLibrary)?
+    @ObservationIgnored var testingAccountSessionActivation: (@MainActor @Sendable (KodaProfile) async -> Void)?
+    @ObservationIgnored var testingAccountVisitorRenewal: (@MainActor @Sendable () async -> Void)?
+    var accountSyncReadCount = 0
+    #endif
     @ObservationIgnored var homeLoadTask: Task<Void, Never>?
     @ObservationIgnored var homeLoadID: UUID?
     /// Numbers each sync, so one that was overtaken doesn't clear `isSyncingAccount` for the next.
