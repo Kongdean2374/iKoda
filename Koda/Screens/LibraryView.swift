@@ -41,6 +41,14 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                if let error = app.accountSyncError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(error).font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("library.sync.error")
+                        Button("Try Again") { Task { await app.refreshAccount() } }
+                    }
+                    .padding(.horizontal, 20)
+                }
                 if library.pins.contains(where: { if case .userPlaylist = $0 { return false }; return true }) {
                     PinnedGrid()
                 }
@@ -94,6 +102,7 @@ struct LibraryView: View {
             }
             .padding(.vertical, 12)
         }
+        .accessibilityIdentifier("library.scroll")
         .navigationTitle(String(localized: "Library"))
         // A signed-in profile's pull brings in what changed on the account elsewhere.
         .refreshable {
@@ -136,7 +145,7 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 12) {
                 CloudPlaylistSessionNotice()
                 CloudPlaylistOperationView()
-                if let error = app.cloudPlaylists.refreshError {
+                if let error = app.cloudPlaylists.refreshError, error != app.accountSyncError {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
                     Button("Refresh Cloud Playlists") { Task { await app.cloudPlaylists.refresh(force: true) } }
                 }

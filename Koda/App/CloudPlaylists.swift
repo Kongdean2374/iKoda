@@ -65,9 +65,26 @@ final class CloudPlaylistCoordinator {
     @ObservationIgnored private var snapshotTasks: [String: (id: UUID, task: Task<CloudPlaylistSnapshot, Error>)] = [:]
     @ObservationIgnored private var snapshotFailedAt: [String: Date] = [:]
     @ObservationIgnored private var snapshotFailures: [String: Error] = [:]
-    @ObservationIgnored private var mutationTask: Task<CloudPlaylistSnapshot, Error>?
-    @ObservationIgnored private var likeTask: Task<Song, Error>?
-    @ObservationIgnored private var dismissalTask: Task<Void, Never>?
+    @ObservationIgnored private var mutationTask: Task<CloudPlaylistSnapshot, Error>? {
+        didSet {
+            if mutationTask != nil, oldValue == nil { mutationExecutionID = UUID() }
+            resumeSettledMutationWaiters()
+        }
+    }
+    @ObservationIgnored private var likeTask: Task<Song, Error>? {
+        didSet {
+            if likeTask != nil, oldValue == nil { mutationExecutionID = UUID() }
+            resumeSettledMutationWaiters()
+        }
+    }
+    @ObservationIgnored private var dismissalTask: Task<Void, Never>? {
+        didSet {
+            if dismissalTask != nil, oldValue == nil { mutationExecutionID = UUID() }
+            resumeSettledMutationWaiters()
+        }
+    }
+    @ObservationIgnored private var mutationExecutionID: UUID?
+    @ObservationIgnored private var mutationWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
     @ObservationIgnored private var checkpoint: CloudPlaylistCheckpoint?
     @ObservationIgnored private var damagedReceipt = false
     @ObservationIgnored private var snapshotOrder: [String] = []
@@ -92,6 +109,27 @@ final class CloudPlaylistCoordinator {
     }
 
     var isBusy: Bool { mutationTask != nil || likeTask != nil || dismissalTask != nil }
+    var currentMutationID: UUID? { isBusy ? mutationExecutionID : nil }
+
+    /// Called before reserving accountWork, never while holding it. Reads may wait
+    /// for a write's result, but may not cancel that write or wait behind themselves.
+    func waitForCurrentMutation(expectedScope: CloudPlaylistAccountScope) async throws {
+        let context = try await prepareProfile(expectedScope: expectedScope)
+        if let execution = currentMutationID {
+            await withCheckedContinuation { mutationWaiters[execution, default: []].append($0) }
+        }
+        try requireCurrent(context)
+    }
+
+    private func resumeSettledMutationWaiters() {
+        if !isBusy { mutationExecutionID = nil }
+        let active = currentMutationID
+        for id in Array(mutationWaiters.keys) where id != active {
+            let waiters = mutationWaiters.removeValue(forKey: id) ?? []
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
     var hasSession: Bool {
         #if DEBUG
         if testingTransport != nil { return true }
@@ -168,9 +206,8 @@ final class CloudPlaylistCoordinator {
             return
         case .fetch: break
         }
-        // A background AccountLibrary result includes playlist metadata too. Stop
-        // that older round before accepting a newer authoritative cloud read.
-        app.cloudRefreshBegan()
+        // Account reads, mutations and session changes share the ordering barrier;
+        // asking for this catalog must not cancel a pending whole-library refresh.
         catalogRevision &+= 1
         let revision = catalogRevision, generation = context.generation
         isRefreshing = true
@@ -184,27 +221,38 @@ final class CloudPlaylistCoordinator {
                 }
             }
             do {
-                let result = try await app.withCloudAccountWork {
+                try await app.withCloudAccountWork {
                     try await self.validate(profileID: profileID, generation: generation)
+                    let result: CloudPlaylistCatalogResult
                     #if DEBUG
                     self.catalogRequestCount += 1
                     if let reader = self.testingCatalogReader {
-                        return CloudPlaylistCatalogResult(playlists: try await reader())
+                        result = CloudPlaylistCatalogResult(playlists: try await reader())
+                    } else if let catalog = self.testingCatalog {
+                        result = CloudPlaylistCatalogResult(playlists: catalog)
+                    } else if let accountCatalog = app.testingAccountCatalogRead {
+                        // Profile-scoped UI-test services outlive this coordinator's
+                        // cache reset, including catalog queries made by Siri.
+                        result = try await accountCatalog(profileID)
+                    } else {
+                        result = try await app.music.libraryPlaylistCatalog()
                     }
-                    if let catalog = self.testingCatalog { return CloudPlaylistCatalogResult(playlists: catalog) }
+                    #else
+                    result = try await app.music.libraryPlaylistCatalog()
                     #endif
-                    let result = try await app.music.libraryPlaylistCatalog()
                     try await self.validate(profileID: profileID, generation: generation)
-                    return result
-                }
-                guard self.isCurrent(profileID, generation), self.catalogRevision == revision else { return }
-                if result.isComplete {
-                    self.applyCatalog(result.playlists, for: profileID)
-                } else {
-                    self.catalog = result.mergingForDisplay(previous: self.catalog)
-                    self.isCatalogComplete = false
-                    self.catalogFailedAt = Date()
-                    self.refreshError = result.displayMessage
+                    guard self.isCurrent(profileID, generation), self.catalogRevision == revision else { return }
+                    // Commit before releasing accountWork. Otherwise a newer save
+                    // could be sent and removed from pending before this older
+                    // catalog is merged into Library.
+                    if result.isComplete {
+                        self.applyCatalog(result.playlists, for: profileID)
+                    } else {
+                        self.catalog = result.mergingForDisplay(previous: self.catalog)
+                        self.isCatalogComplete = false
+                        self.catalogFailedAt = Date()
+                        self.refreshError = result.displayMessage
+                    }
                 }
                 await self.reloadReceiptAfterRefresh(profileID: profileID, generation: generation)
             } catch {
@@ -693,6 +741,9 @@ final class CloudPlaylistCoordinator {
                            readingRequestID: UUID? = nil) -> any CloudPlaylistTransport {
         #if DEBUG
         if let testingTransport { return testingTransport }
+        if let testingAccountTransport = app?.testingAccountPlaylistTransport {
+            return testingAccountTransport(profileID)
+        }
         #endif
         return YouTubeCloudPlaylistTransport(music: app!.music,
             validate: validator(profileID: profileID, generation: generation),
@@ -780,7 +831,9 @@ final class CloudPlaylistCoordinator {
     }
 
     static func message(_ error: Error) -> String {
-        if error is CloudPlaylistError || error is CloudAccountAccessError { return error.localizedDescription }
+        if error is CloudPlaylistError || error is CloudAccountAccessError || error is AccountLibraryReadError {
+            return error.localizedDescription
+        }
         if error is CloudPlaylistJournal.Failure {
             return String(localized: "Koda could not save the cloud operation safely. Free some storage and try again.")
         }

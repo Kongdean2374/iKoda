@@ -52,7 +52,7 @@ extension AppModel {
     func moveSession(from leaving: KodaProfile, to profile: KodaProfile) {
         enqueueAccountWork { [self] in
             await activateSession(for: profile)
-            if leaving.isSignedIn || profile.isSignedIn { await music.renewVisitorIdentity() }
+            if leaving.isSignedIn || profile.isSignedIn { await renewAccountVisitorIdentity() }
         }
         stopSync()
         syncAccount(force: true)
@@ -106,7 +106,7 @@ extension AppModel {
             switchProfile(to: profileID)
         } else {
             // Signed in where the listener already was: the session is live, the identity changes.
-            enqueueAccountWork { [self] in await music.renewVisitorIdentity() }
+            enqueueAccountWork { [self] in await renewAccountVisitorIdentity() }
             syncAccount(force: true)
         }
     }
@@ -125,7 +125,7 @@ extension AppModel {
         try? FileManager.default.removeItem(at: mirrorFile(id))
         guard wasActive else { return }
         stopSync()
-        enqueueAccountWork { [self] in await music.renewVisitorIdentity() }
+        enqueueAccountWork { [self] in await renewAccountVisitorIdentity() }
     }
 
     /// Nothing more is sent or saved for the profile's account.
@@ -150,60 +150,141 @@ extension AppModel {
     /// Bring the active profile's library in step with its account: unsent changes go first, then
     /// what the account holds comes in and what was removed from it goes. At most every 15
     /// minutes unless forced (sign-in, switch, pull to refresh).
-    func syncAccount(force: Bool = false) {
+    @discardableResult
+    func syncAccount(force: Bool = false) -> Task<Void, Never>? {
         let profile = roster.active
-        guard profile.isSignedIn, !profile.isExpired else { return }
+        guard profile.isSignedIn, !profile.isExpired else {
+            if force { accountSyncError = cloudPlaylists.availabilityMessage }
+            return nil
+        }
         cloudPlaylists.prepareForAccountSync()
-        guard !cloudPlaylists.isBusy, !cloudPlaylists.isRefreshing else { return }
-        if !force, let last = lastAccountSync[profile.id], Date().timeIntervalSince(last) < 15 * 60 { return }
-        let id = profile.id
-        lastAccountSync[id] = Date()
-        syncTask?.cancel()
-        syncRound += 1
-        let round = syncRound
-        let cloudRevision = cloudPlaylists.catalogRevision
-        syncTask = Task { [self] in
-            await sendPending(for: id)
-            guard !Task.isCancelled, roster.activeID == id else { return }
-            isSyncingAccount = true
-            defer { if syncRound == round { isSyncingAccount = false } }
-            do {
-                async let liked = music.likedSongs()
-                async let albums = music.libraryAlbums()
-                async let playlists = music.libraryPlaylists()
-                async let artists = music.libraryArtists()
-                let account = try await AccountLibrary(liked: liked, albums: albums, playlists: playlists, artists: artists)
-                let info = try? await music.accountInfo()
-                // Switched away (or away and back) while it read: these pages may not all be this account's.
-                guard !Task.isCancelled, roster.activeID == id, syncRound == round else { return }
-                let before = mirror(id)
-                let firstSync = before.liked.isEmpty && before.albums.isEmpty && before.playlists.isEmpty && before.artists.isEmpty
-                updateMirror(id) { library.reconcile(with: account, mirror: &$0) }
-                cloudPlaylists.receiveCatalog(account.playlists, for: id, expectedRevision: cloudRevision)
-                // Home was made before the account's likes arrived, so Your Mix had nothing to seed from.
-                if firstSync, home.profile == id, home.recommendationsRequested {
-                    let model = home
-                    Task { await loadHome(model) }
-                }
-                if let info {
-                    roster.update(id) {
-                        $0.handle = info.handle ?? $0.handle
-                        $0.accountPhoto = info.photo?.url ?? $0.accountPhoto
-                        $0.datasyncId = info.datasyncId ?? $0.datasyncId
-                    }
-                }
-            } catch MusicError.signedOut {
-                guard syncRound == round, roster.activeID == id else { return }
-                roster.update(id) { $0.isExpired = true }
-                cloudPlaylists.receiveRefreshError(MusicError.signedOut, for: id, expectedRevision: cloudRevision)
-            } catch {
-                // Offline or refused for now: the next chance tries again.
-                if syncRound == round, roster.activeID == id {
-                    lastAccountSync[id] = nil
-                    cloudPlaylists.receiveRefreshError(error, for: id, expectedRevision: cloudRevision)
+        guard let scope = cloudPlaylists.captureScope() else { return nil }
+        if let syncTask, syncScope == scope {
+            // A pull during a newer mutation must include the read after that
+            // mutation, not merely join a read that started before the write.
+            if force, let mutation = cloudPlaylists.currentMutationID, mutation != syncMutationBoundary {
+                syncMutationBoundary = mutation
+                syncNeedsFollowUp = true
+            }
+            return syncTask
+        }
+        if !force, let last = lastAccountSync[profile.id], Date().timeIntervalSince(last) < 15 * 60 { return nil }
+        // A different profile's cancelled work must not become this profile's job.
+        stopSync()
+        let id = profile.id, round = syncRound
+        syncScope = scope
+        syncMutationBoundary = cloudPlaylists.currentMutationID
+        isSyncingAccount = true
+        accountSyncError = nil
+        let task = Task { @MainActor [self] in
+            defer {
+                if syncRound == round {
+                    isSyncingAccount = false
+                    syncTask = nil
+                    syncScope = nil
+                    syncMutationBoundary = nil
+                    syncNeedsFollowUp = false
                 }
             }
+            do {
+                repeat {
+                    try Task.checkCancellation()
+                    guard syncRound == round, syncScope == scope else { throw CloudAccountAccessError.changed }
+                    syncNeedsFollowUp = false
+                    try await cloudPlaylists.waitForCurrentMutation(expectedScope: scope)
+                    // All reads, pending writes and reconciliation share the session
+                    // barrier. A cloud mutation is allowed to finish; a later local
+                    // write cannot clear its pending intent before these reads apply.
+                    do {
+                        try await withCloudAccountWork { [self] in
+                            try await validateAccountSync(scope: scope, round: round)
+                            try await sendPendingInAccountWork(for: id, scope: scope, round: round)
+                            try await validateAccountSync(scope: scope, round: round)
+                            let cloudRevision = cloudPlaylists.catalogRevision
+                            let account: AccountLibrary
+                            let info: AccountInfo?
+                            #if DEBUG
+                            accountSyncReadCount += 1
+                            if let testingAccountLibraryRead {
+                                account = try await testingAccountLibraryRead()
+                                info = nil
+                            } else {
+                                account = try await readCompleteAccountLibrary()
+                                try await validateAccountSync(scope: scope, round: round)
+                                info = try? await music.accountInfo()
+                            }
+                            #else
+                            account = try await readCompleteAccountLibrary()
+                            try await validateAccountSync(scope: scope, round: round)
+                            info = try? await music.accountInfo()
+                            #endif
+                            try await validateAccountSync(scope: scope, round: round)
+                            let before = mirror(id)
+                            let firstSync = before.liked.isEmpty && before.albums.isEmpty && before.playlists.isEmpty && before.artists.isEmpty
+                            updateMirror(id) { library.reconcile(with: account, mirror: &$0) }
+                            lastAccountSync[id] = Date()
+                            cloudPlaylists.receiveCatalog(account.playlists, for: id, expectedRevision: cloudRevision)
+                            if firstSync, home.profile == id, home.recommendationsRequested {
+                                let model = home
+                                Task { await loadHome(model) }
+                            }
+                            if let info {
+                                roster.update(id) {
+                                    $0.handle = info.handle ?? $0.handle
+                                    $0.accountPhoto = info.photo?.url ?? $0.accountPhoto
+                                    $0.datasyncId = info.datasyncId ?? $0.datasyncId
+                                }
+                            }
+                        }
+                    } catch {
+                        try Task.checkCancellation()
+                        guard syncRound == round, cloudPlaylists.captureScope() == scope,
+                              syncNeedsFollowUp else { throw error }
+                        // A newer pull asked for the state after a pending mutation;
+                        // an older failed read must not consume that newer request.
+                    }
+                    try Task.checkCancellation()
+                    guard syncRound == round, syncScope == scope else { throw CloudAccountAccessError.changed }
+                } while syncNeedsFollowUp
+                accountSyncError = nil
+            } catch {
+                guard syncRound == round, roster.activeID == id else { return }
+                if error is CancellationError { return }
+                if let musicError = error as? MusicError, musicError == .signedOut {
+                    roster.update(id) { $0.isExpired = true }
+                }
+                lastAccountSync[id] = nil
+                accountSyncError = accountSyncMessage(error)
+            }
         }
+        syncTask = task
+        return task
+    }
+
+    private func readCompleteAccountLibrary() async throws -> AccountLibrary {
+        async let liked = music.likedSongs()
+        async let albums = music.libraryAlbums()
+        async let playlists = music.libraryPlaylists()
+        async let artists = music.libraryArtists()
+        return try await AccountLibrary(liked: liked, albums: albums, playlists: playlists, artists: artists)
+    }
+
+    private func validateAccountSync(scope: CloudPlaylistAccountScope, round: Int) async throws {
+        try Task.checkCancellation()
+        guard syncRound == round, syncScope == scope, cloudPlaylists.captureScope() == scope,
+              roster.activeID == scope.profileID else { throw CloudAccountAccessError.changed }
+        guard roster.active.isSignedIn, !roster.active.isExpired else { throw CloudAccountAccessError.expired }
+        #if DEBUG
+        if testingAccountLibraryRead != nil { return }
+        #endif
+        guard await music.accounts.active?.profileID == scope.profileID else { throw CloudAccountAccessError.changed }
+        try Task.checkCancellation()
+        guard syncRound == round, cloudPlaylists.captureScope() == scope else { throw CloudAccountAccessError.changed }
+    }
+
+    private func accountSyncMessage(_ error: Error) -> String {
+        if error is AccountLibraryReadError || error is CloudAccountAccessError { return error.localizedDescription }
+        return CloudPlaylistCoordinator.message(error)
     }
 
     /// Load Home once the session has settled, so a Home made by a switch or a sign-in is asked
@@ -237,15 +318,28 @@ extension AppModel {
     }
 
     /// A sync now, for pull to refresh, finishing when it does.
-    func refreshAccount() async {
-        syncAccount(force: true)
-        await syncTask?.value
+    func refreshAccount(waitTimeout: Duration = .seconds(60)) async {
+        guard let task = syncAccount(force: true) else { return }
+        let round = syncRound, profileID = roster.activeID
+        let outcome = await AccountRefreshWait.wait(for: task, timeout: waitTimeout)
+        if outcome == .timedOut, syncRound == round, roster.activeID == profileID, syncTask != nil {
+            // The view's spinner is bounded, but its one coalesced request remains
+            // queued. A lengthy valid cloud mutation must still be followed by the
+            // refresh the listener requested, unless the account/session changes.
+            accountSyncError = String(localized: "Library refresh is still waiting. Your saved music is unchanged and will update when it finishes.")
+        }
     }
 
     private func stopSync() {
+        if let scope = syncScope, syncTask != nil { lastAccountSync[scope.profileID] = nil }
         syncTask?.cancel()
+        syncTask = nil
+        syncScope = nil
+        syncMutationBoundary = nil
+        syncNeedsFollowUp = false
         syncRound += 1
         isSyncingAccount = false
+        accountSyncError = nil
     }
 
     /// A like or save the listener made: remembered until the account has it, and sent now.
@@ -264,13 +358,14 @@ extension AppModel {
 
     /// Changes made offline or before a sign-in expired, oldest first; stops at the first that
     /// has to wait, so they reach the account in the order they were made.
-    private func sendPending(for id: UUID) async {
-        try? await withAccountWork { [self] in
-            guard await music.accounts.active?.profileID == id else { return }
-            for change in mirror(id).pending {
-                guard await write(change, for: id) else { break }
-                updateMirror(id) { $0.sent(change) }
-            }
+    /// The caller already owns `accountWork`. Acquiring it again here would wait
+    /// behind itself, so pending writes run directly and validate between requests.
+    private func sendPendingInAccountWork(for id: UUID, scope: CloudPlaylistAccountScope, round: Int) async throws {
+        for change in mirror(id).pending {
+            try await validateAccountSync(scope: scope, round: round)
+            guard await write(change, for: id) else { break }
+            try await validateAccountSync(scope: scope, round: round)
+            updateMirror(id) { $0.sent(change) }
         }
     }
 
@@ -408,6 +503,12 @@ extension AppModel {
     /// with nothing saved needs signing in again; one the locked Keychain won't read yet goes
     /// signed out until the app is next active, without being called signed out.
     private func activateSession(for profile: KodaProfile) async {
+        #if DEBUG
+        if let testingAccountSessionActivation {
+            await testingAccountSessionActivation(profile)
+            return
+        }
+        #endif
         guard profile.isSignedIn else {
             await music.accounts.deactivate()
             return
@@ -424,11 +525,25 @@ extension AppModel {
         }
     }
 
+    private func renewAccountVisitorIdentity() async {
+        #if DEBUG
+        if let testingAccountVisitorRenewal {
+            await testingAccountVisitorRenewal()
+            return
+        }
+        #endif
+        await music.renewVisitorIdentity()
+    }
+
     /// YouTube's word on a session marks its profile as needing sign-in, or clears that again.
     private func apply(_ verdict: AccountVerdict) {
         guard roster.profile(verdict.profileID)?.isSignedIn == true else { return }
         roster.update(verdict.profileID) { $0.isExpired = !verdict.signedIn }
-        if !verdict.signedIn, roster.activeID == verdict.profileID { cloudPlaylists.invalidateSession() }
+        if !verdict.signedIn, roster.activeID == verdict.profileID {
+            stopSync()
+            accountSyncError = MusicError.signedOut.friendlyMessage
+            cloudPlaylists.invalidateSession()
+        }
     }
 
     private func enqueueAccountWork(_ work: @escaping @MainActor () async -> Void) {
@@ -469,14 +584,8 @@ extension AppModel {
     }
 
     func cloudMutationBegan() {
-        stopSync()
-        lastAccountSync[roster.activeID] = nil
-    }
-
-    func cloudRefreshBegan() {
-        stopSync()
-        // A cancelled combined sync did not refresh likes/albums/artists. Do not
-        // treat its start time as a successful 15-minute throttle window.
+        // Reads and writes now share accountWork, so a pending manual refresh is
+        // kept in line instead of being discarded whenever a mutation starts.
         lastAccountSync[roster.activeID] = nil
     }
 

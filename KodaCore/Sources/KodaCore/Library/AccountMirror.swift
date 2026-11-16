@@ -1,6 +1,8 @@
 import Foundation
 
-/// What a signed-in account holds, as one sync read it.
+/// What a signed-in account holds after all four authoritative reads completed.
+/// Browsing pages, capped prefixes and CloudPlaylistCatalogResult partial results
+/// must never be used to build this deletion-capable reconciliation snapshot.
 public struct AccountLibrary: Sendable {
     public var liked: [Song]
     public var albums: [AlbumSummary]
@@ -60,6 +62,8 @@ extension Library {
     /// sync, then remember what it holds now. Something only ever kept here stays, and so does
     /// anything with a change still waiting to be sent: an unlike made offline isn't liked again,
     /// a like made offline isn't dropped.
+    /// The account arrays must come from complete-or-error library reads; an error
+    /// leaves this method uncalled and preserves both the library and its mirror.
     public func reconcile(with account: AccountLibrary, mirror: inout AccountMirror) {
         func incoming<T: Identifiable>(_ items: [T], _ kind: LibraryChange.Kind) -> [T] where T.ID == String {
             let removedHere = mirror.unsent(kind, adding: false)

@@ -1,5 +1,58 @@
 import Foundation
 
+/// An incomplete account read cannot establish that any saved item was removed.
+public enum AccountLibraryReadError: Error, Equatable, Sendable, LocalizedError {
+    case incompleteResponse
+
+    public var errorDescription: String? {
+        NSLocalizedString("The complete cloud music library could not be loaded. Your saved library has been kept. Try syncing again later.",
+                          bundle: KodaLocalization.bundle, comment: "")
+    }
+}
+
+extension InnerTube {
+    /// The four reconciliation sources share one complete-or-error boundary. This
+    /// lives on the existing transport so URLProtocol tests exercise the same request,
+    /// parser and pagination path used by YouTubeMusic, without live credentials.
+    func accountLibraryItems(_ kind: LibraryChange.Kind, limit: Int = 5000, maxPages: Int = 80) async throws -> [MusicItem] {
+        guard limit > 0, maxPages > 0 else { throw AccountLibraryReadError.incompleteResponse }
+        let browseID: String = switch kind {
+        case .liked: "FEmusic_liked_videos"
+        case .album: "FEmusic_liked_albums"
+        case .playlist: "FEmusic_liked_playlists"
+        case .artist: "FEmusic_library_corpus_artists"
+        }
+        var items: [MusicItem] = []
+        var continuation: String?
+        var seen = Set<String>()
+        for _ in 0..<maxPages {
+            try Task.checkCancellation()
+            let payload: [String: Any] = if let continuation { ["continuation": continuation] }
+                else { ["browseId": browseID] }
+            let root = try await music("browse", payload, signing: .required)
+            try Task.checkCancellation()
+            let page: [MusicItem]
+            let next: String?
+            do {
+                page = try AccountPages.completeLibraryItems(root, expectedKind: kind)
+                next = try AccountPages.completeLibraryContinuation(root)
+            } catch {
+                throw AccountLibraryReadError.incompleteResponse
+            }
+            guard page.count <= limit - items.count else { throw AccountLibraryReadError.incompleteResponse }
+            items += page
+            guard let next else { return Pages.dedupe(items) }
+            // Never return a capped prefix, a cycle, or only one of several cursor
+            // chains as the account's complete contents.
+            guard items.count < limit, next != continuation, seen.insert(next).inserted else {
+                throw AccountLibraryReadError.incompleteResponse
+            }
+            continuation = next
+        }
+        throw AccountLibraryReadError.incompleteResponse
+    }
+}
+
 /// The signed-in account's own pages and writes, all on music.youtube.com as WEB_REMIX
 /// and signed with `accounts`' active session. Each throws `MusicError.signedOut` with
 /// no session or when YouTube answers as signed out. Shapes and endpoints follow Koda
@@ -16,18 +69,17 @@ extension YouTubeMusic {
 
     // MARK: Library
 
-    /// Liked songs, newest first, every page up to `limit`. All or nothing: a page that
-    /// fails throws rather than returning part of the list, which a sync would read as
-    /// unlikes.
+    /// Liked songs, newest first, only after every page succeeds. `limit` is a safety
+    /// bound, not permission to return a prefix that reconciliation could read as unlikes.
     public func likedSongs(limit: Int = 5000) async throws -> [Song] {
-        let items = try await library("FEmusic_liked_videos", limit: limit)
+        let items = try await api.accountLibraryItems(.liked, limit: limit)
         return items.compactMap { if case .song(let song) = $0 { return song }; return nil }
     }
 
     /// Playlists in the library: the account's own and ones it saved. Liked Music and
     /// Episodes for Later are left out; liked songs come from `likedSongs`.
     public func libraryPlaylists() async throws -> [PlaylistSummary] {
-        try await library("FEmusic_liked_playlists", requireComplete: true).compactMap {
+        try await api.accountLibraryItems(.playlist).compactMap {
             if case .playlist(let p) = $0, p.id != "LM", p.id != "SE" { return p }
             return nil
         }
@@ -46,31 +98,12 @@ extension YouTubeMusic {
     }
 
     public func libraryAlbums() async throws -> [AlbumSummary] {
-        try await library("FEmusic_liked_albums").compactMap { if case .album(let a) = $0 { return a }; return nil }
+        try await api.accountLibraryItems(.album).compactMap { if case .album(let a) = $0 { return a }; return nil }
     }
 
     /// Artists the account subscribes to.
     public func libraryArtists() async throws -> [ArtistSummary] {
-        try await library("FEmusic_library_corpus_artists").compactMap { if case .artist(let a) = $0 { return a }; return nil }
-    }
-
-    /// A library page and its continuations.
-    private func library(_ browseId: String, limit: Int = 5000, requireComplete: Bool = false) async throws -> [MusicItem] {
-        var root = try await api.music("browse", ["browseId": browseId], signing: .required)
-        var items = if requireComplete { try AccountPages.completeLibraryItems(root) } else { AccountPages.libraryItems(root) }
-        var seen = Set<String>()
-        // 100 rows a page: 80 pages is past any library, so a chain that long isn't ending.
-        while items.count < limit, seen.count < 80, let token = AccountPages.libraryContinuation(root), seen.insert(token).inserted {
-            try Task.checkCancellation()
-            root = try await api.music("browse", ["continuation": token], signing: .required)
-            let pageItems = if requireComplete { try AccountPages.completeLibraryItems(root) } else { AccountPages.libraryItems(root) }
-            items += pageItems
-        }
-        let completeItems = Pages.dedupe(items)
-        if requireComplete, AccountPages.libraryContinuation(root) != nil || completeItems.count > limit {
-            throw CloudPlaylistError.incompleteResponse
-        }
-        return Array(completeItems.prefix(limit))
+        try await api.accountLibraryItems(.artist).compactMap { if case .artist(let a) = $0 { return a }; return nil }
     }
 
     // MARK: Writes

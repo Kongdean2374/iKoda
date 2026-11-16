@@ -81,5 +81,62 @@ import Testing
         library.toggleLike(b)
         #expect(told == [.liked(b, true)])
     }
+
+    private func allCollections(_ suffix: String) -> AccountLibrary {
+        .init(liked: [.init(id: "song-" + suffix, title: suffix, artistLine: "Artist")],
+              albums: [.init(id: "MPRE" + suffix, title: suffix, artistLine: "Artist")],
+              playlists: [.init(id: "PL" + suffix, title: suffix)],
+              artists: [.init(id: "UC" + suffix, name: suffix)])
+    }
+
+    @Test func confirmedCloudRemovalsStillApplyToAllFourCollections() {
+        let library = Library(directory: nil)
+        let remote = allCollections("remote"), local = allCollections("local")
+        library.toggleLike(local.liked[0])
+        library.toggleSave(local.albums[0])
+        library.toggleSave(local.playlists[0])
+        library.toggleSave(local.artists[0])
+        var mirror = AccountMirror()
+        library.reconcile(with: remote, mirror: &mirror)
+        library.reconcile(with: .init(), mirror: &mirror)
+        #expect(library.liked == local.liked)
+        #expect(library.albums == local.albums)
+        #expect(library.playlists == local.playlists)
+        #expect(library.artists == local.artists)
+        #expect(mirror == AccountMirror())
+    }
+
+    @Test func pendingOfflineAddsProtectAllFourCollectionsFromConfirmedRemoteAbsence() {
+        let library = Library(directory: nil)
+        let remote = allCollections("remote")
+        var mirror = AccountMirror()
+        library.reconcile(with: remote, mirror: &mirror)
+        let changes: [LibraryChange] = [.liked(remote.liked[0], true), .album(remote.albums[0], true),
+                                        .playlist(remote.playlists[0], true), .artist(remote.artists[0], true)]
+        changes.forEach { mirror.queue($0) }
+        library.reconcile(with: .init(), mirror: &mirror)
+        #expect(library.liked == remote.liked)
+        #expect(library.albums == remote.albums)
+        #expect(library.playlists == remote.playlists)
+        #expect(library.artists == remote.artists)
+        #expect(mirror.pending == changes)
+    }
+
+    @Test func pendingOfflineRemovalsAreNotUndoneByACompleteCloudSnapshot() {
+        let library = Library(directory: nil)
+        let remote = allCollections("remote")
+        var mirror = AccountMirror()
+        library.reconcile(with: remote, mirror: &mirror)
+        library.toggleLike(remote.liked[0])
+        library.toggleSave(remote.albums[0])
+        library.toggleSave(remote.playlists[0])
+        library.toggleSave(remote.artists[0])
+        let changes: [LibraryChange] = [.liked(remote.liked[0], false), .album(remote.albums[0], false),
+                                        .playlist(remote.playlists[0], false), .artist(remote.artists[0], false)]
+        changes.forEach { mirror.queue($0) }
+        library.reconcile(with: remote, mirror: &mirror)
+        #expect(library.liked.isEmpty && library.albums.isEmpty && library.playlists.isEmpty && library.artists.isEmpty)
+        #expect(mirror.pending == changes)
+    }
 }
 

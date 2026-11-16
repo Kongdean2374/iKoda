@@ -51,25 +51,47 @@ enum AccountPages {
 
     /// Where a library page and its continuations keep their items: a list shelf of rows
     /// or a grid of cards first, then the legacy and modern continuation shapes.
+    private static let libraryContainerKeys = ["musicShelfRenderer", "gridRenderer", "musicShelfContinuation",
+                                               "gridContinuation", "appendContinuationItemsAction"]
+
     private static func libraryContainers(_ root: JSON) -> [JSON] {
-        root.objects("musicShelfRenderer") + root.objects("gridRenderer")
-            + root.objects("musicShelfContinuation") + root.objects("gridContinuation")
-            + root.objects("appendContinuationItemsAction")
+        libraryContainerKeys.flatMap { root.objects($0) }
+    }
+
+    /// JSON.objects deliberately ignores non-object values. For a deletion-capable
+    /// read, a known wrapper with a malformed value must not vanish beside a valid
+    /// empty shelf. Keep this validation local to account-library responses.
+    private static func hasMalformedLibraryContainer(_ root: JSON) -> Bool {
+        func malformed(_ value: Any?) -> Bool {
+            if let object = value as? [String: Any] {
+                for (key, child) in object {
+                    if libraryContainerKeys.contains(key), !(child is [String: Any]) { return true }
+                    if malformed(child) { return true }
+                }
+            } else if let array = value as? [Any] {
+                return array.contains { malformed($0) }
+            }
+            return false
+        }
+        return malformed(root.raw)
     }
 
     static func hasLibraryContainer(_ root: JSON) -> Bool {
         let containers = libraryContainers(root)
-        return !containers.isEmpty && containers.allSatisfy {
-            $0["contents"].raw is [Any] || $0["items"].raw is [Any] || $0["continuationItems"].raw is [Any]
-        }
+        return !containers.isEmpty && !hasMalformedLibraryContainer(root) && containers.allSatisfy(hasValidLibraryContents)
+    }
+
+    private static func hasValidLibraryContents(_ container: JSON) -> Bool {
+        let present = ["contents", "items", "continuationItems"].filter { container[$0].raw != nil }
+        return !present.isEmpty && present.allSatisfy { container[$0].raw is [Any] }
     }
 
     /// An authoritative directory may remove formerly cached entries. An unknown
     /// row or malformed container must therefore fail, never become an empty catalog.
-    static func completeLibraryItems(_ root: JSON) throws -> [MusicItem] {
+    static func completeLibraryItems(_ root: JSON, expectedKind: LibraryChange.Kind? = nil) throws -> [MusicItem] {
         guard hasLibraryContainer(root) else { throw CloudPlaylistError.incompleteResponse }
         let containers = libraryContainers(root)
-        for scope in containers where scope["continuations"].exists {
+        for scope in containers where scope["continuations"].raw != nil {
             guard scope["continuations"].raw is [Any], scope["continuations"].array.allSatisfy({
                 $0["nextContinuationData"]["continuation"].nonEmpty != nil
             }) else { throw CloudPlaylistError.incompleteResponse }
@@ -78,6 +100,7 @@ enum AccountPages {
         var items: [MusicItem] = []
         for entry in entries {
             if let item = libraryItem(entry) {
+                if let expectedKind, !matches(item, expectedKind: expectedKind) { throw CloudPlaylistError.incompleteResponse }
                 items.append(item)
             } else if entry["continuationItemRenderer"].exists {
                 // Pagination controls are not playlists, but a missing token cannot
@@ -85,13 +108,16 @@ enum AccountPages {
                 guard entry["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty != nil else {
                     throw CloudPlaylistError.incompleteResponse
                 }
-            } else if isNewPlaylistCard(entry) {
+            } else if isNewPlaylistCard(entry), expectedKind == nil || expectedKind == .playlist {
                 // The library's New playlist card does not represent a remote item.
+                continue
+            } else if expectedKind == .liked, isLibraryShuffleControl(entry) {
                 continue
             } else {
                 throw CloudPlaylistError.incompleteResponse
             }
         }
+        _ = try completeLibraryContinuation(root)
         return Pages.dedupe(items)
     }
 
@@ -109,13 +135,14 @@ enum AccountPages {
         var playlists: [PlaylistSummary] = []
         var unknownEntries = 0
         var invalidContinuation = false
-        if containers.isEmpty { issues.append(.unrecognizedPage) }
+        if containers.isEmpty || hasMalformedLibraryContainer(root) { issues.append(.unrecognizedPage) }
         for scope in containers {
-            guard scope["contents"].raw is [Any] || scope["items"].raw is [Any] || scope["continuationItems"].raw is [Any] else {
+            if !hasValidLibraryContents(scope) {
                 if !issues.contains(.unrecognizedPage) { issues.append(.unrecognizedPage) }
-                continue
+                // Retain readable cards in other array fields for display, but the
+                // malformed field means this result can never authorize deletions.
             }
-            if scope["continuations"].exists,
+            if scope["continuations"].raw != nil,
                !(scope["continuations"].raw is [Any]) || !scope["continuations"].array.allSatisfy({
                    $0["nextContinuationData"]["continuation"].nonEmpty != nil
                }) {
@@ -123,8 +150,12 @@ enum AccountPages {
             }
             for entry in scope["contents"].array + scope["items"].array + scope["continuationItems"].array {
                 if let item = libraryItem(entry) {
-                    if case .playlist(let playlist) = item, playlist.id != "LM", playlist.id != "SE" {
-                        playlists.append(playlist)
+                    if case .playlist(let playlist) = item {
+                        if playlist.id != "LM", playlist.id != "SE" { playlists.append(playlist) }
+                    } else {
+                        // A response of the wrong collection type cannot prove
+                        // that previously saved playlists disappeared.
+                        unknownEntries += 1
                     }
                 } else if entry["continuationItemRenderer"].exists {
                     if entry["continuationItemRenderer"].first("continuationCommand")["token"].nonEmpty == nil {
@@ -135,6 +166,8 @@ enum AccountPages {
                 }
             }
         }
+        do { _ = try completeLibraryContinuation(root) }
+        catch { invalidContinuation = true }
         if unknownEntries > 0 { issues.append(.unrecognizedEntries(unknownEntries)) }
         if invalidContinuation { issues.append(.invalidContinuation) }
         return .init(playlists: Pages.dedupe(playlists), continuation: libraryContinuation(root), issues: issues)
@@ -145,7 +178,7 @@ enum AccountPages {
     /// Restrict the fallback to the title; artist links in the subtitle are not
     /// the identity of the playlist itself.
     private static func libraryItem(_ entry: JSON) -> MusicItem? {
-        if let item = Rows.item(entry: entry) { return item }
+        if let item = Rows.item(entry: entry) { return hasValidIdentity(item) ? item : nil }
         let isCard = entry["musicTwoRowItemRenderer"].exists
         let row = isCard ? entry["musicTwoRowItemRenderer"] : entry["musicResponsiveListItemRenderer"]
         guard row.exists, !row["navigationEndpoint"]["browseEndpoint"].exists,
@@ -155,7 +188,18 @@ enum AccountPages {
         guard let first = linked.first, let id = first.link?.id,
               linked.allSatisfy({ $0.link?.id == id }), var fields = row.raw as? [String: Any] else { return nil }
         fields["navigationEndpoint"] = first["navigationEndpoint"].raw
-        return isCard ? Rows.item(twoRow: JSON(fields)) : Rows.item(listRow: JSON(fields))
+        let parsed = isCard ? Rows.item(twoRow: JSON(fields)) : Rows.item(listRow: JSON(fields))
+        return parsed.flatMap { hasValidIdentity($0) ? $0 : nil }
+    }
+
+    private static func hasValidIdentity(_ item: MusicItem) -> Bool {
+        let id: String = switch item {
+        case .song(let song): song.id
+        case .album(let album): album.id
+        case .playlist(let playlist): playlist.id
+        case .artist(let artist): artist.id
+        }
+        return !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func isNewPlaylistCard(_ entry: JSON) -> Bool {
@@ -164,6 +208,23 @@ enum AccountPages {
         let endpoints = [card["navigationEndpoint"]] + card["title"].runs.map { $0["navigationEndpoint"] }
         guard !endpoints.contains(where: { $0["browseEndpoint"].exists || $0["watchEndpoint"].exists }) else { return false }
         return endpoints.contains { $0["createPlaylistEndpoint"].exists }
+    }
+
+    private static func matches(_ item: MusicItem, expectedKind: LibraryChange.Kind) -> Bool {
+        switch (item, expectedKind) {
+        case (.song, .liked), (.album, .album), (.playlist, .playlist), (.artist, .artist): return true
+        default: return false
+        }
+    }
+
+    /// The real library Shuffle all row has a collection endpoint and shuffle
+    /// badge (rustypipe music_userdata/saved_tracks.json). Text or row position alone
+    /// cannot distinguish a control from a malformed song and is never sufficient.
+    private static func isLibraryShuffleControl(_ entry: JSON) -> Bool {
+        let row = entry["musicResponsiveListItemRenderer"]
+        return row.exists && Rows.videoId(row) == nil && !row["navigationEndpoint"]["browseEndpoint"].exists
+            && row["navigationEndpoint"]["watchPlaylistEndpoint"]["playlistId"].nonEmpty != nil
+            && row["thumbnail"]["musicIconBadgeRenderer"]["icon"]["iconType"].string == "MUSIC_SHUFFLE"
     }
 
     static func librarySongs(_ root: JSON) -> [Song] {
@@ -181,6 +242,34 @@ enum AccountPages {
             }).first { return token }
         }
         return nil
+    }
+
+    /// One response may repeat the same cursor, but distinct cursors describe
+    /// independent unfinished chains. Following only the first cannot prove a
+    /// complete account library. Outer section reload tokens are not track pages.
+    static func completeLibraryContinuation(_ root: JSON) throws -> String? {
+        var tokens = Set<String>()
+        for scope in libraryContainers(root) {
+            if scope["continuations"].raw != nil {
+                guard scope["continuations"].raw is [Any] else { throw CloudPlaylistError.incompleteResponse }
+                for value in scope["continuations"].array {
+                    guard let token = value["nextContinuationData"]["continuation"].nonEmpty else {
+                        throw CloudPlaylistError.incompleteResponse
+                    }
+                    tokens.insert(token)
+                }
+            }
+            let entries = scope["contents"].array + scope["items"].array + scope["continuationItems"].array
+            for entry in entries where entry["continuationItemRenderer"].exists {
+                let commands = entry["continuationItemRenderer"].objects("continuationCommand")
+                guard !commands.isEmpty, commands.allSatisfy({ $0["token"].nonEmpty != nil }) else {
+                    throw CloudPlaylistError.incompleteResponse
+                }
+                tokens.formUnion(commands.compactMap { $0["token"].nonEmpty })
+            }
+        }
+        guard tokens.count <= 1 else { throw CloudPlaylistError.incompleteResponse }
+        return tokens.first
     }
 
     // MARK: Writes

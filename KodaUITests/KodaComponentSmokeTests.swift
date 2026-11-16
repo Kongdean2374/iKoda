@@ -220,6 +220,109 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testLibraryPullWaitsForOneSharedAccountSyncAndAppliesConfirmedRemoval() {
+        let app = launch(extraArguments: ["-KodaUITestAccountSync"])
+        reveal(app.buttons["fixture.library"], in: app)
+        app.buttons["fixture.library"].tap()
+        pullLibraryToRefresh(in: app)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        expectAccountFixture("readCount", "1", in: app)
+        expectAccountFixture("state", "waiting", in: app)
+        reveal(app.buttons["fixture.account.join"], in: app)
+        app.buttons["fixture.account.join"].tap()
+        expectAccountFixture("joined", "2", in: app, towardTop: true)
+        expectAccountFixture("completed", "0", in: app)
+        expectAccountFixture("readCount", "1", in: app, towardTop: true)
+        reveal(app.buttons["fixture.account.release"], in: app)
+        app.buttons["fixture.account.release"].tap()
+        expectAccountFixture("completed", "2", in: app, towardTop: true)
+        expectAccountFixture("state", "idle", in: app)
+        expectAccountFixture("liked", "ui-smoke-a,ui-smoke-c", in: app)
+        expectAccountFixture("queue", "unchanged", in: app)
+        expectAccountFixture("readCount", "1", in: app, towardTop: true)
+        capture(app, "library-shared-refresh-confirmed-removal")
+    }
+
+    @MainActor
+    func testLibraryRefreshFailureKeepsLikesCachedPlaylistsAndQueue() {
+        let app = launch(extraArguments: ["-KodaUITestAccountSync", "-KodaUITestAccountSyncFailure"])
+        reveal(app.buttons["fixture.library"], in: app)
+        app.buttons["fixture.library"].tap()
+        pullLibraryToRefresh(in: app)
+        let error = app.staticTexts["library.sync.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 10))
+        reveal(error, in: app, towardTop: true)
+        expectState(error, matching: NSPredicate(format: "label == %@", "Check your connection and try again."))
+        let cached = app.staticTexts["Fixture Alpha"]
+        reveal(cached, in: app)
+        XCTAssertTrue(cached.exists, "A failed full sync must retain the cached playlist")
+        capture(app, "library-sync-failure-preserves-cache")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        expectAccountFixture("readCount", "1", in: app)
+        expectAccountFixture("state", "idle", in: app)
+        expectAccountFixture("liked", "ui-smoke-a,ui-smoke-b,ui-smoke-c", in: app)
+        expectAccountFixture("queue", "unchanged", in: app)
+    }
+
+    @MainActor
+    func testLibraryPullDuringCloudRenameRunsAfterTheWriteWithoutCancellingIt() {
+        let app = launch(extraArguments: ["-KodaUITestAccountSync"])
+        reveal(app.buttons["fixture.account.mutationStart"], in: app)
+        app.buttons["fixture.account.mutationStart"].tap()
+        expectAccountFixture("mutationState", "running", in: app, towardTop: true)
+        reveal(app.buttons["fixture.library"], in: app, towardTop: true)
+        app.buttons["fixture.library"].tap()
+        pullLibraryToRefresh(in: app)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        expectAccountFixture("readCount", "0", in: app)
+        expectAccountFixture("state", "waiting", in: app)
+        reveal(app.buttons["fixture.account.join"], in: app)
+        app.buttons["fixture.account.join"].tap()
+        expectAccountFixture("completed", "0", in: app, towardTop: true)
+        reveal(app.buttons["fixture.account.mutationRelease"], in: app)
+        app.buttons["fixture.account.mutationRelease"].tap()
+        expectAccountFixture("mutationState", "succeeded", in: app, towardTop: true)
+        expectAccountFixture("readCount", "1", in: app, towardTop: true)
+        expectAccountFixture("completed", "2", in: app)
+        expectAccountFixture("state", "idle", in: app)
+        expectAccountFixture("queue", "unchanged", in: app)
+        let renamed = app.staticTexts["fixture.playlist.UI renamed"]
+        reveal(renamed, in: app)
+        expectState(renamed, matching: NSPredicate(format: "label == %@", "UI renamed: 2"))
+        capture(app, "library-refresh-after-cloud-write")
+    }
+
+    @MainActor
+    func testAccountSwitchAwayAndBackRejectsTheOldRefreshResponse() {
+        let app = launch(extraArguments: ["-KodaUITestAccountSync"])
+        reveal(app.buttons["fixture.library"], in: app)
+        app.buttons["fixture.library"].tap()
+        pullLibraryToRefresh(in: app)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        expectAccountFixture("readCount", "1", in: app)
+        reveal(app.buttons["fixture.account.profileSwitch"], in: app)
+        app.buttons["fixture.account.profileSwitch"].tap()
+        expectAccountFixture("profileCycle", "switched", in: app, towardTop: true)
+        reveal(app.buttons["fixture.account.release"], in: app, towardTop: true)
+        app.buttons["fixture.account.release"].tap()
+        expectAccountFixture("profileCycle", "new-refresh", in: app)
+        expectAccountFixture("readCount", "2", in: app, towardTop: true)
+        expectAccountFixture("liked", "ui-after-switch", in: app)
+        reveal(app.buttons["fixture.account.release"], in: app)
+        app.buttons["fixture.account.release"].tap()
+        expectAccountFixture("profileCycle", "settled", in: app)
+        expectAccountFixture("profileValid", "valid", in: app)
+        let catalogReads = app.staticTexts["fixture.account.catalogReads"]
+        reveal(catalogReads, in: app)
+        expectState(catalogReads, matching: NSPredicate(format: "label MATCHES %@", "[1-9][0-9]*"),
+                    because: "The switched profile's catalog must still use the isolated service")
+        expectAccountFixture("switchedSnapshotRows", "2", in: app)
+        expectAccountFixture("liked", "ui-after-switch", in: app, towardTop: true)
+        expectAccountFixture("queue", "unchanged", in: app)
+        capture(app, "account-switch-rejects-old-refresh")
+    }
+
+    @MainActor
     func testPlaylistReentryImmediatelyUsesCompleteCachedSnapshot() {
         let app = launch()
         for _ in 0..<2 {
@@ -583,6 +686,22 @@ final class KodaComponentSmokeTests: XCTestCase {
         expectState(app.buttons["fixture.translation"], matching: NSPredicate(format: "enabled == true"),
                     because: "The offline fixture must finish preparing before interaction")
         return app
+    }
+
+    @MainActor
+    private func pullLibraryToRefresh(in app: XCUIApplication) {
+        let scroll = app.scrollViews["library.scroll"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18))
+            .press(forDuration: 0.1, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82)))
+    }
+
+    @MainActor
+    private func expectAccountFixture(_ field: String, _ value: String, in app: XCUIApplication,
+                                      towardTop: Bool = false, file: StaticString = #filePath, line: UInt = #line) {
+        let element = app.staticTexts["fixture.account.\(field)"]
+        reveal(element, in: app, towardTop: towardTop)
+        expectState(element, matching: NSPredicate(format: "label == %@", value), file: file, line: line)
     }
 
     @MainActor

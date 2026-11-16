@@ -11,9 +11,12 @@ actor UITestCloudTransport: CloudPlaylistTransport {
     private var sequence = 0
     private var failFirstReadAfterAdd: Bool
     private var failNextRead = false
+    private let beforeRename: (@Sendable () async throws -> Void)?
 
-    init(snapshots: [CloudPlaylistSnapshot], songs: [Song], failFirstReadAfterAdd: Bool = false) {
+    init(snapshots: [CloudPlaylistSnapshot], songs: [Song], failFirstReadAfterAdd: Bool = false,
+         beforeRename: (@Sendable () async throws -> Void)? = nil) {
         self.failFirstReadAfterAdd = failFirstReadAfterAdd
+        self.beforeRename = beforeRename
         self.snapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
         self.songs = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
     }
@@ -65,6 +68,7 @@ actor UITestCloudTransport: CloudPlaylistTransport {
     }
 
     func rename(playlistID: String, title: String) async throws {
+        try await beforeRename?()
         guard var value = snapshots[playlistID], value.capabilities.canRename else { throw CloudPlaylistError.readOnly }
         value.playlist.title = title
         snapshots[playlistID] = value
