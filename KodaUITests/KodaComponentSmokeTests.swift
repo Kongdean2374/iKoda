@@ -312,6 +312,10 @@ final class KodaComponentSmokeTests: XCTestCase {
         app.buttons["fixture.account.release"].tap()
         expectAccountFixture("profileCycle", "settled", in: app)
         expectAccountFixture("profileValid", "valid", in: app)
+        let catalogReads = app.staticTexts["fixture.account.catalogReads"]
+        reveal(catalogReads, in: app)
+        expectState(catalogReads, matching: NSPredicate(format: "label MATCHES %@", "[1-9][0-9]*"),
+                    because: "The switched profile's catalog must still use the isolated service")
         expectAccountFixture("liked", "ui-after-switch", in: app, towardTop: true)
         expectAccountFixture("queue", "unchanged", in: app)
         capture(app, "account-switch-rejects-old-refresh")

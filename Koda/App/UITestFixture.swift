@@ -83,6 +83,8 @@ struct KodaUITestFixture: View {
                             .accessibilityIdentifier("fixture.account.profileCycle")
                         Text(verbatim: app.roster.active.isSignedIn && !app.roster.active.isExpired ? "valid" : "invalid")
                             .accessibilityIdentifier("fixture.account.profileValid")
+                        Text(verbatim: "\(accountSync.catalogReads)")
+                            .accessibilityIdentifier("fixture.account.catalogReads")
                         Button { accountSync.switchAwayAndBack(in: app) } label: { Text(verbatim: "Switch profiles away and back") }
                             .accessibilityIdentifier("fixture.account.profileSwitch")
                     }
@@ -225,11 +227,13 @@ struct KodaUITestFixture: View {
             app.player.stop()
             app.player.restoreClearedUpcoming(songs)
             let boundary = UITestAccountSyncBoundary(
+                profileID: id,
                 response: AccountLibrary(liked: [first], playlists: snapshots.map(\.playlist)),
                 queueIDs: app.player.queue.items.map(\.id),
                 fails: ProcessInfo.processInfo.arguments.contains("-KodaUITestAccountSyncFailure"))
             accountSync = boundary
             app.testingAccountLibraryRead = { try await boundary.read() }
+            app.testingAccountCatalogRead = { boundary.readCatalog(for: $0) }
             app.lastAccountSync[id] = Date()
             app.roster.addAccount(name: "UI account", handle: nil, photo: nil, datasyncId: "koda-ui-sync", into: id)
             await app.music.accounts.activate(AccountSession(profileID: id,

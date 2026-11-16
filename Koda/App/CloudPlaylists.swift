@@ -230,6 +230,10 @@ final class CloudPlaylistCoordinator {
                         result = CloudPlaylistCatalogResult(playlists: try await reader())
                     } else if let catalog = self.testingCatalog {
                         result = CloudPlaylistCatalogResult(playlists: catalog)
+                    } else if let accountCatalog = app.testingAccountCatalogRead {
+                        // Profile-scoped UI-test services outlive this coordinator's
+                        // cache reset, including catalog queries made by Siri.
+                        result = try await accountCatalog(profileID)
                     } else {
                         result = try await app.music.libraryPlaylistCatalog()
                     }

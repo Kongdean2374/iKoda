@@ -19,6 +19,8 @@ final class UITestAccountSyncBoundary {
     var holdsMutation = false
     var mutationState = "idle"
     var profileCycleState = "idle"
+    var catalogReads = 0
+    let profileID: UUID
     let queueIDs: [UUID]
     private var response: AccountLibrary
     private let fails: Bool
@@ -26,7 +28,8 @@ final class UITestAccountSyncBoundary {
     private var ignoresReadCancellation = false
     private var holdsNextRead = false
 
-    init(response: AccountLibrary, queueIDs: [UUID], fails: Bool) {
+    init(profileID: UUID, response: AccountLibrary, queueIDs: [UUID], fails: Bool) {
+        self.profileID = profileID
         self.response = response
         self.queueIDs = queueIDs
         self.fails = fails
@@ -52,6 +55,11 @@ final class UITestAccountSyncBoundary {
         if !ignoresReadCancellation { try Task.checkCancellation() }
         if fails { throw MusicError.network }
         return snapshot
+    }
+
+    func readCatalog(for requestedProfile: UUID) -> CloudPlaylistCatalogResult {
+        catalogReads += 1
+        return CloudPlaylistCatalogResult(playlists: requestedProfile == profileID ? response.playlists : [])
     }
 
     func joinRefresh(in app: AppModel) {
@@ -109,6 +117,9 @@ final class UITestAccountSyncBoundary {
             await oldTask?.value
             await app.accountWork?.value
             await app.syncTask?.value
+            // Session invalidation clears the coordinator's per-session cache.
+            // Exercise the replacement service as Siri/entity queries also can.
+            await app.cloudPlaylists.refresh(force: true)
             profileCycleState = "settled"
         }
     }
