@@ -20,6 +20,7 @@ final class UITestAccountSyncBoundary {
     var mutationState = "idle"
     var profileCycleState = "idle"
     var catalogReads = 0
+    var switchedSnapshotRows = 0
     let profileID: UUID
     let queueIDs: [UUID]
     private var response: AccountLibrary
@@ -120,6 +121,11 @@ final class UITestAccountSyncBoundary {
             // Session invalidation clears the coordinator's per-session cache.
             // Exercise the replacement service as Siri/entity queries also can.
             await app.cloudPlaylists.refresh(force: true)
+            do {
+                switchedSnapshotRows = try await app.cloudPlaylists.loadSnapshot(id: "PLui-alpha", force: true).rows.count
+            } catch {
+                switchedSnapshotRows = -1
+            }
             profileCycleState = "settled"
         }
     }

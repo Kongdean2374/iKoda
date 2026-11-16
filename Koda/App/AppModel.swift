@@ -83,6 +83,7 @@ final class AppModel {
     #if DEBUG
     @ObservationIgnored var testingAccountLibraryRead: (@MainActor @Sendable () async throws -> AccountLibrary)?
     @ObservationIgnored var testingAccountCatalogRead: (@MainActor @Sendable (UUID) async throws -> CloudPlaylistCatalogResult)?
+    @ObservationIgnored var testingAccountPlaylistTransport: (@MainActor @Sendable (UUID) -> any CloudPlaylistTransport)?
     @ObservationIgnored var testingAccountSessionActivation: (@MainActor @Sendable (KodaProfile) async -> Void)?
     @ObservationIgnored var testingAccountVisitorRenewal: (@MainActor @Sendable () async -> Void)?
     var accountSyncReadCount = 0

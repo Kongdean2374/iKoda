@@ -85,6 +85,8 @@ struct KodaUITestFixture: View {
                             .accessibilityIdentifier("fixture.account.profileValid")
                         Text(verbatim: "\(accountSync.catalogReads)")
                             .accessibilityIdentifier("fixture.account.catalogReads")
+                        Text(verbatim: "\(accountSync.switchedSnapshotRows)")
+                            .accessibilityIdentifier("fixture.account.switchedSnapshotRows")
                         Button { accountSync.switchAwayAndBack(in: app) } label: { Text(verbatim: "Switch profiles away and back") }
                             .accessibilityIdentifier("fixture.account.profileSwitch")
                     }
@@ -246,10 +248,18 @@ struct KodaUITestFixture: View {
         let beforeRename: (@Sendable () async throws -> Void)?
         if let accountSync { beforeRename = { try await accountSync.holdCloudRename() } }
         else { beforeRename = nil }
+        let transport = UITestCloudTransport(snapshots: snapshots, songs: songs + (largePlaylist ? sourceSongs : []),
+            failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure"),
+            beforeRename: beforeRename)
+        if let accountSync {
+            let profileID = accountSync.profileID
+            let emptyTransport = UITestCloudTransport(snapshots: [], songs: [])
+            // System entity queries may resolve an older identifier after switching.
+            // Keep every cloud operation on the account's test service as well.
+            app.testingAccountPlaylistTransport = { $0 == profileID ? transport : emptyTransport }
+        }
         app.cloudPlaylists.installUITestData(catalog: snapshots.map(\.playlist), snapshots: snapshots,
-            transport: UITestCloudTransport(snapshots: snapshots, songs: songs + (largePlaylist ? sourceSongs : []),
-                failFirstReadAfterAdd: ProcessInfo.processInfo.arguments.contains("-KodaUITestCloudReadbackFailure"),
-                beforeRename: beforeRename), like: { $0 },
+            transport: transport, like: { $0 },
             catalogReader: catalogFailure ? unavailableCatalog : nil)
         if catalogFailure { await app.cloudPlaylists.refresh(force: true) }
         prepared = true

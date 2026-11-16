@@ -741,6 +741,9 @@ final class CloudPlaylistCoordinator {
                            readingRequestID: UUID? = nil) -> any CloudPlaylistTransport {
         #if DEBUG
         if let testingTransport { return testingTransport }
+        if let testingAccountTransport = app?.testingAccountPlaylistTransport {
+            return testingAccountTransport(profileID)
+        }
         #endif
         return YouTubeCloudPlaylistTransport(music: app!.music,
             validate: validator(profileID: profileID, generation: generation),
