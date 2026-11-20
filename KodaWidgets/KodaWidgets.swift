@@ -2,15 +2,16 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-// Koda's widgets: quick ways in that need nothing from the app to draw, since the builds
-// Koda ships can't share a container with an extension. What's playing is already on the
-// Lock Screen and in Control Center through the system's own Now Playing controls.
+// Quick Play and Control Center work without a shared container. The player widget
+// draws optional metadata only when both targets have access to the same App Group.
 
 @main
 struct KodaWidgets: WidgetBundle {
     var body: some Widget {
         QuickPlayWidget()
         #if !targetEnvironment(macCatalyst)
+        CarPlayPlayerWidget()
+        CarPlayLyricsLiveActivity()
         LikedSongsControl()
         PlayPauseControl()
         #endif

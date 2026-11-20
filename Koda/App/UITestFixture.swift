@@ -115,6 +115,16 @@ struct KodaUITestFixture: View {
                     Text(verbatim: "\(playlist.title): \(app.cloudPlaylists.snapshots[playlist.id]?.songs.count ?? 0)")
                         .accessibilityIdentifier("fixture.playlist.\(playlist.title)")
                 }
+                #if !targetEnvironment(macCatalyst)
+                if ProcessInfo.processInfo.arguments.contains("-KodaUITestCarPlayDelay"), songs.count >= 2 {
+                    ForEach(Array(songs.prefix(2))) { song in
+                        NavigationLink { CarPlayLyricsDelayView(song: song) } label: {
+                            Text(verbatim: song.title)
+                        }
+                        .accessibilityIdentifier("fixture.carplay.delay.\(song.id)")
+                    }
+                }
+                #endif
                 Text(verbatim: reduceMotion ? "enabled" : "disabled")
                     .accessibilityIdentifier("fixture.accessibility.reduceMotion")
                 Text(verbatim: reduceTransparency ? "enabled" : "disabled")

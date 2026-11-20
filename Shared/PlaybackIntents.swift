@@ -54,14 +54,26 @@ struct TogglePlaybackIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        let player = app.player
-        if player.current != nil {
-            player.togglePlayPause(from: "a shortcut or widget")
-        } else if !app.library.liked.isEmpty {
-            let songs = app.library.liked
-            player.play(songs, startAt: Int.random(in: 0..<songs.count), shuffled: true)
-        }
+        WidgetPlayback.toggle(in: app)
         return .result()
     }
     #endif
 }
+
+#if !WIDGET_EXTENSION
+@MainActor
+enum WidgetPlayback {
+    @discardableResult
+    static func toggle(in app: AppModel) -> Bool {
+        let player = app.player
+        if player.current != nil {
+            player.togglePlayPause(from: "a shortcut or widget")
+            return true
+        }
+        let songs = app.library.liked
+        guard !songs.isEmpty else { return false }
+        player.play(songs, startAt: Int.random(in: 0..<songs.count), shuffled: true)
+        return true
+    }
+}
+#endif

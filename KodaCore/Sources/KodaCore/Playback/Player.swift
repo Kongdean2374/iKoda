@@ -71,6 +71,8 @@ public final class Player {
     @ObservationIgnored private var sleepTimerTask: Task<Void, Never>?
     @ObservationIgnored private var sleepEndItem: ObjectIdentifier?
     @ObservationIgnored public var onPlaybackSessionFinished: (() -> Void)?
+    /// Called when the queue, including any automatic continuation, runs out.
+    @ObservationIgnored public var onPlaybackQueueEnded: (() -> Void)?
     /// The app coordinates the shared session with MV/PiP and voice search. Missing consent
     /// is deliberately conservative: removing music assets is safe without deactivation.
     @ObservationIgnored public var canDeactivateAudioSession: (() -> Bool)?
@@ -2274,12 +2276,19 @@ public final class Player {
     func extendWithRadio(thenAdvance: Bool, explicitlyRequested: Bool = false) {
         guard !isPlaybackSessionFinished, !evaluateSleepTimer() else { return }
         guard queue.flowContext == nil else {
-            if thenAdvance { pauseCurrentPlayback(from: "the end of Koda Flow") }
+            if thenAdvance {
+                pauseCurrentPlayback(from: "the end of Koda Flow")
+                onPlaybackQueueEnded?()
+            }
             return
         }
         guard autoplay || explicitlyRequested, let last = queue.items.last,
               let anchor = queue.current?.id else {
-            if thenAdvance, queue.repeatMode == .off { seekCurrentPlayback(to: 0); pauseCurrentPlayback(from: "the queue ending") }
+            if thenAdvance, queue.repeatMode == .off {
+                seekCurrentPlayback(to: 0)
+                pauseCurrentPlayback(from: "the queue ending")
+                onPlaybackQueueEnded?()
+            }
             return
         }
         guard wantsToPlay else { return }
@@ -2307,7 +2316,10 @@ public final class Player {
                 let known = Set(queue.items.suffix(100).map(\.song.id))
                 let fresh = songs.filter { !known.contains($0.id) && isUnwanted?($0) != true }
                 guard !fresh.isEmpty else {
-                    if request.advanceWhenReady { pauseCurrentPlayback(from: "the queue ending with no radio") }
+                    if request.advanceWhenReady {
+                        pauseCurrentPlayback(from: "the queue ending with no radio")
+                        onPlaybackQueueEnded?()
+                    }
                     return
                 }
                 queue.append(fresh, protectingOrder: false)
@@ -2321,7 +2333,10 @@ public final class Player {
                       request.generation == token, request.anchor == queue.current?.id, wantsToPlay else { return }
                 radioRequest = nil
                 radioTask = nil
-                if request.advanceWhenReady { pauseCurrentPlayback(from: "the queue ending with no radio") }
+                if request.advanceWhenReady {
+                    pauseCurrentPlayback(from: "the queue ending with no radio")
+                    onPlaybackQueueEnded?()
+                }
             }
         }
     }

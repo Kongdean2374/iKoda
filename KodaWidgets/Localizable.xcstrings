@@ -289,6 +289,278 @@
           }
         }
       }
+    },
+    "Koda Player": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Player"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 播放器"
+          }
+        }
+      }
+    },
+    "A vinyl player with controls for Koda and CarPlay.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A vinyl player with controls for Koda and CarPlay."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可在 iPhone 或 CarPlay 顯示黑膠唱片和 Koda 播放控制。"
+          }
+        }
+      }
+    },
+    "Playback Controls": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback Controls"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放控制"
+          }
+        }
+      }
+    },
+    "Enable lyrics on your iPhone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable lyrics on your iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 iPhone 開啟歌詞。"
+          }
+        }
+      }
+    },
+    "Waiting for playback update…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for playback update…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待播放更新…"
+          }
+        }
+      }
+    },
+    "Loading lyrics…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading lyrics…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入歌詞…"
+          }
+        }
+      }
+    },
+    "No synced lyrics": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No synced lyrics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有同步歌詞"
+          }
+        }
+      }
+    },
+    "Waiting for the next lyric…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the next lyric…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待下一句歌詞…"
+          }
+        }
+      }
+    },
+    "Control Koda Playback": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control Koda Playback"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制 Koda 播放"
+          }
+        }
+      }
+    },
+    "Previous Track": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Track"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一首"
+          }
+        }
+      }
+    },
+    "Next Track": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Track"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一首"
+          }
+        }
+      }
+    },
+    "Show Lyrics": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Lyrics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示歌詞"
+          }
+        }
+      }
+    },
+    "Koda Lyrics": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda Lyrics"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 歌詞"
+          }
+        }
+      }
+    },
+    "Koda playback controls are unavailable here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda playback controls are unavailable here."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在這裡控制 Koda 播放。"
+          }
+        }
+      }
+    },
+    "There is no track to control in Koda.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no track to control in Koda."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 目前沒有可控制的歌曲。"
+          }
+        }
+      }
+    },
+    "This lyrics activity has ended.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This lyrics activity has ended."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個歌詞即時動態已結束。"
+          }
+        }
+      }
+    },
+    "There is no next track in Koda.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no next track in Koda."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 目前沒有下一首歌。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

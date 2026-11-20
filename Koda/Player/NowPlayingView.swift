@@ -24,6 +24,9 @@ struct NowPlayingView: View {
 
     private enum PlayerUtility: Hashable, Identifiable {
         case sound, audio, sleep(custom: Bool)
+        #if !targetEnvironment(macCatalyst)
+        case carPlayLyrics(Song)
+        #endif
         var id: Self { self }
         var isSleepTimer: Bool { if case .sleep = self { return true }; return false }
     }
@@ -81,6 +84,9 @@ struct NowPlayingView: View {
                     switch destination {
                     case .sound: AudioCenterView()
                     case .audio: AudioInformationView()
+                    #if !targetEnvironment(macCatalyst)
+                    case .carPlayLyrics(let song): CarPlayLyricsDelayView(song: song)
+                    #endif
                     case .sleep(let custom): SleepTimerSettingsView(startsWithCustomDuration: custom)
                     }
                 }
@@ -228,6 +234,9 @@ struct NowPlayingView: View {
                 Menu {
                     Section {
                         Button("Audio Information", systemImage: "waveform.path") { utility = .audio }
+                        #if !targetEnvironment(macCatalyst)
+                        Button("CarPlay Lyrics Delay", systemImage: "quote.bubble") { utility = .carPlayLyrics(song) }
+                        #endif
                     }
                     SongMenuItems(song: song)
                     Section {

@@ -434,7 +434,8 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 0.6.2;
+				KODA_CARPLAY_APP_GROUP = group.ivors.Koda.carplay;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = ivors.Koda;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -480,7 +481,8 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 0.6.2;
+				KODA_CARPLAY_APP_GROUP = group.ivors.Koda.carplay;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = ivors.Koda;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -514,7 +516,8 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.2;
+				KODA_CARPLAY_APP_GROUP = group.ivors.Koda.carplay;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = ivors.Koda.Widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -549,7 +552,8 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.2;
+				KODA_CARPLAY_APP_GROUP = group.ivors.Koda.carplay;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = ivors.Koda.Widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

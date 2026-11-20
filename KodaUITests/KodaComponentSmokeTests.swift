@@ -293,6 +293,37 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testCarPlayDelayRemainsIndependentForEachSong() {
+        let app = launch(extraArguments: ["-KodaUITestCarPlayDelay"])
+        let first = app.buttons["fixture.carplay.delay.ui-smoke-a"]
+        let second = app.buttons["fixture.carplay.delay.ui-smoke-b"]
+        reveal(first, in: app)
+        first.tap()
+        let reset = app.buttons["Reset Delay"]
+        XCTAssertTrue(reset.waitForExistence(timeout: 10))
+        XCTAssertFalse(reset.isEnabled)
+        app.buttons["carplay.lyrics.delay.0.5"].tap()
+        app.buttons["carplay.lyrics.delay.-0.1"].tap()
+        let delay = control("carplay.lyrics.delay.value", in: app)
+        expectState(delay, matching: NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "+0.4", "+0.4"))
+        capture(app, "carplay-delay")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        reveal(second, in: app)
+        second.tap()
+        XCTAssertTrue(reset.waitForExistence(timeout: 10))
+        XCTAssertFalse(reset.isEnabled, "The other track must keep its default")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        reveal(first, in: app, towardTop: true)
+        first.tap()
+        XCTAssertTrue(reset.waitForExistence(timeout: 10))
+        XCTAssertTrue(reset.isEnabled)
+        reset.tap()
+        expectState(reset, matching: NSPredicate(format: "enabled == false"))
+    }
+
+    @MainActor
     func testAccountSwitchAwayAndBackRejectsTheOldRefreshResponse() {
         let app = launch(extraArguments: ["-KodaUITestAccountSync"])
         reveal(app.buttons["fixture.library"], in: app)
