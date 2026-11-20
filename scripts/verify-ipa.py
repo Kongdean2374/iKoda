@@ -56,7 +56,22 @@ def inspect_bundle(root: Path, version: str, build: str, apple_tools: bool = Fal
     return info
 
 
-def verify(ipa: Path, output: Path, version: str, build: str, apple_tools: bool = False) -> Path:
+def verify_carplay(app: dict, widget: dict) -> None:
+    require(app.get("NSSupportsLiveActivities") is True, "Live Activities are missing from the App Info.plist")
+    group = app.get("KodaCarPlayAppGroup")
+    require(isinstance(group, str) and group.startswith("group.") and group == widget.get("KodaCarPlayAppGroup"),
+            "CarPlay App Group is missing or differs between the App and Widget")
+    manifest = app.get("UIApplicationSceneManifest", {})
+    scenes = manifest.get("UISceneConfigurations", {}).get("CPTemplateApplicationSceneSessionRoleApplication", [])
+    require(manifest.get("UIApplicationSupportsMultipleScenes") is True and any(
+        scene.get("UISceneClassName") == "CPTemplateApplicationScene"
+        and scene.get("UISceneDelegateClassName") == "Koda.CarPlaySceneDelegate" for scene in scenes
+    ), "CarPlay audio scene is missing from the App Info.plist")
+    print("PASS: IPA declares the CarPlay audio scene, Live Activities and matching App Group identifiers.")
+
+
+def verify(ipa: Path, output: Path, version: str, build: str, apple_tools: bool = False,
+           require_carplay: bool = False) -> Path:
     require(not output.exists(), f"Verification output already exists: {output}")
     with zipfile.ZipFile(ipa) as archive:
         require(archive.testzip() is None, "IPA ZIP CRC validation failed")
@@ -82,6 +97,8 @@ def verify(ipa: Path, output: Path, version: str, build: str, apple_tools: bool 
     require("iPhoneOS" in main.get("CFBundleSupportedPlatforms", []), "IPA is not an iOS device build")
     widget = inspect_bundle(app / "PlugIns/KodaWidgets.appex", version, build, apple_tools)
     require(widget.get("CFBundleIdentifier") == "ivors.Koda.Widgets", "Widget bundle identifier changed")
+    if require_carplay:
+        verify_carplay(main, widget)
     localized_file(app, "InfoPlist.strings")
     core = list(app.rglob("KodaCore_KodaCore.bundle"))
     require(len(core) == 1, "Expected one packaged KodaCore resource bundle")
@@ -97,8 +114,9 @@ def main() -> None:
     parser.add_argument("--build", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--apple-tools", action="store_true")
+    parser.add_argument("--require-carplay", action="store_true")
     args = parser.parse_args()
-    verify(args.ipa, args.output, args.version, args.build, args.apple_tools)
+    verify(args.ipa, args.output, args.version, args.build, args.apple_tools, args.require_carplay)
 
 
 if __name__ == "__main__":
