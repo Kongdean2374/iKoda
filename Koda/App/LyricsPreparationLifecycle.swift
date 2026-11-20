@@ -18,6 +18,8 @@ final class LyricsPreparationLifecycle {
     @ObservationIgnored private var finishingCache = false
     @ObservationIgnored private var finishGeneration = UUID()
     @ObservationIgnored private var finishTask: Task<Void, Never>?
+    /// The activity opts into preparing translations independently of the phone view.
+    var preparesCarPlayLyrics = false
     private var foreground = false
     private var background = false
 
@@ -83,7 +85,7 @@ final class LyricsPreparationLifecycle {
             }
             return Input(current: current, upcoming: upcoming, sources: settings.lyricsSources,
                 customSources: settings.customLyricsSources, automaticEnabled: settings.automaticLyricsTranslation,
-                showsTranslation: settings.showsLyricsTranslation, foreground: foreground,
+                showsTranslation: settings.showsLyricsTranslation || preparesCarPlayLyrics, foreground: foreground,
                 background: background, hasCurrentWork: coordinator.hasCurrentWork,
                 sessionFinished: player.isPlaybackSessionFinished)
         } onChange: { [weak self] in

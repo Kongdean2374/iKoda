@@ -28,6 +28,7 @@ public final class Library {
     public private(set) var dailyListening: [String: TimeInterval] = [:]
     /// Seconds to shift synced lyrics by, per video id; positive shows lines later.
     public private(set) var lyricsOffsets: [String: TimeInterval] = [:]
+    private var carPlayLyricsOffsets: [String: TimeInterval] = [:]
     /// Songs and artists the listener doesn't want offered again.
     public private(set) var notInterested = NotInterested()
     /// The artists, genres and songs picked in taste setup.
@@ -638,6 +639,17 @@ public final class Library {
         save()
     }
 
+    public func carPlayLyricsOffset(for songID: String) -> TimeInterval {
+        CarPlayLyricsTiming.normalizedOffset(carPlayLyricsOffsets[songID] ?? 0)
+    }
+
+    public func setCarPlayLyricsOffset(_ offset: TimeInterval, for songID: String) {
+        let value = CarPlayLyricsTiming.normalizedOffset(offset)
+        guard value != carPlayLyricsOffset(for: songID) else { return }
+        carPlayLyricsOffsets[songID] = value == 0 ? nil : value
+        save()
+    }
+
     // MARK: Search history
 
     public func recordSearch(_ query: String) {
@@ -699,6 +711,7 @@ public final class Library {
         var songStats: [String: SongStats] = [:]
         var dailyListening: [String: TimeInterval] = [:]
         var lyricsOffsets: [String: TimeInterval] = [:]
+        var carPlayLyricsOffsets: [String: TimeInterval] = [:]
         var notInterested = NotInterested()
         var taste = TasteProfile()
         var watched: [Video] = []
@@ -721,6 +734,7 @@ public final class Library {
             songStats = try c.decodeIfPresent([String: SongStats].self, forKey: .songStats) ?? [:]
             dailyListening = try c.decodeIfPresent([String: TimeInterval].self, forKey: .dailyListening) ?? [:]
             lyricsOffsets = try c.decodeIfPresent([String: TimeInterval].self, forKey: .lyricsOffsets) ?? [:]
+            carPlayLyricsOffsets = try c.decodeIfPresent([String: TimeInterval].self, forKey: .carPlayLyricsOffsets) ?? [:]
             notInterested = try c.decodeIfPresent(NotInterested.self, forKey: .notInterested) ?? NotInterested()
             taste = try c.decodeIfPresent(TasteProfile.self, forKey: .taste) ?? TasteProfile()
             watched = try c.decodeIfPresent([Video].self, forKey: .watched) ?? []
@@ -753,6 +767,7 @@ public final class Library {
         songStats = snapshot.songStats
         dailyListening = snapshot.dailyListening
         lyricsOffsets = snapshot.lyricsOffsets
+        carPlayLyricsOffsets = snapshot.carPlayLyricsOffsets
         notInterested = snapshot.notInterested
         taste = snapshot.taste
         watched = snapshot.watched
@@ -838,6 +853,7 @@ public final class Library {
         snapshot.songStats = songStats
         snapshot.dailyListening = dailyListening
         snapshot.lyricsOffsets = lyricsOffsets
+        snapshot.carPlayLyricsOffsets = carPlayLyricsOffsets
         snapshot.notInterested = notInterested
         snapshot.taste = taste
         snapshot.watched = watched

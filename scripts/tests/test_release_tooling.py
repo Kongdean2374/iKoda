@@ -68,7 +68,8 @@ class IPATests(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.addCleanup(self.directory.cleanup)
 
-    def fixture(self, *, widget_build="10501", omit=None, bad_binary=False, extra=None):
+    def fixture(self, *, widget_build="10501", omit=None, bad_binary=False, extra=None,
+                app_info=None, widget_info=None):
         files = {}
         for root, name, identifier, build in (
             ("Payload/Koda.app", "Koda", "ivors.Koda", "10501"),
@@ -77,6 +78,7 @@ class IPATests(unittest.TestCase):
             info = {"CFBundleShortVersionString": "0.4.0", "CFBundleVersion": build,
                     "CFBundleExecutable": name, "CFBundleIdentifier": identifier,
                     "CFBundleSupportedPlatforms": ["iPhoneOS"]}
+            info.update((app_info if name == "Koda" else widget_info) or {})
             files[f"{root}/Info.plist"] = (plistlib.dumps(info, fmt=plistlib.FMT_BINARY), 0o644)
             files[f"{root}/{name}"] = ((b"NOPE" if bad_binary else b"\xcf\xfa\xed\xfe") + bytes(60), 0o755)
             files[f"{root}/zh-Hant.lproj/Localizable.strings"] = (b"compiled table", 0o644)
@@ -96,14 +98,42 @@ class IPATests(unittest.TestCase):
                 archive.writestr(extra, "malicious path")
         return path
 
-    def verify(self, path):
+    def verify(self, path, **options):
         with contextlib.redirect_stdout(io.StringIO()):
-            return ipa_tool.verify(path, self.root / "extracted", "0.4.0", "10501")
+            return ipa_tool.verify(path, self.root / "extracted", "0.4.0", "10501", **options)
 
     def test_checks_actual_plists_executables_and_resources(self):
         app = self.verify(self.fixture())
         self.assertTrue((app / "Koda").is_file())
         self.assertTrue((app / "PlugIns/KodaWidgets.appex/KodaWidgets").stat().st_mode & stat.S_IXUSR)
+
+    def test_checks_compiled_carplay_configuration(self):
+        group = {"KodaCarPlayAppGroup": "group.ivors.Koda.carplay"}
+        app_info = group | {
+            "NSSupportsLiveActivities": True,
+            "UIApplicationSceneManifest": {
+                "UIApplicationSupportsMultipleScenes": True,
+                "UISceneConfigurations": {
+                    "CPTemplateApplicationSceneSessionRoleApplication": [{
+                        "UISceneClassName": "CPTemplateApplicationScene",
+                        "UISceneDelegateClassName": "Koda.CarPlaySceneDelegate",
+                    }]
+                },
+            },
+        }
+        self.verify(self.fixture(app_info=app_info, widget_info=group), require_carplay=True)
+
+    def test_rejects_carplay_scene_overwritten_by_xcode(self):
+        group = {"KodaCarPlayAppGroup": "group.ivors.Koda.carplay"}
+        app_info = group | {
+            "NSSupportsLiveActivities": True,
+            "UIApplicationSceneManifest": {
+                "UIApplicationSupportsMultipleScenes": True,
+                "UISceneConfigurations": {},
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "CarPlay audio scene is missing"):
+            self.verify(self.fixture(app_info=app_info, widget_info=group), require_carplay=True)
 
     def test_rejects_widget_version_mismatch(self):
         with self.assertRaisesRegex(ValueError, "Wrong build"):
