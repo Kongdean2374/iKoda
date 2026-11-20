@@ -62,11 +62,11 @@ final class CarPlayLyricsActivity {
     init(app: AppModel) { self.app = app }
 
     func discardOrphanedActivities() {
-        let activities = LiveActivity.activities
-        guard !activities.isEmpty else { return }
+        let activityIDs = LiveActivity.activities.map(\.id)
+        guard !activityIDs.isEmpty else { return }
         isEnding = true
         Task { [weak self] in
-            for activity in activities { await activity.end(nil, dismissalPolicy: .immediate) }
+            for id in activityIDs { await Self.endActivity(id) }
             self?.isEnding = false
         }
     }
@@ -118,7 +118,7 @@ final class CarPlayLyricsActivity {
     }
 
     func stop() {
-        guard let activity else { return }
+        guard let id = activity?.id else { return }
         let previousUpdate = update
         epoch = UUID()
         self.activity = nil
@@ -138,7 +138,7 @@ final class CarPlayLyricsActivity {
         lastPublication = nil
         Task { [weak self] in
             await previousUpdate?.value
-            await activity.end(nil, dismissalPolicy: .immediate)
+            await Self.endActivity(id)
             self?.isEnding = false
         }
     }
@@ -263,6 +263,7 @@ final class CarPlayLyricsActivity {
         pending = publication
         guard update == nil else { return }
         let generation = epoch
+        let id = activity.id
         update = Task { [weak self] in
             guard let self else { return }
             defer { if self.epoch == generation { self.update = nil } }
@@ -271,9 +272,21 @@ final class CarPlayLyricsActivity {
                 self.pending = nil
                 self.sentState = latest.state
                 self.lastPublication = .now
-                await activity.update(ActivityContent(state: latest.state, staleDate: latest.staleDate))
+                await Self.updateActivity(id, state: latest.state, staleDate: latest.staleDate)
             }
         }
+    }
+
+    // ActivityKit's handles are not Sendable. Reacquire a local handle at the
+    // async call boundary instead of moving the controller's handle across it.
+    private nonisolated static func updateActivity(_ id: String, state: State, staleDate: Date?) async {
+        guard let activity = LiveActivity.activities.first(where: { $0.id == id }) else { return }
+        await activity.update(ActivityContent(state: state, staleDate: staleDate))
+    }
+
+    private nonisolated static func endActivity(_ id: String) async {
+        guard let activity = LiveActivity.activities.first(where: { $0.id == id }) else { return }
+        await activity.end(nil, dismissalPolicy: .immediate)
     }
 
     private static func sameDeadline(_ a: Date?, _ b: Date?) -> Bool {
