@@ -29,7 +29,7 @@ struct CarPlayTransportIntent: AudioPlaybackIntent {
     #endif
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> IntentResultContainer<Never, Never, Never, Never> {
         #if WIDGET_EXTENSION
         throw CarPlayIntentError.hostUnavailable
         #else
@@ -67,7 +67,7 @@ struct ShowCarPlayLyricsIntent: LiveActivityIntent {
     #endif
 
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> IntentResultContainer<Never, Never, Never, Never> {
         #if WIDGET_EXTENSION
         throw CarPlayIntentError.hostUnavailable
         #else
