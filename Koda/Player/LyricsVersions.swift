@@ -66,8 +66,8 @@ final class LyricsVersions {
     var candidates: [LyricsCandidate] { results.flatMap(\.candidates) }
     var recommendation: LyricsCandidate? { LyricsVersionSelection.recommended(candidates, allowLowConfidence: true) }
 
-    func setProfile(_ directory: URL) {
-        guard profile != directory else { return }
+    func setProfile(_ directory: URL, replacingSession: Bool = false) {
+        guard profile != directory || replacingSession else { return }
         profile = directory
         profileScope = UUID()
         resetContext(nil)

@@ -183,14 +183,14 @@ final class LyricsTranslationCoordinator {
             rows: lines.map { .init(id: $0.id, text: $0.text) }, namespace: candidate.id.cacheNamespace, mode: mode))
     }
 
-    func setProfile(_ directory: URL) {
+    func setProfile(_ directory: URL, replacingSession: Bool = false) {
         cancelPrefetch(keepingCurrent: false)
         inputs.removeAll()
         versionBySong.removeAll()
         lookupContext = []
         attemptedPrefetch.removeAll()
         currentRetryKey = nil
-        versions.setProfile(directory)
+        versions.setProfile(directory, replacingSession: replacingSession)
         polish.stop()
         lyricsRevision &+= 1
         refreshTranslationRequests()
@@ -312,7 +312,9 @@ final class LyricsTranslationCoordinator {
             case .working: return String(localized: "Polishing Lyrics in Context…")
             case .complete: return String(localized: "Context Polish Complete")
             case .partial where phase == .ready: return String(localized: "Context Polish Partially Complete")
-            case .unavailable, .language, .failed: return String(localized: "Context Polish Unavailable · Showing Base Translation")
+            case .modelNotReady: return String(localized: "On-Device Model Not Ready · Showing Base Translation")
+            case .language: return String(localized: "Context Polish Language Unavailable · Showing Base Translation")
+            case .unavailable, .failed: return String(localized: "Context Polish Unavailable · Showing Base Translation")
             case .paused: return String(localized: "Context Polish Paused")
             default: break
             }

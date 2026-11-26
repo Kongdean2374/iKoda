@@ -26253,6 +26253,26 @@
           }
         }
       }
+    },
+    "On-Device Model Not Ready · Showing Base Translation": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置端模型尚未就緒，已顯示基礎譯文"
+          }
+        }
+      }
+    },
+    "Context Polish Language Unavailable · Showing Base Translation": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前語言無法使用語境潤飾，已顯示基礎譯文"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -56,7 +56,7 @@ nonisolated private enum OnDeviceLyricEditor {
 @MainActor @Observable
 final class LyricsPolishing {
     enum Status: Equatable {
-        case idle, checking, working, partial, complete, unavailable, language, paused, failed
+        case idle, checking, working, partial, complete, unavailable, modelNotReady, language, paused, failed
     }
 
     private(set) var status: Status = .idle
@@ -156,7 +156,7 @@ final class LyricsPolishing {
 
     private func schedule() {
         guard let target, worker == nil, regenerating == nil, !blocked,
-              ![.unavailable, .language, .failed].contains(status) else { return }
+              ![.unavailable, .modelNotReady, .language, .failed].contains(status) else { return }
         if loaded && target.base.keys.allSatisfy({ lines[$0] != nil }) {
             status = target.completed && !target.base.isEmpty ? .complete : .partial
             if target.completed, let upcoming, !upcoming.base.isEmpty {
@@ -214,7 +214,11 @@ final class LyricsPolishing {
             return
         }
         let model = SystemLanguageModel.default
-        guard model.isAvailable else { show(.unavailable); return }
+        guard model.isAvailable else {
+            if case .unavailable(.modelNotReady) = model.availability { show(.modelNotReady) }
+            else { show(.unavailable) }
+            return
+        }
         guard model.supportsLocale(Locale(identifier: "zh-Hant-TW")) else { show(.language); return }
         show(.working)
         var remaining = eligible[...]

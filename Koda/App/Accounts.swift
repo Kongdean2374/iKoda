@@ -105,7 +105,8 @@ extension AppModel {
         if profileID != roster.activeID {
             switchProfile(to: profileID)
         } else {
-            // Signed in where the listener already was: the session is live, the identity changes.
+            // The device profile retains its files, while in-flight lyrics work gets a new scope.
+            lyricsTranslation.setProfile(roster.folder(for: profileID), replacingSession: true)
             enqueueAccountWork { [self] in await renewAccountVisitorIdentity() }
             syncAccount(force: true)
         }
@@ -124,6 +125,7 @@ extension AppModel {
         forgetAccount(of: id)
         try? FileManager.default.removeItem(at: mirrorFile(id))
         guard wasActive else { return }
+        lyricsTranslation.setProfile(roster.folder(for: id), replacingSession: true)
         stopSync()
         enqueueAccountWork { [self] in await renewAccountVisitorIdentity() }
     }
