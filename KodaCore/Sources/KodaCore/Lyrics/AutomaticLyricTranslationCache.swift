@@ -14,7 +14,7 @@ public actor AutomaticLyricTranslationCache {
 
         /// Source text and its ordered row IDs are part of the identity. The same song from
         /// another provider cannot accidentally reuse a translation with different rows.
-        public init(songID: String, rows: [ChineseLyricTranslationPlan.Row], target: String = "zh-Hant") {
+        public init(songID: String, rows: [ChineseLyricTranslationPlan.Row], target: String = "zh-Hant", namespace: String? = nil) {
             self.songID = songID
             self.target = target
             engineVersion = Self.currentEngineVersion
@@ -28,6 +28,7 @@ public actor AutomaticLyricTranslationCache {
             append("Koda automatic lyrics \(Self.currentEngineVersion)")
             append(songID)
             append(target)
+            if let namespace { append(namespace) }
             append(String(rows.count))
             for row in rows { append(String(row.id)); append(row.text) }
             fingerprint = digest.finalize().map { String(format: "%02x", $0) }.joined()
@@ -46,11 +47,13 @@ public actor AutomaticLyricTranslationCache {
         public var fragments: [String: String]
         public var isComplete: Bool
         public var savedAt: Date
+        public var usedCompatibility: Bool?
 
-        public init(fragments: [String: String], isComplete: Bool = false, savedAt: Date = Date()) {
+        public init(fragments: [String: String], isComplete: Bool = false, savedAt: Date = Date(), usedCompatibility: Bool? = nil) {
             self.fragments = fragments
             self.isComplete = isComplete
             self.savedAt = savedAt
+            self.usedCompatibility = usedCompatibility
         }
     }
 
@@ -125,7 +128,8 @@ public actor AutomaticLyricTranslationCache {
             let newer = clean.savedAt >= previous.savedAt
             let fragments = previous.fragments.merging(clean.fragments) { old, new in newer ? new : old }
             merged = Entry(fragments: fragments, isComplete: previous.isComplete || clean.isComplete,
-                           savedAt: max(previous.savedAt, clean.savedAt))
+                           savedAt: max(previous.savedAt, clean.savedAt),
+                           usedCompatibility: newer ? clean.usedCompatibility : previous.usedCompatibility)
         } else {
             merged = clean
         }
@@ -136,6 +140,16 @@ public actor AutomaticLyricTranslationCache {
         try? data.write(to: fileURL(key.fingerprint), options: .atomic)
         records[key.fingerprint] = Record(size: data.count, access: nextAccess(), value: envelope)
         trim()
+    }
+
+    public func discard(_ key: Key) {
+        loadIndexIfNeeded()
+        remove(key.fingerprint)
+    }
+
+    public func byteCount() -> Int {
+        loadIndexIfNeeded()
+        return records.values.reduce(0) { $0 + $1.size }
     }
 
     public func clear() {
@@ -150,7 +164,7 @@ public actor AutomaticLyricTranslationCache {
         let fragments = entry.fragments.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return Entry(fragments: fragments,
                      isComplete: entry.isComplete && fragments.count == entry.fragments.count,
-                     savedAt: entry.savedAt)
+                     savedAt: entry.savedAt, usedCompatibility: entry.usedCompatibility)
     }
 
     private func nextAccess() -> UInt64 {

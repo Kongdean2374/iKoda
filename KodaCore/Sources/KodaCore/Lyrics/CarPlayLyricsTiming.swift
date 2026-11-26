@@ -16,17 +16,24 @@ public enum CarPlayLyricsTiming {
         public let nextPosition: TimeInterval?
     }
 
-    public static func sample(at position: TimeInterval, offset: TimeInterval, in lines: [LyricLine]) -> Sample {
+    public static func sample(at position: TimeInterval, offset: TimeInterval, versionOffset: TimeInterval = 0, in lines: [LyricLine]) -> Sample {
         guard position.isFinite else { return Sample(line: nil, nextPosition: nil) }
-        let delay = normalizedOffset(offset)
+        let delay = normalizedOffset(offset) + (versionOffset.isFinite ? min(30, max(-30, versionOffset)) : 0)
         let time = position - delay
         let index = Lyrics.index(of: time, in: lines)
         let nextIndex = index.map { $0 + 1 } ?? 0
         let following = nextIndex < lines.count ? lines[nextIndex].time : nil
-        let candidate = index.map { lines[$0] }
-        let line = candidate.flatMap { line in
-            (line.end.map { time < $0 } ?? true) &&
-            !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? line : nil
+        var line: LyricLine?
+        if let index {
+            // Adjacent overlapping voices can have different end times. Prefer
+            // lead/together at the same timestamp and never show an expired voice.
+            for item in stride(from: index, through: max(0, index - 15), by: -1) {
+                let candidate = lines[item]
+                if let line, candidate.time < line.time { break }
+                guard candidate.end.map({ time < $0 }) ?? (item == index),
+                      !candidate.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                if line == nil || (line?.voice == .duet && candidate.voice != .duet) { line = candidate }
+            }
         }
         let boundary = [line?.end, following].compactMap { $0 }
             .filter { $0.isFinite && $0 > time }.min()

@@ -712,6 +712,10 @@ final class KodaComponentSmokeTests: XCTestCase {
         if dark { app.launchArguments.append("-KodaUITestDark") }
         if largeText { app.launchArguments.append("-KodaUITestLargeText") }
         app.launchArguments += extraArguments
+        if app.state != .notRunning {
+            app.terminate()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 10), "The previous Koda process must terminate before launch")
+        }
         app.launch()
         XCTAssertTrue(app.buttons["fixture.translation"].waitForExistence(timeout: 20))
         expectState(app.buttons["fixture.translation"], matching: NSPredicate(format: "enabled == true"),
@@ -723,8 +727,14 @@ final class KodaComponentSmokeTests: XCTestCase {
     private func pullLibraryToRefresh(in app: XCUIApplication) {
         let scroll = app.scrollViews["library.scroll"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 10))
-        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18))
-            .press(forDuration: 0.1, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82)))
+        // Work from the visible scroll body. The AX scroll frame can extend
+        // under the large navigation title on compact simulators.
+        let frame = scroll.frame.intersection(app.windows.firstMatch.frame)
+        let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+        let startY = max(frame.minY + frame.height * 0.34, app.navigationBars.firstMatch.frame.maxY + 35)
+        let start = origin.withOffset(CGVector(dx: frame.minX + 13, dy: startY))
+        let end = origin.withOffset(CGVector(dx: frame.minX + 13, dy: frame.maxY - 55))
+        start.press(forDuration: 0.08, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.35)
     }
 
     @MainActor

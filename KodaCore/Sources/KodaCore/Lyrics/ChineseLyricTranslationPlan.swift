@@ -42,18 +42,23 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
         var prepared: [PreparedRow] = []
         var seenIDs: Set<Int> = []
         var unrecognized = false
+        let context = input.prefix(64).map { String($0.text.prefix(160)) }.joined(separator: "\n")
+        let overall = Self.languageCode(detectLanguage(context))
         for row in input where Self.hasText(row.text) && seenIDs.insert(row.id).inserted {
             let sections = Self.urlPieces(row.text)
             let sourceText = sections.filter { !$0.1 }.map { $0.0 }.joined()
             let detected = Self.hasText(sourceText) ? detectLanguage(sourceText) : nil
-            let language = Self.languageCode(detected)
+            let shortHan = sourceText.count < 16 && Self.containsHan(sourceText)
+                && !Self.containsKana(sourceText) && !Self.containsHangul(sourceText) && !Self.containsLatin(sourceText)
+            let contextual = shortHan && (overall == "ja" || overall == "ko") ? overall : detected
+            let language = Self.languageCode(contextual)
             let kana = Self.containsKana(sourceText), hangul = Self.containsHangul(sourceText)
             // A positively identified Japanese/Korean line keeps its Han characters with
             // the whole phrase. Hans-Hant must never rewrite Japanese kanji beforehand.
             let chinese = language != "ja" && language != "ko"
-                && (TraditionalChineseLyrics.isChinese(language: detected)
+                && (TraditionalChineseLyrics.isChinese(language: contextual)
                     || (Self.containsHan(sourceText) && !kana && !hangul))
-            let wholeLanguage: String? = chinese ? nil : (kana ? "ja" : (hangul ? "ko" : detected))
+            let wholeLanguage: String? = chinese ? nil : (kana ? "ja" : (hangul ? "ko" : contextual))
             var result = PreparedRow(id: row.id, originalText: row.text, chinese: chinese, pieces: [])
             var fragmentIndex = 0
             for (text, isURL) in sections {

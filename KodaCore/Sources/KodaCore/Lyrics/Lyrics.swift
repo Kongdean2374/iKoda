@@ -1,7 +1,7 @@
 import Foundation
 
 /// One sung word, or part of one: providers split long words into syllables.
-public struct LyricWord: Hashable, Sendable {
+public struct LyricWord: Hashable, Codable, Sendable {
     public var text: String
     /// Seconds from the start of the song.
     public var start: TimeInterval
@@ -20,7 +20,7 @@ public struct LyricWord: Hashable, Sendable {
 }
 
 /// Who sings a line, when the lyrics say.
-public enum LyricVoice: Hashable, Sendable {
+public enum LyricVoice: Hashable, Codable, Sendable {
     /// The main singer, or the only one.
     case lead
     /// The second singer of a duet.
@@ -29,7 +29,7 @@ public enum LyricVoice: Hashable, Sendable {
     case together
 }
 
-public struct LyricLine: Hashable, Sendable, Identifiable {
+public struct LyricLine: Hashable, Codable, Sendable, Identifiable {
     public var id: Int
     /// Seconds from the start of the song.
     public var time: TimeInterval
@@ -56,7 +56,7 @@ public struct LyricLine: Hashable, Sendable, Identifiable {
     public var isWordTimed: Bool { !words.isEmpty }
 }
 
-public enum Lyrics: Sendable, Equatable {
+public enum Lyrics: Codable, Sendable, Equatable {
     case synced([LyricLine])
     case plain(String)
 
@@ -88,34 +88,54 @@ public enum Lyrics: Sendable, Equatable {
     public static func parseLRC(_ text: String) -> [LyricLine] {
         struct Raw { var time: TimeInterval; var text: String; var words: [LyricWord] }
         var lines: [Raw] = []
+        let clean = text.replacingOccurrences(of: "\u{FEFF}", with: "").replacingOccurrences(of: "\r\n", with: "\n")
+        let offsetTag = /(?i)\[offset:\s*([+-]?\d{1,8})\s*\]/
+        let milliseconds = clean.matches(of: offsetTag).last.flatMap { Double($0.output.1) } ?? 0
+        let offset = abs(milliseconds) <= 600_000 ? milliseconds / 1000 : 0
         let stamp = /\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]/
         let wordStamp = /<(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)>/
-        func seconds(_ minutes: Substring, _ rest: Substring) -> TimeInterval {
-            (Double(minutes) ?? 0) * 60 + (Double(rest.replacingOccurrences(of: ":", with: ".")) ?? 0)
+        func seconds(_ minutes: Substring, _ rest: Substring) -> TimeInterval? {
+            guard let minutes = Double(minutes),
+                  let seconds = Double(rest.replacingOccurrences(of: ":", with: ".")), seconds < 60 else { return nil }
+            // LRC's positive file offset advances the written timestamps. The
+            // listener's positive display delay is a separate, later operation.
+            return max(0, minutes * 60 + seconds - offset)
         }
-        for raw in text.split(whereSeparator: \.isNewline) {
-            let matches = raw.matches(of: stamp)
+        for raw in clean.split(whereSeparator: \.isNewline) {
+            let matches = raw.matches(of: stamp).filter { seconds($0.output.1, $0.output.2) != nil }
             guard let last = matches.last else { continue }
             let body = raw[last.range.upperBound...]
-            let wordMatches = body.matches(of: wordStamp)
+            let wordMatches = body.matches(of: wordStamp).filter { seconds($0.output.1, $0.output.2) != nil }
             var words: [LyricWord] = []
             for (index, match) in wordMatches.enumerated() {
                 let textEnd = index + 1 < wordMatches.count ? wordMatches[index + 1].range.lowerBound : body.endIndex
                 let segment = body[match.range.upperBound..<textEnd]
                 let trimmed = segment.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { continue }
-                let start = seconds(match.output.1, match.output.2)
-                let end = index + 1 < wordMatches.count ? seconds(wordMatches[index + 1].output.1, wordMatches[index + 1].output.2) : start
+                guard let start = seconds(match.output.1, match.output.2) else { continue }
+                let end = index + 1 < wordMatches.count
+                    ? seconds(wordMatches[index + 1].output.1, wordMatches[index + 1].output.2) ?? start : start
                 words.append(LyricWord(text: trimmed, start: start, end: end, spaceAfter: segment.last?.isWhitespace ?? true))
             }
             let display = body.replacing(wordStamp, with: "").trimmingCharacters(in: .whitespaces)
             for (index, match) in matches.enumerated() {
                 // Word stamps belong to the first time the line is sung; repeats are line-timed.
-                lines.append(Raw(time: seconds(match.output.1, match.output.2), text: display, words: index == 0 ? words : []))
+                guard let start = seconds(match.output.1, match.output.2) else { continue }
+                lines.append(Raw(time: start, text: display, words: index == 0 ? words : []))
             }
         }
         let sorted = lines.sorted { $0.time < $1.time }
-        return finish(sorted.map { LyricLine(id: 0, time: $0.time, text: $0.text, words: $0.words) })
+        var result = finish(sorted.map { LyricLine(id: 0, time: $0.time, text: $0.text, words: $0.words) })
+        // A same-time occurrence keeps its own identity and shares the next distinct
+        // boundary. A plain LRC last line should not occupy the entire outro.
+        var next: TimeInterval?
+        for index in result.indices.reversed() {
+            if index + 1 < result.count, result[index + 1].time > result[index].time { next = result[index + 1].time }
+            if result[index].end == nil || result[index].end == result[index].time {
+                result[index].end = next ?? result[index].time + 5
+            }
+        }
+        return result
     }
 
     /// Number the lines in order, and fill in end times a provider left out:

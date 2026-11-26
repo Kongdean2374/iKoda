@@ -120,6 +120,12 @@ final class AppSettings {
     var automaticLyricsTranslation: Bool { didSet { defaults.set(automaticLyricsTranslation, forKey: "koda.lyrics.automatic.enabled") } }
     /// Imported translations are opt-in; the original lyric presentation stays the default.
     var importedLyricsEnabled: Bool { didSet { defaults.set(importedLyricsEnabled, forKey: "koda.lyrics.imported.enabled") } }
+    var lyricsTranslationMode: LyricsTranslationMode = .quality {
+        didSet { defaults.set(lyricsTranslationMode.rawValue, forKey: "koda.lyrics.translation.strategy") }
+    }
+    var lyricsPrefetchLimit = 5 {
+        didSet { defaults.set(lyricsPrefetchLimit, forKey: "koda.lyrics.prefetchLimit") }
+    }
     var lyricsDisplayMode: LyricsDisplayMode { didSet { defaults.set(lyricsDisplayMode.rawValue, forKey: "koda.lyrics.imported.mode") } }
     /// The player offers a single switch. Retain the old persisted mode key for compatibility,
     /// but new presentation always keeps the original sentence above its translation.
@@ -230,6 +236,8 @@ final class AppSettings {
         if savedAutomatic == nil, previousNativeTranslation, restoredLyricsMode == .original { restoredLyricsMode = .bilingual }
         if restoredLyricsMode == .translation { restoredLyricsMode = .bilingual }
         lyricsDisplayMode = restoredLyricsMode
+        lyricsTranslationMode = defaults.string(forKey: "koda.lyrics.translation.strategy").flatMap(LyricsTranslationMode.init(rawValue:)) ?? .quality
+        lyricsPrefetchLimit = (defaults.object(forKey: "koda.lyrics.prefetchLimit") as? Int).map { min(5, max(0, $0)) } ?? 5
         translationFontSize = min(32, max(12, d.object(forKey: "koda.lyrics.imported.fontSize") as? Double ?? 18))
         translationOpacity = min(1, max(0.3, d.object(forKey: "koda.lyrics.imported.opacity") as? Double ?? 0.75))
         translationSpacing = min(20, max(2, d.object(forKey: "koda.lyrics.imported.spacing") as? Double ?? 6))

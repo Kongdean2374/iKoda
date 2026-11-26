@@ -17,6 +17,7 @@ nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
     var completed = 0
     var total = 0
     var playbackSessionFinished = false
+    var strategyStatus: String?
 }
 
 /// Installed language sessions belong to the work task, not to any lyrics view.
@@ -26,14 +27,21 @@ nonisolated enum NativeLyricsTranslationEngine {
         let source: Locale.Language
         let target: Locale.Language
         let installed: Bool
+        var highFidelity = false
     }
 
     @concurrent
-    static func translate(_ fragments: [ChineseLyricTranslationPlan.Fragment],
+    static func translate(_ input: AutomaticLyricTranslationPipeline.Input, _ fragments: [ChineseLyricTranslationPlan.Fragment],
                           publish: @escaping @Sendable ([String: String]) async -> Void) async throws -> AutomaticLyricTranslationPipeline.Outcome {
         var languages: [String] = []
         for fragment in fragments where !languages.contains(fragment.language) { languages.append(fragment.language) }
-        let choices = await languageChoices(for: languages)
+        var choices = await languageChoices(for: languages)
+        #if compiler(>=6.3)
+        if #available(iOS 26.4, macCatalyst 26.4, *), input.mode != .quick {
+            let high = await languageChoices(for: languages, highFidelity: true)
+            for (id, choice) in high where choice.installed { choices[id] = choice }
+        }
+        #endif
         try Task.checkCancellation()
         var unavailable = false
         var missingLanguage: AutomaticLyricTranslationPipeline.LanguagePair?
@@ -53,12 +61,23 @@ nonisolated enum NativeLyricsTranslationEngine {
             var byText: [String: [ChineseLyricTranslationPlan.Fragment]] = [:]
             var unique: [ChineseLyricTranslationPlan.Fragment] = []
             for fragment in group {
-                if byText[fragment.text] == nil { unique.append(fragment) }
-                byText[fragment.text, default: []].append(fragment)
+                let key = input.mode == .quick ? fragment.text : fragment.id
+                if byText[key] == nil { unique.append(fragment) }
+                byText[key, default: []].append(fragment)
             }
-            let responsesByID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, byText[$0.text]!) })
+            let responsesByID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, byText[input.mode == .quick ? $0.text : $0.id] ?? []) })
             let requests = unique.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
-            let session = TranslationSession(installedSource: choice.source, target: choice.target)
+            let session: TranslationSession
+            #if compiler(>=6.3)
+            if #available(iOS 26.4, macCatalyst 26.4, *) {
+                session = TranslationSession(installedSource: choice.source, target: choice.target,
+                                             preferredStrategy: choice.highFidelity ? .highFidelity : .lowLatency)
+            } else {
+                session = TranslationSession(installedSource: choice.source, target: choice.target)
+            }
+            #else
+            session = TranslationSession(installedSource: choice.source, target: choice.target)
+            #endif
             // Apple's iterator cancellation is cooperative and may not yield immediately.
             // The pipeline waits for this worker to exit before starting another session.
             defer { session.cancel() }
@@ -81,14 +100,22 @@ nonisolated enum NativeLyricsTranslationEngine {
         }
         try Task.checkCancellation()
         if let missingLanguage { return .needsLanguage(missingLanguage) }
-        return unavailable ? .unavailable : .complete
+        if unavailable { return .unavailable }
+        return input.mode != .quick && choices.values.contains(where: { !$0.highFidelity }) ? .compatible : .complete
     }
 
     /// Keep the non-Sendable availability object entirely on the generic executor.
     /// An installed Chinese variant is preferred over a supported-but-uninstalled one.
     @concurrent
-    private static func languageChoices(for sourceLanguages: [String]) async -> [String: LanguageChoice] {
-        let availability = LanguageAvailability()
+    private static func languageChoices(for sourceLanguages: [String], highFidelity: Bool = false) async -> [String: LanguageChoice] {
+        let availability: LanguageAvailability
+        #if compiler(>=6.3)
+        if #available(iOS 26.4, macCatalyst 26.4, *) {
+            availability = LanguageAvailability(preferredStrategy: highFidelity ? .highFidelity : .lowLatency)
+        } else { availability = LanguageAvailability() }
+        #else
+        availability = LanguageAvailability()
+        #endif
         let supported = await availability.supportedLanguages
         guard !Task.isCancelled else { return [:] }
         let chinese = supported.filter { $0.languageCode?.identifier == "zh" }
@@ -102,7 +129,7 @@ nonisolated enum NativeLyricsTranslationEngine {
                 guard !Task.isCancelled else { return [:] }
                 switch status {
                 case .installed:
-                    result[sourceID] = LanguageChoice(source: source, target: target, installed: true)
+                    result[sourceID] = LanguageChoice(source: source, target: target, installed: true, highFidelity: highFidelity)
                 case .supported:
                     if downloadable == nil { downloadable = target }
                 case .unsupported: break
@@ -180,6 +207,13 @@ struct AutomaticLyricsNotice: View {
     let retry: () -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let status = result.strategyStatus { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            progress
+        }
+    }
+
+    @ViewBuilder private var progress: some View {
         switch result.phase {
         case .preparing:
             Label("Preparing On-Device Translation…", systemImage: "translate")

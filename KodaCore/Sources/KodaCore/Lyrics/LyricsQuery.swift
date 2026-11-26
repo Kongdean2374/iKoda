@@ -76,12 +76,12 @@ struct LyricsQuery: Sendable, Hashable {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    private static func lookupArtist(_ text: String) -> String {
+    static func lookupArtist(_ text: String) -> String {
         spaces(text.replacingOccurrences(of: #"\s+[-–—]\s*Topic\s*$"#, with: "",
                                          options: [.regularExpression, .caseInsensitive]))
     }
 
-    private static func lookupTitle(_ text: String) -> String {
+    static func lookupTitle(_ text: String) -> String {
         var result = spaces(text)
         // Deliberately recognize complete tags only: `(Live Official Video)` still
         // contains recording information, and must not turn into a studio title.
@@ -124,7 +124,7 @@ struct LyricsQuery: Sendable, Hashable {
         return false
     }
 
-    private static func identity(_ text: String) -> String {
+    static func identity(_ text: String) -> String {
         let simplified = text.applyingTransform(StringTransform(rawValue: "Traditional-Simplified"), reverse: false) ?? text
         let folded = simplified.precomposedStringWithCompatibilityMapping
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
@@ -133,7 +133,7 @@ struct LyricsQuery: Sendable, Hashable {
 
     /// Common catalogue credits use `南征北战 NZBZ` or `JJ Lin 林俊傑`.
     /// Do not split collaborations, short initials, arbitrary Latin names or word lists.
-    private static func artistAliases(_ text: String) -> [String] {
+    static func artistAliases(_ text: String) -> [String] {
         let forward = #"^([\p{Han}]{2,})\s+([A-Za-z][A-Za-z0-9 .'-]{2,})$"#
         let reverse = #"^([A-Za-z][A-Za-z0-9 .'-]{2,})\s+([\p{Han}]{2,})$"#
         for (pattern, hanIndex, latinIndex) in [(forward, 1, 2), (reverse, 2, 1)] {
