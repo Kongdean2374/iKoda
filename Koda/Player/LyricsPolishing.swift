@@ -61,6 +61,7 @@ final class LyricsPolishing {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var blocked = false
     @ObservationIgnored private var loaded = false
+    @ObservationIgnored private var regenerating: UUID?
 
     private struct Work {
         var song: Song
@@ -101,6 +102,7 @@ final class LyricsPolishing {
         target = nil
         generation = UUID()
         version = nil
+        regenerating = nil
         lines = [:]
         status = .idle
         loaded = false
@@ -110,12 +112,18 @@ final class LyricsPolishing {
         guard let work = target else { return }
         generation = UUID()
         let token = generation
+        regenerating = token
+        defer {
+            if regenerating == token { regenerating = nil; schedule() }
+        }
         worker?.cancel()
         await worker?.value
         guard token == generation else { return }
-        await cache.discard(Self.key(work))
-        guard token == generation else { return }
-        if clear { lines = [:] }
+        if clear {
+            await cache.discard(Self.key(work))
+            guard token == generation else { return }
+            lines = [:]
+        }
         loaded = true
         status = .checking
         if !blocked { start(work, replace: true) }
@@ -132,7 +140,7 @@ final class LyricsPolishing {
     func usage() async -> Int { await cache.byteCount() }
 
     private func schedule() {
-        guard let target, worker == nil, !blocked,
+        guard let target, worker == nil, regenerating == nil, !blocked,
               ![.unavailable, .language, .failed].contains(status) else { return }
         if loaded && target.base.keys.allSatisfy({ lines[$0] != nil }) {
             status = target.completed && !target.base.isEmpty ? .complete : .partial
@@ -191,14 +199,14 @@ final class LyricsPolishing {
             for index in remaining.prefix(12) {
                 let row = work.rows[index]
                 let cost = row.text.utf8.count + (work.base[row.id]?.utf8.count ?? 0)
-                if !indices.isEmpty && (size + cost > 3_600 || index > indices.last! + 1) { break }
+                if let previous = indices.last, size + cost > 3_600 || index > previous + 1 { break }
                 indices.append(index); size += cost
             }
             remaining = remaining.dropFirst(indices.count)
             guard let first = indices.first, let last = indices.last else { break }
             let before = work.rows[max(0, first - 2)..<first]
             let after = work.rows[(last + 1)..<min(last + 3, work.rows.count)]
-            let context = (Array(work.rows.prefix(2)) + before + after).map { String($0.text.prefix(180)) }
+            let context = (Array(work.rows.prefix(2)) + Array(before) + Array(after)).map { String($0.text.prefix(180)) }
             let rows = indices.compactMap { index -> OnDeviceLyricEditor.Input.Row? in
                 let row = work.rows[index]
                 return work.base[row.id].map { .init(id: row.id, original: String(row.text.prefix(400)), base: String($0.prefix(400))) }

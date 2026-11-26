@@ -219,8 +219,13 @@ final class LyricsTranslationCoordinator {
 
     func regenerate(clear: Bool, polishOnly: Bool = false) async {
         guard !playbackSessionFinished, !queueEnded, let id = currentSong?.id, let input = inputs[id]?.input else { return }
+        let scope = versions.profileScope
+        let version = versions.current?.id
+        let requestMode = mode
         if !polishOnly { await pipeline.regenerate(input, discardDisk: clear) }
-        if mode == .immersive { await polish.regenerate(clear: clear) }
+        guard requestMode == .immersive, mode == requestMode, versions.profileScope == scope,
+              versions.current?.id == version, currentSong?.id == id, !playbackSessionFinished, !queueEnded else { return }
+        await polish.regenerate(clear: clear)
     }
 
     func cachedTranslation(for candidate: LyricsCandidate, mode: LyricsTranslationMode) async -> [Int: String] {

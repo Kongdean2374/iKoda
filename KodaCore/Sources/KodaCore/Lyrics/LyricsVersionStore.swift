@@ -7,6 +7,7 @@ public actor LyricsVersionStore {
         public var offsets: [String: TimeInterval] = [:]
         public var translations: [String: [Int: String]] = [:]
         public var imports: [String: LyricTranslationDocument]?
+        public var localVersions: [LyricsCandidate]?
 
         public init() {}
 
@@ -47,7 +48,7 @@ public actor LyricsVersionStore {
     }
 
     private let cache: URL
-    private let maximumBytes: Int
+    private var maximumBytes: Int
     private let maximumRecordBytes = 6_000_000
     private var cacheGeneration = UUID()
 
@@ -67,10 +68,32 @@ public actor LyricsVersionStore {
 
     public func cache(_ value: Catalogue, key: String, ticket: UUID? = nil) {
         guard ticket == nil || ticket == cacheGeneration else { return }
-        let results = value.results.filter { $0.state == .found || $0.state == .empty }
-        guard results.contains(where: { !$0.candidates.isEmpty }) else { return }
+        guard !Task.isCancelled else { return }
+        let incoming = value.results.filter { $0.state == .found && !$0.candidates.isEmpty }
+        guard !incoming.isEmpty else { return }
+        let file = location(cache, key)
+        let existing: Catalogue? = load(file, limit: maximumRecordBytes)
+        guard existing.map({ $0.fetchedAt <= value.fetchedAt }) ?? true else { return }
+        var results = existing?.results ?? []
+        for result in incoming {
+            guard let index = results.firstIndex(where: { $0.source == result.source }) else {
+                results.append(result)
+                continue
+            }
+            results[index] = .init(source: result.source, name: result.name, state: .found,
+                                   candidates: result.candidates + results[index].candidates)
+        }
         let bounded = Catalogue(results: results, fetchedAt: value.fetchedAt)
-        try? persist(bounded, to: location(cache, key), limit: min(maximumBytes, maximumRecordBytes))
+        try? persist(bounded, to: file, limit: min(maximumBytes, maximumRecordBytes))
+        trimCache()
+    }
+
+    public func setCapacity(_ bytes: Int) {
+        maximumBytes = max(0, bytes)
+        trimCache()
+    }
+
+    private func trimCache() {
         var total = 0
         for file in cacheFiles() {
             total += file.size
@@ -92,7 +115,14 @@ public actor LyricsVersionStore {
     @discardableResult
     public func select(_ candidate: LyricsCandidate?, profile: URL, songID: String) throws -> Preference {
         guard candidate == nil || candidate?.songID == songID else { throw CocoaError(.fileWriteInvalidFileName) }
-        return try modify(profile, songID: songID) { $0.selected = candidate }
+        return try modify(profile, songID: songID) {
+            $0.selected = candidate
+            if let candidate, candidate.id.source == "local" {
+                var imported = $0.localVersions ?? []
+                if !imported.contains(where: { $0.id == candidate.id }) { imported.append(candidate) }
+                $0.localVersions = imported
+            }
+        }
     }
 
     @discardableResult
@@ -132,9 +162,16 @@ public actor LyricsVersionStore {
     }
 
     private func modify(_ profile: URL, songID: String, using update: (inout Preference) -> Void) throws -> Preference {
-        var data = preference(profile: profile, songID: songID)
+        let url = location(userDirectory(profile), songID)
+        var data = Preference()
+        if FileManager.default.fileExists(atPath: url.path) {
+            guard let saved: Preference = load(url, limit: maximumRecordBytes) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            data = saved
+        }
         update(&data)
-        try persist(data, to: location(userDirectory(profile), songID), limit: maximumRecordBytes)
+        try persist(data, to: url, limit: maximumRecordBytes)
         return data
     }
 

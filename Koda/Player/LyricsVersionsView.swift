@@ -40,6 +40,7 @@ struct LyricsVersionsView: View {
                     Text("No additional versions found.").foregroundStyle(.secondary)
                 }
                 ResultsList(results: versions.results, showsRetry: true)
+                ForEach(versions.preference.localVersions ?? []) { candidateLink($0) }
             } header: {
                 Text("Available Versions")
             }
@@ -263,13 +264,16 @@ private struct LyricsVersionPreview: View {
     @State private var cached: [Int: String] = [:]
     @State private var calibrating = false
     @State private var editing = false
-    @State private var scope = UUID()
+    @State private var scope: UUID?
     private var versions: LyricsVersions { app.lyricsTranslation.versions }
 
     var body: some View {
         List {
             Section {
-                Button("Use This Version") { Task { await versions.select(candidate, expectedScope: scope) } }
+                Button("Use This Version") {
+                    if let scope { Task { await versions.select(candidate, expectedScope: scope) } }
+                }
+                .disabled(scope != versions.profileScope)
                     .accessibilityIdentifier("lyrics.candidate.use")
                 Button("Edit Translation") { editing = true }
                     .accessibilityIdentifier("lyrics.candidate.edit")
@@ -317,12 +321,18 @@ private struct LyricsVersionPreview: View {
         }
         .navigationTitle("Lyrics Preview")
         .searchable(text: $filter, prompt: "Find in Lyrics")
-        .onAppear { scope = versions.profileScope }
+        .onAppear { if scope == nil { scope = versions.profileScope } }
         .task(id: app.settings.lyricsTranslationMode) {
-            cached = await app.lyricsTranslation.cachedTranslation(for: candidate, mode: app.settings.lyricsTranslationMode)
+            let mode = app.settings.lyricsTranslationMode
+            let result = await app.lyricsTranslation.cachedTranslation(for: candidate, mode: mode)
+            if !Task.isCancelled, scope == versions.profileScope { cached = result }
         }
-        .sheet(isPresented: $calibrating) { NavigationStack { LyricsVersionCalibration(candidate: candidate, scope: scope) }.appEnvironment(app) }
-        .sheet(isPresented: $editing) { NavigationStack { LyricsVersionEditor(candidate: candidate, automatic: cached, scope: scope) }.appEnvironment(app) }
+        .sheet(isPresented: $calibrating) {
+            if let scope { NavigationStack { LyricsVersionCalibration(candidate: candidate, scope: scope) }.appEnvironment(app) }
+        }
+        .sheet(isPresented: $editing) {
+            if let scope { NavigationStack { LyricsVersionEditor(candidate: candidate, automatic: cached, scope: scope) }.appEnvironment(app) }
+        }
     }
 
     private func metadata(_ title: LocalizedStringKey, value: String?) -> some View {
@@ -401,7 +411,7 @@ private struct LyricsVersionEditor: View {
             ForEach(LyricsPreviewRow.make(candidate.lyrics)) { row in
                 Section {
                     Text(row.text).font(.headline)
-                    TextField("Your Translation", text: Binding(get: { edits[row.id] ?? "" }, set: { edits[row.id] = $0 }), axis: .vertical)
+                    TextField("Your Translation", text: Binding(get: { edits[row.id] ?? "" }, set: { edits[row.id] = $0 }))
                         .accessibilityIdentifier("lyrics.edit.line.\(row.id)")
                     if let translated = automatic[row.id] { Text(translated).foregroundStyle(.secondary) }
                     if edits[row.id] != nil {

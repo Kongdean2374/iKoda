@@ -25,6 +25,9 @@ final class LyricsVersions {
     @ObservationIgnored private var lookup: Task<Void, Never>?
     @ObservationIgnored private var manualLookup: Task<Void, Never>?
     @ObservationIgnored private var manualGeneration = UUID()
+    #if DEBUG
+    @ObservationIgnored private var fixtureResults: [LyricsSourceResult]?
+    #endif
     private var allowed = false
     var canSearch: Bool { allowed }
     @ObservationIgnored private var constrained = false
@@ -50,9 +53,15 @@ final class LyricsVersions {
     }
 
     var song: Song? { context?.song }
-    var configuredSources: [(id: String, name: String)] {
+    struct SourceOption: Identifiable {
+        let id: String
+        let name: String
+    }
+
+    var configuredSources: [SourceOption] {
         guard let context else { return [] }
-        return context.sources.map { ($0.rawValue, $0.title) } + context.custom.filter(\.isEnabled).map { ($0.id.uuidString, $0.name) }
+        return context.sources.map { .init(id: $0.rawValue, name: $0.title) }
+            + context.custom.filter(\.isEnabled).map { .init(id: $0.id.uuidString, name: $0.name) }
     }
     var candidates: [LyricsCandidate] { results.flatMap(\.candidates) }
     var recommendation: LyricsCandidate? { LyricsVersionSelection.recommended(candidates, allowLowConfidence: true) }
@@ -65,6 +74,9 @@ final class LyricsVersions {
     }
 
     func follow(song: Song?, sources: [LyricsSource], custom: [CustomLyricsSource], allowed: Bool, constrained: Bool) {
+        #if DEBUG
+        if fixtureResults != nil { return }
+        #endif
         let resumed = allowed && !self.allowed
         let stopped = !allowed && self.allowed
         self.allowed = allowed
@@ -95,12 +107,20 @@ final class LyricsVersions {
     }
 
     func search(force: Bool = false, source: String? = nil, userInitiated: Bool = false) {
+        #if DEBUG
+        if let fixtureResults {
+            results = source.map { selected in fixtureResults.filter { $0.source == selected } } ?? fixtureResults
+            return
+        }
+        #endif
         guard let context, let profile else { return }
         attempted = true
         lookup?.cancel()
         generation = UUID()
         let token = generation
+        let startedAt = Date()
         searching = true
+        error = nil
 
         lookup = Task { [weak self, client, store] in
             let cacheTicket = await store.ticket()
@@ -120,22 +140,30 @@ final class LyricsVersions {
             }
 
             guard self.allowed else { self.finishLookup(token); return }
+            var received: [LyricsSourceResult] = []
             var sources = context.sources
             var custom = context.custom
             if self.constrained && !userInitiated { sources = Array(sources.prefix(2)); custom = [] }
             for await event in client.candidateResults(for: context.song, sources: sources, customSources: custom, only: source) {
                 guard self.accepts(token) else { return }
+                Self.merge(event, into: &received)
                 Self.merge(event, into: &self.results)
                 self.autoSelect(finished: false)
             }
             guard self.accepts(token) else { return }
             self.autoSelect(finished: true)
-            await store.cache(.init(results: self.results), key: context.cacheKey, ticket: cacheTicket)
+            await store.cache(.init(results: received, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
             self.finishLookup(token)
         }
     }
 
     func manualSearch(_ search: LyricsSearch, source: String?) {
+        #if DEBUG
+        if let fixtureResults {
+            manualResults = source.map { selected in fixtureResults.filter { $0.source == selected } } ?? fixtureResults
+            return
+        }
+        #endif
         guard let context, allowed else { return }
         manualLookup?.cancel()
         manualGeneration = UUID()
@@ -233,6 +261,24 @@ final class LyricsVersions {
         } catch { self.error = error.localizedDescription }
     }
 
+    #if DEBUG
+    func installUITestVersions(for song: Song) {
+        setProfile(FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
+        resetContext(.init(song: song, sources: [.lrclib, .youLyPlus], custom: []))
+        let first = LyricsCandidate(song: song, source: LyricsSource.lrclib.rawValue, sourceName: "LRCLIB",
+            metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
+            lyrics: .synced(Lyrics.parseLRC("[00:12.00]We listen to the ocean\n[00:15.00]The waves return")))
+        let second = LyricsCandidate(song: song, source: LyricsSource.youLyPlus.rawValue, sourceName: "YouLyPlus",
+            metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
+            lyrics: .synced(Lyrics.parseLRC("[00:13.00]The song of the ocean\n[00:18.00]We follow the tide")))
+        let prepared = [first, second].map { LyricsSourceResult(source: $0.id.source, name: $0.sourceName, state: .found, candidates: [$0]) }
+        fixtureResults = prepared
+        allowed = true
+        results = prepared
+        apply(first)
+    }
+    #endif
+
     func refreshUsage() async { cacheBytes = await store.usage() }
 
     func clearCatalogueCache() async {
@@ -244,6 +290,7 @@ final class LyricsVersions {
     func preparedVersion(_ context: Context) async -> LyricsCandidate? {
         guard let profile else { return nil }
         let cacheTicket = await store.ticket()
+        let startedAt = Date()
         let pref = await store.preference(profile: profile, songID: context.song.id)
         if let selected = pref.selected { return selected }
         if let cached = await store.catalogue(key: context.cacheKey),
@@ -255,12 +302,12 @@ final class LyricsVersions {
             guard !Task.isCancelled else { return nil }
             Self.merge(result, into: &results)
             if let winner = LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: false) {
-                await store.cache(.init(results: results), key: context.cacheKey, ticket: cacheTicket)
+                await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
                 return winner
             }
         }
         guard !Task.isCancelled else { return nil }
-        await store.cache(.init(results: results), key: context.cacheKey, ticket: cacheTicket)
+        await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
         return LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: true)
     }
 

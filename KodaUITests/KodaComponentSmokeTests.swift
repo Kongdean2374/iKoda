@@ -724,6 +724,62 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testAdvancedLyricsPreviewSelectionAndTiming() {
+        let app = launch(extraArguments: ["-KodaUITestAdvancedLyrics"])
+        let entry = app.buttons["fixture.lyrics.versions"]
+        reveal(entry, in: app)
+        entry.tap()
+        let candidate = app.buttons.matching(identifier: "lyrics.candidate.youLyPlus").firstMatch
+        reveal(candidate, in: app)
+        XCTAssertTrue(candidate.exists)
+        candidate.tap()
+        let apply = app.buttons["lyrics.candidate.use"]
+        XCTAssertTrue(apply.waitForExistence(timeout: 10))
+        apply.tap()
+        let calibration = app.buttons["lyrics.candidate.calibrate"]
+        reveal(calibration, in: app)
+        calibration.tap()
+        let increment = app.buttons["lyrics.calibration.0.5"]
+        XCTAssertTrue(increment.waitForExistence(timeout: 10))
+        increment.tap()
+        app.buttons["lyrics.calibration.save"].tap()
+        XCTAssertTrue(calibration.waitForExistence(timeout: 10))
+        calibration.tap()
+        XCTAssertTrue(increment.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "0.5")).firstMatch.exists)
+        app.buttons["lyrics.calibration.save"].tap()
+    }
+
+    @MainActor
+    func testAdvancedLyricsManualSearchAndEdit() {
+        let app = launch(extraArguments: ["-KodaUITestAdvancedLyrics"])
+        let entry = app.buttons["fixture.lyrics.versions"]
+        reveal(entry, in: app)
+        entry.tap()
+        let search = app.buttons["lyrics.sources.manual"]
+        reveal(search, in: app)
+        search.tap()
+        let submit = app.buttons["lyrics.manual.submit"]
+        reveal(submit, in: app)
+        submit.tap()
+        let candidate = app.buttons.matching(identifier: "lyrics.candidate.lrclib").firstMatch
+        reveal(candidate, in: app)
+        candidate.tap()
+        let edit = app.buttons["lyrics.candidate.edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        edit.tap()
+        let field = app.textFields["lyrics.edit.line.0"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("Our edited translation")
+        app.buttons["lyrics.edit.save"].tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        edit.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertEqual(field.value as? String, "Our edited translation")
+    }
+
+    @MainActor
     private func pullLibraryToRefresh(in app: XCUIApplication) {
         let scroll = app.scrollViews["library.scroll"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 10))

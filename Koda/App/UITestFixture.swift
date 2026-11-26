@@ -39,6 +39,12 @@ struct KodaUITestFixture: View {
                     Text(verbatim: "Translation control")
                 }
                 .accessibilityIdentifier("fixture.translation")
+                if ProcessInfo.processInfo.arguments.contains("-KodaUITestAdvancedLyrics") {
+                    NavigationLink { LyricsVersionsView() } label: { Text(verbatim: "Advanced lyrics demo") }
+                        .accessibilityIdentifier("fixture.lyrics.versions")
+                    NavigationLink { LyricsTranslationSettingsView() } label: { Text(verbatim: "Translation modes demo") }
+                        .accessibilityIdentifier("fixture.lyrics.modes")
+                }
                 NavigationLink {
                     AudioCenterView()
                 } label: {
@@ -212,6 +218,9 @@ struct KodaUITestFixture: View {
         let second = Song(id: "ui-smoke-b", title: "Second Song", artistLine: "Fixture Artist", duration: 210)
         let third = Song(id: "ui-smoke-c", title: "Third Song (Live)", artistLine: "Fixture Artist", duration: 240)
         songs = [first, second, third]
+        if ProcessInfo.processInfo.arguments.contains("-KodaUITestAdvancedLyrics") {
+            app.lyricsTranslation.versions.installUITestVersions(for: first)
+        }
         for song in songs.reversed() { app.library.recordPlay(song) }
         func snapshot(_ id: String, _ title: String, _ songs: [Song], editable: Bool = true) -> CloudPlaylistSnapshot {
             .init(playlist: .init(id: id, title: title), rows: songs.enumerated().map {

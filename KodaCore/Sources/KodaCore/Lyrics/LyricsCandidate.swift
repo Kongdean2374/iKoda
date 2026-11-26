@@ -96,10 +96,11 @@ public struct LyricsSearch: Codable, Hashable, Sendable {
 
     public init(song: Song) {
         title = song.title
-        artist = song.artists.first?.name ?? song.artistLine
+        let primaryArtist = song.artists.first?.name ?? song.artistLine
+        artist = primaryArtist
         album = song.album?.title
         duration = song.duration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
-        credits = (song.artists.map(\.name) + [song.artistLine]).filter { !$0.isEmpty && $0 != artist }
+        credits = (song.artists.map(\.name) + [song.artistLine]).filter { !$0.isEmpty && $0 != primaryArtist }
     }
 
     var query: LyricsQuery {

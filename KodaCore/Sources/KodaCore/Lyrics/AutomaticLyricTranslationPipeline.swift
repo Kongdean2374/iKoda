@@ -100,6 +100,7 @@ public final class AutomaticLyricTranslationPipeline {
     @ObservationIgnored private var active: Active?
     @ObservationIgnored private var retryAfterFinish: Key?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var refreshing: [Key: UUID] = [:]
     @ObservationIgnored private var dirty: Set<Key> = []
     @ObservationIgnored private var checkpointDelay: Task<Void, Never>?
     @ObservationIgnored private var persistence: Task<Void, Never>?
@@ -213,7 +214,8 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     private func needsWork(_ key: Key) -> Bool {
-        switch published[key]?.phase ?? .idle {
+        guard refreshing[key] == nil else { return false }
+        return switch published[key]?.phase ?? .idle {
         case .idle, .paused: true
         case .preparing, .translating: active?.key != key
         case .ready, .needsLanguage, .unavailable, .failed: false
@@ -227,10 +229,19 @@ public final class AutomaticLyricTranslationPipeline {
 
     public func regenerate(_ input: Input, discardDisk: Bool) async {
         let key = Self.cacheKey(input)
+        let token = UUID()
+        refreshing[key] = token
+        defer {
+            if refreshing[key] == token {
+                refreshing[key] = nil
+                schedule()
+            }
+        }
         if active?.key == key { cancelActive(); await task?.value }
         await flush()
+        guard refreshing[key] == token, currentKey == key, !playbackSessionFinished else { return }
         if discardDisk { await cache.discard(key) }
-        guard var record = records[key] else { return }
+        guard refreshing[key] == token, currentKey == key, !playbackSessionFinished, var record = records[key] else { return }
         record.fragments = [:]
         record.loadedCache = true
         records[key] = record
@@ -238,9 +249,9 @@ public final class AutomaticLyricTranslationPipeline {
             snapshot.phase = .paused
             snapshot.languagePair = nil
             if discardDisk { snapshot.lines = [:]; snapshot.completed = 0 }
+            snapshot.usedCompatibility = false
             published[key] = snapshot
         }
-        schedule()
     }
 
     private func ensureRecord(_ input: Input) -> Key {
