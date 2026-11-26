@@ -498,8 +498,10 @@ extension LyricsClient {
             do {
                 let raw = try await fetchCandidate(base, parameters)
                 let payloads = try decode(raw)
+                let usable = payloads.filter { LyricsCandidate.areUsable($0.lyrics) }
+                guard payloads.isEmpty || !usable.isEmpty else { throw CandidateFetchError.invalid }
                 let before = answers.count
-                for value in payloads.prefix(18) where answers.count < 24 {
+                for value in usable.prefix(12) where answers.count < 24 {
                     let candidate = LyricsCandidate(song: song, source: provider.id, sourceName: provider.name,
                         upstream: value.upstream ?? upstream, version: value.version, metadata: value.metadata,
                         lyrics: value.lyrics, original: value.raw, query: lookup)
@@ -596,10 +598,18 @@ extension LyricsClient {
     }
 
     private static func metadata(_ json: JSON) -> LyricsCandidate.Metadata {
-        .init(title: json["trackName"].nonEmpty ?? json["title"].nonEmpty,
-              artist: json["artistName"].nonEmpty ?? json["artist"].nonEmpty,
-              album: json["albumName"].nonEmpty ?? json["album"].nonEmpty,
-              duration: json["duration"].double)
+        let nested = json["metadata"]
+        let title = nested["title"].nonEmpty ?? json["trackName"].nonEmpty ?? json["title"].nonEmpty
+        let artist = nested["artist"].nonEmpty ?? json["artistName"].nonEmpty ?? json["artist"].nonEmpty
+        let album = nested["album"].nonEmpty ?? json["albumName"].nonEmpty ?? json["album"].nonEmpty
+        let duration = nested["totalDuration"].nonEmpty.flatMap { text -> TimeInterval? in
+            let fields = text.split(separator: ":", omittingEmptySubsequences: false)
+            let parts = fields.compactMap { Double($0) }
+            guard (2...3).contains(fields.count), parts.count == fields.count,
+                  parts.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return nil }
+            return parts.reduce(0) { $0 * 60 + $1 }
+        } ?? json["duration"].double
+        return .init(title: title, artist: artist, album: album, duration: duration)
     }
 
     private static func catalogCandidates(_ data: Data, lrcLib: Bool) throws -> [CandidatePayload] {
@@ -629,8 +639,9 @@ extension LyricsClient {
             throw CandidateFetchError.invalid
         }
         let info = json.map(metadata) ?? .init()
-        return [CandidatePayload(lyrics: found, raw: raw, metadata: info,
-                                 version: json?["id"].nonEmpty, upstream: json?["source"].nonEmpty)]
+        let version = json?["id"].nonEmpty ?? json?["id"].int.map(String.init) ?? json?["metadata"]["isrc"].nonEmpty
+        let upstream = json?["metadata"]["source"].nonEmpty ?? json?["source"].nonEmpty
+        return [CandidatePayload(lyrics: found, raw: raw, metadata: info, version: version, upstream: upstream)]
     }
 
     private func fetchCandidate(_ base: String, _ parameters: [String: String]) async throws -> Data {

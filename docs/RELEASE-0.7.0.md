@@ -30,7 +30,8 @@ The candidate catalogue is kept separately from per-profile preferences. Refresh
 keeps the previous verified catalogue when lookups fail. Atomic writes replace
 readable snapshots. Automatic character conversion and translations are stored
 separately from user files. The default automatic disk budgets are 20 MB for
-candidates, 20 MB for base translation and 10 MB for contextual edits. A saved
+candidates, 20 MB for base translation and 10 MB for contextual edits. The total
+can be changed in Chinese Lyrics settings. A saved
 candidate can populate the player offline even after the automatic catalogue has
 been evicted.
 
@@ -50,6 +51,8 @@ as matches for the new version identities.
   enabled and ready, and the required language support. Base translation and
   original lyrics stay available when contextual generation is unavailable,
   rejected or suspended. High temperature and Low Power Mode constrain work.
+  One model worker gives the current song priority. If resources permit and
+  its work is complete, the worker can prepare the next song.
 - CarPlay and Live Activity are subject to Apple signing, refresh and background
   execution limits. See the existing CarPlay signing documentation.
 - On iPhone, switch among three lyric versions while playback continues, seek

@@ -92,6 +92,58 @@ struct AutomaticLyricTranslationPipelineTests {
         await restored.flush()
     }
 
+    @Test(.timeLimit(.minutes(1))) func completedTranslationActuallyRunsAgainAndKeepsReadableText() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine()
+        let service = pipeline(directory: folder, engine: engine)
+        defer { service.suspend(); Task { await engine.finishAll() }; try? FileManager.default.removeItem(at: folder) }
+        let song = input("regenerate", count: 1)
+        service.setRequests(current: song, upcoming: [], enabled: true, isForeground: true)
+        try await engine.waitForCalls(1)
+        let initial = await engine.fragments(at: 0)
+        let fragment = try #require(initial.first?.id)
+        await engine.publish(0, values: [fragment: "舊譯文"])
+        await engine.finish(0)
+        try await eventually { service.snapshot(for: song).phase == .ready }
+        await service.regenerate(song, discardDisk: false)
+        try await engine.waitForCalls(2)
+        #expect(await engine.fragments(at: 1).map(\.id) == [fragment])
+        #expect(service.snapshot(for: song).lines[0] == "舊譯文")
+        await engine.publish(0, values: [fragment: "舊工作回傳"])
+        #expect(service.snapshot(for: song).lines[0] == "舊譯文")
+        await engine.publish(1, values: [fragment: "新譯文"])
+        await engine.finish(1)
+        try await eventually { service.snapshot(for: song).phase == .ready }
+        #expect(service.snapshot(for: song).lines[0] == "新譯文")
+        await service.flush()
+    }
+
+    @Test(.timeLimit(.minutes(1))) func rapidVersionChangesRejectLateWorkDespiteIdenticalText() async throws {
+        let folder = directory(), engine = ControlledLyricsEngine()
+        let service = pipeline(directory: folder, engine: engine)
+        defer { service.suspend(); Task { await engine.finishAll() }; try? FileManager.default.removeItem(at: folder) }
+        let rows = input("same-track", count: 1).rows
+        let a = Input(songID: "same-track", rows: rows, namespace: "provider-a", mode: .quick)
+        let b = Input(songID: "same-track", rows: rows, namespace: "provider-b", mode: .quality)
+        let c = Input(songID: "same-track", rows: rows, namespace: "provider-c", mode: .immersive)
+        service.setRequests(current: a, upcoming: [], enabled: true, isForeground: true)
+        try await engine.waitForCalls(1)
+        let started = await engine.fragments(at: 0)
+        let fragment = try #require(started.first?.id)
+        service.setRequests(current: b, upcoming: [], enabled: true, isForeground: true)
+        service.setRequests(current: c, upcoming: [], enabled: true, isForeground: true)
+        await engine.publish(0, values: [fragment: "過期來源"])
+        #expect(service.snapshot(for: c).lines.isEmpty)
+        await engine.finish(0)
+        try await engine.waitForCalls(2)
+        await engine.publish(1, values: [fragment: "最新來源"])
+        await engine.finish(1)
+        try await eventually { service.snapshot(for: c).phase == .ready }
+        #expect(service.snapshot(for: c).lines[0] == "最新來源")
+        #expect(service.snapshot(for: a).lines.isEmpty)
+        #expect(service.snapshot(for: b).lines.isEmpty)
+        await service.flush()
+    }
+
     @Test(.timeLimit(.minutes(1))) func backgroundExpirationRetainsProgressAndResumesOnlyMissingFragments() async throws {
         let folder = directory(), engine = ControlledLyricsEngine()
         let service = pipeline(directory: folder, engine: engine)

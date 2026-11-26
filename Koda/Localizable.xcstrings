@@ -26203,6 +26203,56 @@
           }
         }
       }
+    },
+    "Cache Limit": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快取容量上限"
+          }
+        }
+      }
+    },
+    "%lld MB": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld MB"
+          }
+        }
+      }
+    },
+    "Refresh found no usable lyrics. The current version is still available.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理後未找到可用的歌詞，目前的版本仍可使用。"
+          }
+        }
+      }
+    },
+    "Remove Older Translation": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除舊版譯文"
+          }
+        }
+      }
+    },
+    "This removes the older file. Copies attached to a specific version stay available.": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除舊版檔案後，已附加至特定版本的譯文會保留。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

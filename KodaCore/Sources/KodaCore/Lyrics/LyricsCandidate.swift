@@ -65,8 +65,34 @@ public struct LyricsCandidate: Codable, Equatable, Identifiable, Sendable {
     }
 
     public static func imported(song: Song, sourceName: String, text: String) -> Self? {
-        guard text.utf8.count <= 1_000_000, let lyrics = Lyrics.parseAny(text) else { return nil }
+        guard text.utf8.count <= 1_000_000, let lyrics = Lyrics.parseAny(text), areUsable(lyrics) else { return nil }
         return Self(song: song, source: "local", sourceName: sourceName, metadata: .init(), lyrics: lyrics, original: text)
+    }
+
+    static func areUsable(_ lyrics: Lyrics) -> Bool {
+        switch lyrics {
+        case .plain(let text):
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .synced(let lines):
+            guard !lines.isEmpty, lines.count <= 20_000 else { return false }
+            var ids = Set<Int>()
+            var previous: TimeInterval = 0
+            var hasText = false
+            for line in lines {
+                guard line.time.isFinite, line.time >= previous, line.time <= 604_800,
+                      ids.insert(line.id).inserted,
+                      line.end.map({ $0.isFinite && $0 >= line.time }) ?? true,
+                      line.words.allSatisfy(isValidWord),
+                      line.background.allSatisfy(isValidWord) else { return false }
+                previous = line.time
+                hasText = hasText || !line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return hasText
+        }
+    }
+
+    private static func isValidWord(_ word: LyricWord) -> Bool {
+        word.start.isFinite && word.end.isFinite && word.start >= 0 && word.end >= word.start
     }
 
     public static func plainLines(_ text: String) -> [String] {

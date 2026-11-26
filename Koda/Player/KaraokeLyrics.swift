@@ -125,7 +125,8 @@ struct SyncedLyrics: View {
             importsLoaded = true
         }
         .sheet(item: $shareFrom) { start in
-            LyricsShareSheet(lines: lines, song: start.song, startingAt: start.line)
+            LyricsShareSheet(lines: lines, song: start.song, startingAt: start.line,
+                             translations: showsChineseTranslation ? desiredExtras.lines : [:])
                 .appEnvironment(app)
                 .environment(\.colorScheme, .dark)
         }

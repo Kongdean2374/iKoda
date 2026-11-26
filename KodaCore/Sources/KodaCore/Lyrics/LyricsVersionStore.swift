@@ -8,6 +8,7 @@ public actor LyricsVersionStore {
         public var translations: [String: [Int: String]] = [:]
         public var imports: [String: LyricTranslationDocument]?
         public var localVersions: [LyricsCandidate]?
+        public fileprivate(set) var revision: UInt64?
 
         public init() {}
 
@@ -95,9 +96,9 @@ public actor LyricsVersionStore {
 
     private func trimCache() {
         var total = 0
-        for file in cacheFiles() {
+        for (index, file) in cacheFiles().enumerated() {
             total += file.size
-            if total > maximumBytes { try? FileManager.default.removeItem(at: file.url) }
+            if index >= 200 || total > maximumBytes { try? FileManager.default.removeItem(at: file.url) }
         }
     }
 
@@ -142,8 +143,10 @@ public actor LyricsVersionStore {
         case .plain(let text): valid = Set(LyricsCandidate.plainLines(text).indices)
         case .synced(let lines): valid = Set(lines.map(\.id))
         }
-        let safe = edits.filter { valid.contains($0.key) && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && $0.value.utf8.count <= 8_192 }
+        let safe = edits.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard safe.allSatisfy({ valid.contains($0.key) && $0.value.utf8.count <= 8_192 }) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
         return try modify(profile, songID: candidate.songID) {
             $0.translations[candidate.id.cacheNamespace] = safe.isEmpty ? nil : safe
         }
@@ -157,6 +160,7 @@ public actor LyricsVersionStore {
             where file.pathExtension == "json" {
             guard var data: Preference = load(file, limit: maximumRecordBytes), data.selected != nil else { continue }
             data.selected = nil
+            data.revision = (data.revision ?? 0) &+ 1
             try persist(data, to: file, limit: maximumRecordBytes)
         }
     }
@@ -171,6 +175,7 @@ public actor LyricsVersionStore {
             data = saved
         }
         update(&data)
+        data.revision = (data.revision ?? 0) &+ 1
         try persist(data, to: url, limit: maximumRecordBytes)
         return data
     }

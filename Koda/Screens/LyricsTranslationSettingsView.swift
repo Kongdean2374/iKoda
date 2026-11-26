@@ -16,6 +16,9 @@ struct LyricsTranslationSettingsView: View {
     @State private var isWorking = false
     @State private var pendingLegacy: LyricTranslationDocument?
     @State private var confirmsLegacy = false
+    @State private var removesLegacy = false
+    @State private var legacyRemovalSongID: String?
+    @State private var legacyRemovalScope: UUID?
     @State private var storageBytes = 0
     @State private var confirmsClear = false
     private var versions: LyricsVersions { app.lyricsTranslation.versions }
@@ -32,6 +35,7 @@ struct LyricsTranslationSettingsView: View {
                 Picker("Translation Mode", selection: $settings.lyricsTranslationMode) {
                     ForEach(LyricsTranslationMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
+                .accessibilityValue(settings.lyricsTranslationMode.title)
                 .accessibilityIdentifier("lyrics.translation.mode")
             } footer: {
                 VStack(alignment: .leading, spacing: 8) {
@@ -52,6 +56,11 @@ struct LyricsTranslationSettingsView: View {
                     Text("Prefetch \(settings.lyricsPrefetchLimit) Upcoming Songs")
                 }
                 LabeledContent("Automatic Lyrics Cache", value: ByteCountFormatter.string(fromByteCount: Int64(storageBytes), countStyle: .file))
+                Picker("Cache Limit", selection: $settings.lyricsCacheMegabytes) {
+                    ForEach([25, 50, 100, 150, 250], id: \.self) { limit in
+                        Text("\(limit) MB").tag(limit)
+                    }
+                }
                 Button("Translate This Version Again") { Task { await app.lyricsTranslation.regenerate(clear: false) } }
                     .disabled(versions.current == nil || isWorking || !settings.automaticLyricsTranslation)
                     .accessibilityIdentifier("lyrics.translation.retry")
@@ -99,6 +108,14 @@ struct LyricsTranslationSettingsView: View {
                             }
                         }
                     } else { Text("Choose synced lyrics before attaching a translation.").foregroundStyle(.secondary) }
+                    if pendingLegacy != nil {
+                        Button("Remove Older Translation", role: .destructive) {
+                            legacyRemovalSongID = song.id
+                            legacyRemovalScope = versions.profileScope
+                            removesLegacy = true
+                        }
+                            .disabled(isWorking)
+                    }
                 } else {
                     Text("Play a song to import its translation.").foregroundStyle(.secondary)
                 }
@@ -132,7 +149,10 @@ struct LyricsTranslationSettingsView: View {
             guard !Task.isCancelled, player.current?.id == songID, versions.profileScope == scope else { return }
             pendingLegacy = document
         }
-        .task { storageBytes = await app.lyricsTranslation.cacheUsage() }
+        .task(id: app.settings.lyricsCacheMegabytes) {
+            app.lyricsTranslation.setCacheCapacity(megabytes: app.settings.lyricsCacheMegabytes)
+            storageBytes = await app.lyricsTranslation.cacheUsage()
+        }
         .confirmationDialog("Attach Older Translation to This Version", isPresented: $confirmsLegacy, titleVisibility: .visible) {
             Button("Attach Translation") {
                 if let candidate = importVersion, let pendingLegacy {
@@ -140,6 +160,22 @@ struct LyricsTranslationSettingsView: View {
                 }
             }
         } message: { Text("Check that this version matches the original import before attaching it. The older file is kept.") }
+        .confirmationDialog("Remove Older Translation", isPresented: $removesLegacy, titleVisibility: .visible) {
+            Button("Remove Older Translation", role: .destructive) {
+                guard let songID = legacyRemovalSongID, songID == player.current?.id,
+                      let scope = legacyRemovalScope, scope == versions.profileScope else { return }
+                Task {
+                    do {
+                        try await LyricTranslationStore.shared.remove(for: songID)
+                        guard player.current?.id == songID, versions.profileScope == scope else { return }
+                        pendingLegacy = nil
+                    } catch {
+                        guard player.current?.id == songID, versions.profileScope == scope else { return }
+                        message = error.localizedDescription
+                    }
+                }
+            }
+        } message: { Text("This removes the older file. Copies attached to a specific version stay available.") }
         .confirmationDialog("Clear This Mode’s Cached Translation", isPresented: $confirmsClear, titleVisibility: .visible) {
             Button("Clear Cache", role: .destructive) {
                 Task {

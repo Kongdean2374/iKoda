@@ -25,6 +25,7 @@ enum LyricsCardStyle: String, CaseIterable, Identifiable {
 struct LyricsShareSheet: View {
     let lines: [LyricLine]
     let song: Song
+    let translations: [Int: String]
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -42,15 +43,17 @@ struct LyricsShareSheet: View {
 
     static let maxLines = 6
 
-    init(lines: [LyricLine], song: Song, startingAt id: Int) {
+    init(lines: [LyricLine], song: Song, startingAt id: Int, translations: [Int: String]) {
         // Lines with words only; the "♪" placeholders of instrumental gaps are not lyrics.
         self.lines = lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
         self.song = song
+        self.translations = translations
         startLine = id
         _selected = State(initialValue: [id])
     }
 
     private var chosen: [LyricLine] { lines.filter { selected.contains($0.id) } }
+    private var chosenTranslations: [Int: String] { translations.filter { selected.contains($0.key) } }
 
     var body: some View {
         Group {
@@ -63,6 +66,7 @@ struct LyricsShareSheet: View {
         }
         .onChange(of: selected) { render() }
         .onChange(of: style) { render() }
+        .onChange(of: chosenTranslations) { render() }
         .sensoryFeedback(.warning, trigger: limitHit)
     }
 
@@ -157,7 +161,7 @@ struct LyricsShareSheet: View {
     /// lines are chosen, the list under it keeps its room and stays scrollable.
     private func preview(maxHeight: CGFloat) -> some View {
         let scale = cardHeight > maxHeight ? maxHeight / cardHeight : 1
-        return LyricsCard(lines: chosen.map(\.text), song: song, cover: cover, palette: palette.palette, style: style)
+        return LyricsCard(lines: chosen, translations: chosenTranslations, song: song, cover: cover, palette: palette.palette, style: style)
             .frame(width: 300)
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
@@ -236,8 +240,12 @@ struct LyricsShareSheet: View {
                         Button {
                             toggle(line.id)
                         } label: {
-                            Text(line.text)
-                                .font(.title3.weight(.bold))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(line.text).font(.title3.weight(.bold))
+                                if let translation = translations[line.id] {
+                                    Text(translation).font(.subheadline).opacity(0.75)
+                                }
+                            }
                                 .foregroundStyle(.white.opacity(isOn ? 1 : 0.45))
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -298,7 +306,7 @@ struct LyricsShareSheet: View {
     /// Drawn once per change, once the cover has loaded: the renderer takes a single
     /// picture and does not wait for images to arrive.
     private func render() {
-        let card = LyricsCard(lines: chosen.map(\.text), song: song, cover: cover, palette: palette.palette, style: style)
+        let card = LyricsCard(lines: chosen, translations: chosenTranslations, song: song, cover: cover, palette: palette.palette, style: style)
             .frame(width: 360)
             .environment(\.colorScheme, .dark)
         let renderer = ImageRenderer(content: card)
@@ -309,7 +317,8 @@ struct LyricsShareSheet: View {
 
 /// The card itself: the song at the top, its lines large, a small Koda mark at the foot.
 struct LyricsCard: View {
-    let lines: [String]
+    let lines: [LyricLine]
+    let translations: [Int: String]
     let song: Song
     let cover: UIImage?
     let palette: Palette
@@ -334,11 +343,15 @@ struct LyricsCard: View {
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.system(size: 25, weight: .bold))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                ForEach(lines) { line in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(line.text).font(.system(size: 25, weight: .bold))
+                        if let translation = translations[line.id] {
+                            Text(translation).font(.system(size: 18, weight: .medium)).opacity(0.75)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
             HStack(spacing: 5) {

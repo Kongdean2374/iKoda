@@ -71,7 +71,7 @@ public actor AutomaticLyricTranslationCache {
 
     private let directory: URL
     private let maximumEntries: Int
-    private let maximumBytes: Int
+    private var maximumBytes: Int
     private let maximumRecordBytes: Int
     private var records: [String: Record] = [:]
     private var didLoadIndex = false
@@ -145,6 +145,12 @@ public actor AutomaticLyricTranslationCache {
     public func discard(_ key: Key) {
         loadIndexIfNeeded()
         remove(key.fingerprint)
+    }
+
+    public func setCapacity(_ bytes: Int) {
+        maximumBytes = max(0, bytes)
+        loadIndexIfNeeded()
+        trim()
     }
 
     public func byteCount() -> Int {

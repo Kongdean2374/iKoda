@@ -219,6 +219,7 @@ struct KodaUITestFixture: View {
         let third = Song(id: "ui-smoke-c", title: "Third Song (Live)", artistLine: "Fixture Artist", duration: 240)
         songs = [first, second, third]
         if ProcessInfo.processInfo.arguments.contains("-KodaUITestAdvancedLyrics") {
+            app.settings.lyricsTranslationMode = .quality
             app.lyricsTranslation.versions.installUITestVersions(for: first)
         }
         for song in songs.reversed() { app.library.recordPlay(song) }

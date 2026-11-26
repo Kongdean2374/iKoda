@@ -24,6 +24,7 @@ final class LyricsPreparationLifecycle {
     private var network = NetworkPath.shared.snapshot
     private var resourceRevision = 0
     private var memoryPressure = false
+    @ObservationIgnored private var resourceObservers: [Task<Void, Never>] = []
     private var background = false
 
     init(player: Player, settings: AppSettings, coordinator: LyricsTranslationCoordinator) {
@@ -35,20 +36,27 @@ final class LyricsPreparationLifecycle {
     func start() {
         guard !started else { return }
         started = true
-        Task { [weak self] in
-            for await network in NetworkPath.shared.updates() { self?.network = network }
-        }
+        resourceObservers.append(Task { [weak self] in
+            for await network in NetworkPath.shared.updates() {
+                guard let self else { return }
+                self.network = network
+            }
+        })
         for name in [Notification.Name.NSProcessInfoPowerStateDidChange, ProcessInfo.thermalStateDidChangeNotification,
                      UIApplication.didReceiveMemoryWarningNotification] {
-            Task { [weak self] in
+            resourceObservers.append(Task { [weak self] in
                 for await _ in NotificationCenter.default.notifications(named: name) {
                     guard let self else { return }
                     if name == UIApplication.didReceiveMemoryWarningNotification { self.memoryPressure = true }
                     self.resourceRevision &+= 1
                 }
-            }
+            })
         }
         observe()
+    }
+
+    deinit {
+        for observer in resourceObservers { observer.cancel() }
     }
 
     func setScenePhase(_ phase: ScenePhase) {
@@ -111,7 +119,7 @@ final class LyricsPreparationLifecycle {
                 showsTranslation: settings.showsLyricsTranslation || preparesCarPlayLyrics, foreground: foreground,
                 background: background, hasCurrentWork: coordinator.hasCurrentWork,
                 sessionFinished: player.isPlaybackSessionFinished, mode: settings.lyricsTranslationMode,
-                prefetchLimit: settings.lyricsPrefetchLimit, online: network.status != .offline,
+                prefetchLimit: settings.lyricsPrefetchLimit, cacheMegabytes: settings.lyricsCacheMegabytes, online: network.status != .offline,
                 headroom: headroom, constrained: constrained, buffering: player.isBuffering,
                 permitsForegroundLookup: foreground || (player.wantsToPlay && preparesCarPlayLyrics))
         } onChange: { [weak self] in
@@ -125,6 +133,7 @@ final class LyricsPreparationLifecycle {
             showsTranslation: input.showsTranslation, isForeground: input.foreground, mode: input.mode,
             prefetchLimit: input.prefetchLimit, allowed: input.permitsForegroundLookup && input.online,
             hasHeadroom: input.headroom, constrained: input.constrained, buffering: input.buffering)
+        coordinator.setCacheCapacity(megabytes: input.cacheMegabytes)
         coordinator.adjustPolish(allowed: input.foreground && input.headroom && !input.buffering)
         updateBackgroundTask(isBackground: input.background, hasWork: coordinator.hasCurrentWork)
     }
@@ -189,6 +198,7 @@ final class LyricsPreparationLifecycle {
         let sessionFinished: Bool
         let mode: LyricsTranslationMode
         let prefetchLimit: Int
+        let cacheMegabytes: Int
         let online: Bool
         let headroom: Bool
         let constrained: Bool

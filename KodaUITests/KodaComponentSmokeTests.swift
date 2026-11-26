@@ -746,8 +746,12 @@ final class KodaComponentSmokeTests: XCTestCase {
         XCTAssertTrue(calibration.waitForExistence(timeout: 10))
         calibration.tap()
         XCTAssertTrue(increment.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "0.5")).firstMatch.exists)
+        let delay = app.descendants(matching: .any).matching(identifier: "lyrics.calibration.value").firstMatch
+        XCTAssertEqual(delay.value as? String, "+0.5")
         app.buttons["lyrics.calibration.save"].tap()
+        app.navigationBars.firstMatch.buttons.firstMatch.tap()
+        let current = app.buttons["lyrics.current.version"]
+        expectState(current, matching: NSPredicate(format: "label CONTAINS %@", "YouLyPlus"))
     }
 
     @MainActor
@@ -777,6 +781,19 @@ final class KodaComponentSmokeTests: XCTestCase {
         edit.tap()
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertEqual(field.value as? String, "Our edited translation")
+    }
+
+    @MainActor
+    func testAdvancedLyricsModePickerIsLocalizedAtLargeTextSize() {
+        let app = launch(chinese: true, dark: true, largeText: true, extraArguments: ["-KodaUITestAdvancedLyrics"])
+        let entry = app.buttons["fixture.lyrics.modes"]
+        reveal(entry, in: app)
+        entry.tap()
+        let mode = app.buttons["lyrics.translation.mode"]
+        reveal(mode, in: app)
+        mode.tap()
+        app.buttons["快速翻譯"].tap()
+        expectState(mode, matching: NSPredicate(format: "value CONTAINS %@", "快速翻譯"))
     }
 
     @MainActor

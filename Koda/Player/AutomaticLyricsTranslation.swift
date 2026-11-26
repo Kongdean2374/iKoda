@@ -35,7 +35,8 @@ nonisolated enum NativeLyricsTranslationEngine {
                           publish: @escaping @Sendable ([String: String]) async -> Void) async throws -> AutomaticLyricTranslationPipeline.Outcome {
         var languages: [String] = []
         for fragment in fragments where !languages.contains(fragment.language) { languages.append(fragment.language) }
-        var choices = await languageChoices(for: languages)
+        let compatibleChoices = await languageChoices(for: languages)
+        var choices = compatibleChoices
         #if compiler(>=6.3)
         if #available(iOS 26.4, macCatalyst 26.4, *), input.mode != .quick {
             let high = await languageChoices(for: languages, highFidelity: true)
@@ -44,6 +45,7 @@ nonisolated enum NativeLyricsTranslationEngine {
         #endif
         try Task.checkCancellation()
         var unavailable = false
+        var usedCompatibility = false
         var missingLanguage: AutomaticLyricTranslationPipeline.LanguagePair?
         var translated: [String: String] = [:]
         for language in languages {
@@ -66,32 +68,44 @@ nonisolated enum NativeLyricsTranslationEngine {
                 byText[key, default: []].append(fragment)
             }
             let responsesByID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, byText[input.mode == .quick ? $0.text : $0.id] ?? []) })
-            let requests = unique.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
-            let session: TranslationSession
-            #if compiler(>=6.3)
-            if #available(iOS 26.4, macCatalyst 26.4, *) {
-                session = TranslationSession(installedSource: choice.source, target: choice.target,
-                                             preferredStrategy: choice.highFidelity ? .highFidelity : .lowLatency)
-            } else {
-                session = TranslationSession(installedSource: choice.source, target: choice.target)
+            var routes = [choice]
+            if choice.highFidelity, let fallback = compatibleChoices[language], fallback.installed {
+                routes.append(fallback)
             }
-            #else
-            session = TranslationSession(installedSource: choice.source, target: choice.target)
-            #endif
-            // Apple's iterator cancellation is cooperative and may not yield immediately.
-            // The pipeline waits for this worker to exit before starting another session.
-            defer { session.cancel() }
-            var lastPublished = ContinuousClock.now
-            for try await response in session.translate(batch: requests) {
-                try Task.checkCancellation()
-                guard let id = response.clientIdentifier, let matching = responsesByID[id],
-                      !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                let text = TraditionalChineseLyrics.convert(response.targetText)
-                for fragment in matching { translated[fragment.id] = text }
-                let now = ContinuousClock.now
-                if lastPublished.duration(to: now) >= .milliseconds(100) {
-                    await publish(translated)
-                    lastPublished = now
+            for route in routes {
+                let missing = unique.filter { translated[$0.id] == nil }
+                guard !missing.isEmpty else { break }
+                usedCompatibility = usedCompatibility || (input.mode != .quick && !route.highFidelity)
+                let requests = missing.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
+                let session: TranslationSession
+                #if compiler(>=6.3)
+                if #available(iOS 26.4, macCatalyst 26.4, *) {
+                    session = TranslationSession(installedSource: route.source, target: route.target,
+                                                 preferredStrategy: route.highFidelity ? .highFidelity : .lowLatency)
+                } else {
+                    session = TranslationSession(installedSource: route.source, target: route.target)
+                }
+                #else
+                session = TranslationSession(installedSource: route.source, target: route.target)
+                #endif
+                defer { session.cancel() }
+                var lastPublished = ContinuousClock.now
+                do {
+                    for try await response in session.translate(batch: requests) {
+                        try Task.checkCancellation()
+                        guard let id = response.clientIdentifier, let matching = responsesByID[id],
+                              !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                        let text = TraditionalChineseLyrics.convert(response.targetText)
+                        for fragment in matching { translated[fragment.id] = text }
+                        let now = ContinuousClock.now
+                        if lastPublished.duration(to: now) >= .milliseconds(100) {
+                            await publish(translated)
+                            lastPublished = now
+                        }
+                    }
+                } catch {
+                    try Task.checkCancellation()
+                    guard route.highFidelity, routes.count > 1 else { throw error }
                 }
             }
             try Task.checkCancellation()
@@ -101,7 +115,7 @@ nonisolated enum NativeLyricsTranslationEngine {
         try Task.checkCancellation()
         if let missingLanguage { return .needsLanguage(missingLanguage) }
         if unavailable { return .unavailable }
-        return input.mode != .quick && choices.values.contains(where: { !$0.highFidelity }) ? .compatible : .complete
+        return usedCompatibility ? .compatible : .complete
     }
 
     /// Keep the non-Sendable availability object entirely on the generic executor.

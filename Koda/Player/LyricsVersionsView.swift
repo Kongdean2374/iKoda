@@ -23,7 +23,7 @@ struct LyricsVersionsView: View {
     var body: some View {
         List {
             Section("Current Lyrics Version") {
-                if let current = versions.current { candidateLink(current) }
+                if let current = versions.current { candidateLink(current, identifier: "lyrics.current.version") }
                 else { Text("No Lyrics") }
                 if let recommendation = versions.recommendation {
                     LabeledContent("Auto Recommendation", value: recommendation.sourceName)
@@ -46,7 +46,7 @@ struct LyricsVersionsView: View {
             }
             Section {
                 if let song = versions.song {
-                    NavigationLink("Search Lyrics Manually") { LyricsManualSearchView(song: song) }
+                    NavigationLink("Search Lyrics Manually") { LyricsManualSearchView(song: song, scope: versions.profileScope) }
                         .accessibilityIdentifier("lyrics.sources.manual")
                     Button("Import Original Lyrics…") { importSong = song; importScope = versions.profileScope; importing = true }
                 }
@@ -133,7 +133,7 @@ private extension LyricsSourceResult.State {
     }
 }
 
-@MainActor private func candidateLink(_ candidate: LyricsCandidate) -> some View {
+@MainActor private func candidateLink(_ candidate: LyricsCandidate, identifier: String? = nil) -> some View {
     NavigationLink {
         LyricsVersionPreview(candidate: candidate)
     } label: {
@@ -150,7 +150,7 @@ private extension LyricsSourceResult.State {
             .font(.caption)
         }
     }
-    .accessibilityIdentifier("lyrics.candidate.\(candidate.id.source)")
+    .accessibilityIdentifier(identifier ?? "lyrics.candidate.\(candidate.id.source)")
 }
 
 private extension LyricsCandidate.Format {
@@ -193,14 +193,16 @@ private extension LyricsMatch.Evidence {
 
 private struct LyricsManualSearchView: View {
     let song: Song
+    let scope: UUID
     @Environment(AppModel.self) private var app
     @State private var query: LyricsSearch
     @State private var duration: String
     @State private var source: String?
     private var versions: LyricsVersions { app.lyricsTranslation.versions }
 
-    init(song: Song) {
+    init(song: Song, scope: UUID) {
         self.song = song
+        self.scope = scope
         _query = State(initialValue: LyricsSearch(song: song))
         _duration = State(initialValue: song.duration.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? "")
     }
@@ -220,9 +222,9 @@ private struct LyricsManualSearchView: View {
                     var search = query
                     search.credits = []
                     search.duration = duration.isEmpty ? nil : (try? Double(duration, format: .number))
-                    versions.manualSearch(search, source: source)
+                    versions.manualSearch(search, source: source, songID: song.id, scope: scope)
                 }
-                .disabled(query.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !versions.canSearch)
+                .disabled(query.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !versions.canSearch || versions.profileScope != scope || versions.song?.id != song.id)
                 .accessibilityIdentifier("lyrics.manual.submit")
                 Button("Clear Search Fields") {
                     query.title = ""; query.artist = ""; query.album = nil; duration = ""; source = nil
@@ -236,7 +238,9 @@ private struct LyricsManualSearchView: View {
             Section("Manual Search Results") {
                 if versions.searchingManually { ProgressView("Searching Lyrics…") }
                 else if versions.manualResults.isEmpty { Text("No additional versions found.") }
-                ResultsList(results: versions.manualResults, showsRetry: false)
+                if versions.profileScope == scope, versions.song?.id == song.id {
+                    ResultsList(results: versions.manualResults, showsRetry: false)
+                }
             }
         }
         .navigationTitle("Search Lyrics Manually")
@@ -355,7 +359,11 @@ private struct LyricsVersionCalibration: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Current Delay", value: value.formatted(.number.sign(strategy: .always()).precision(.fractionLength(1))))
+                let seconds = value.formatted(.number.sign(strategy: .always()).precision(.fractionLength(1)))
+                LabeledContent("Current Delay", value: seconds)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Current Delay")
+                    .accessibilityValue(seconds)
                     .accessibilityIdentifier("lyrics.calibration.value")
                 Slider(value: $value, in: -30...30, step: 0.1) { Text("Calibrate Lyrics Timing") }
                 ForEach([[-1.0, -0.5, -0.1], [0.1, 0.5, 1.0]], id: \.self) { group in

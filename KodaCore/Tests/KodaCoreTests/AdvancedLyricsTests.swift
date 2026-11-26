@@ -113,6 +113,26 @@ import Testing
         #expect(await store.catalogue(key: "song") == nil)
     }
 
+    @Test func staleRefreshCannotReplaceNewCatalogueAndLocalImportsKeepTheirOwnCopy() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = root.appending(path: "profile")
+        let store = LyricsVersionStore(cache: root.appending(path: "cache"))
+        let newest = LyricsSourceResult(source: "one", name: "One", state: .found, candidates: [candidate(timing: 4)])
+        let older = LyricsSourceResult(source: "one", name: "One", state: .found, candidates: [candidate()])
+        await store.cache(.init(results: [newest], fetchedAt: Date(timeIntervalSince1970: 20)), key: "song")
+        await store.cache(.init(results: [older], fetchedAt: Date(timeIntervalSince1970: 10)), key: "song")
+        #expect(await store.catalogue(key: "song")?.results == [newest])
+        let local = try #require(LyricsCandidate.imported(song: song, sourceName: "Local", text: "[00:04]Far shore"))
+        try await store.select(local, profile: profile, songID: song.id)
+        try await store.select(nil, profile: profile, songID: song.id)
+        await store.setCapacity(0)
+        let saved = await store.preference(profile: profile, songID: song.id)
+        #expect(saved.selected == nil)
+        #expect(saved.localVersions == [local])
+        #expect(await store.usage() == 0)
+    }
+
     @Test func sourceOffsetUpdatesWordsAndTimestampsButKeepsRepeatedOccurrences() {
         let text = "\u{FEFF}[offset:+500]\r\n[00:02.00][00:15.00]<00:02.50>First<00:03.50> second\n[00:02.00]Harmony\n[00:73.00]Invalid\n"
         let lines = Lyrics.parseLRC(text)
@@ -120,6 +140,15 @@ import Testing
         #expect(lines[0].words.map(\.start) == [2, 3])
         #expect(lines.last?.end == 19.5)
         #expect(Lyrics.parseLRC("[offset:-1000]\n[00:02]Later").first?.time == 3)
+    }
+
+    @Test func invalidAndNonFiniteProviderTimingIsNotAdmitted() {
+        #expect(!LyricsCandidate.areUsable(.synced([.init(id: 2, time: .infinity, text: "Invalid")])))
+        #expect(!LyricsCandidate.areUsable(.synced([
+            .init(id: 2, time: 1, text: "Invalid", words: [.init(text: "Invalid", start: 1, end: .nan)])
+        ])))
+        #expect(!LyricsCandidate.areUsable(.synced([.init(id: 2, time: 4, text: "Invalid", end: 2)])))
+        #expect(LyricsCandidate.areUsable(.synced(Lyrics.parseLRC("[00:01]First\n[00:01]Together"))))
     }
 
     @Test func carPlayAddsVersionCorrectionWithoutClampingCombinedOffsetToTen() {

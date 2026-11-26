@@ -35,10 +35,17 @@ nonisolated private enum OnDeviceLyricEditor {
         var rows: [Row]
     }
 
+    enum Unavailable: Error { case language }
+
     @concurrent static func edit(_ input: Input) async throws -> [LyricsPolishValidation.Line] {
+        let model = SystemLanguageModel.default
+        let originals = input.rows.map(\.original) + input.context
+        if let language = LyricsRomanizer.language(of: originals), !model.supportsLocale(Locale(identifier: language)) {
+            throw Unavailable.language
+        }
         let data = try JSONEncoder().encode(input)
         let prompt = String(decoding: data, as: UTF8.self)
-        let session = LanguageModelSession(model: SystemLanguageModel.default, instructions: instructions)
+        let session = LanguageModelSession(model: model, instructions: instructions)
         let response = try await session.respond(to: prompt, generating: Passage.self, options: GenerationOptions(temperature: 0.2))
         try Task.checkCancellation()
         return response.content.lines.map { .init(id: $0.id, text: $0.text) }
@@ -63,7 +70,10 @@ final class LyricsPolishing {
     @ObservationIgnored private var loaded = false
     @ObservationIgnored private var regenerating: UUID?
 
-    private struct Work {
+    @ObservationIgnored private var upcoming: Work?
+    @ObservationIgnored private var preparedUpcoming: AutomaticLyricTranslationCache.Key?
+
+    struct Work {
         var song: Song
         var candidate: LyricsCandidate
         var rows: [LyricsTranslationText]
@@ -74,7 +84,7 @@ final class LyricsPolishing {
     init(directory: URL) { cache = AutomaticLyricTranslationCache(directory: directory, maximumBytes: 10_000_000) }
 
     func update(song: Song?, candidate: LyricsCandidate?, rows: [LyricsTranslationText],
-                base: [Int: String], complete: Bool, allowed: Bool, enabled: Bool) {
+                base: [Int: String], complete: Bool, upcoming: Work?, allowed: Bool, enabled: Bool) {
         guard enabled, let song, let candidate else { stop(); return }
         if version != candidate.id || target?.song.id != song.id {
             generation = UUID()
@@ -83,7 +93,9 @@ final class LyricsPolishing {
             version = candidate.id
             status = .checking
             loaded = false
+            preparedUpcoming = nil
         }
+        self.upcoming = upcoming
         target = Work(song: song, candidate: candidate, rows: rows, base: base, completed: complete)
         let wasBlocked = blocked
         blocked = !allowed || !Self.hasHeadroom
@@ -100,6 +112,8 @@ final class LyricsPolishing {
         guard target != nil || version != nil else { return }
         worker?.cancel()
         target = nil
+        upcoming = nil
+        preparedUpcoming = nil
         generation = UUID()
         version = nil
         regenerating = nil
@@ -138,22 +152,30 @@ final class LyricsPolishing {
     }
 
     func usage() async -> Int { await cache.byteCount() }
+    func setCapacity(_ bytes: Int) async { await cache.setCapacity(bytes) }
 
     private func schedule() {
         guard let target, worker == nil, regenerating == nil, !blocked,
               ![.unavailable, .language, .failed].contains(status) else { return }
         if loaded && target.base.keys.allSatisfy({ lines[$0] != nil }) {
             status = target.completed && !target.base.isEmpty ? .complete : .partial
+            if target.completed, let upcoming, !upcoming.base.isEmpty {
+                let key = Self.key(upcoming)
+                if preparedUpcoming != key {
+                    preparedUpcoming = key
+                    start(upcoming, presentsResult: false)
+                }
+            }
             return
         }
         start(target)
     }
 
-    private func start(_ work: Work, replace: Bool = false) {
+    private func start(_ work: Work, replace: Bool = false, presentsResult: Bool = true) {
         let token = generation
-        worker = Task { [weak self] in
+        worker = Task(priority: presentsResult ? .userInitiated : .utility) { [weak self] in
             guard let self else { return }
-            await self.run(work, token: token, replace: replace)
+            await self.run(work, token: token, replace: replace, presentsResult: presentsResult)
             self.worker = nil
             self.schedule()
         }
@@ -169,31 +191,36 @@ final class LyricsPolishing {
               namespace: work.candidate.id.cacheNamespace + "|immersive|" + OnDeviceLyricEditor.instructionVersion)
     }
 
-    private func run(_ work: Work, token: UUID, replace: Bool) async {
+    private func run(_ work: Work, token: UUID, replace: Bool, presentsResult: Bool) async {
         let key = Self.key(work)
         guard !Task.isCancelled, generation == token else { return }
-        if !loaded {
+        var output = presentsResult ? lines : [:]
+        func show(_ phase: Status) { if presentsResult { status = phase } }
+        if !presentsResult || !loaded {
             let cached = await cache.entry(for: key)
             guard !Task.isCancelled, generation == token else { return }
-            lines = (cached?.fragments ?? [:]).reduce(into: [:]) { result, entry in
+            output = (cached?.fragments ?? [:]).reduce(into: [:]) { result, entry in
                 if let id = Int(entry.key) { result[id] = entry.value }
             }
-            loaded = true
+            if presentsResult {
+                lines = output
+                loaded = true
+            }
         }
         let eligible = work.rows.indices.filter { work.base[work.rows[$0].id] != nil
-            && (replace || lines[work.rows[$0].id] == nil) }
+            && (replace || output[work.rows[$0].id] == nil) }
         guard !eligible.isEmpty else {
-            status = work.completed && !work.base.isEmpty ? .complete : .partial
+            show(work.completed && !work.base.isEmpty ? .complete : .partial)
             return
         }
         let model = SystemLanguageModel.default
-        guard model.isAvailable else { status = .unavailable; return }
-        guard model.supportsLocale(Locale(identifier: "zh-Hant-TW")) else { status = .language; return }
-        status = .working
+        guard model.isAvailable else { show(.unavailable); return }
+        guard model.supportsLocale(Locale(identifier: "zh-Hant-TW")) else { show(.language); return }
+        show(.working)
         var remaining = eligible[...]
         while !remaining.isEmpty {
             guard !Task.isCancelled, generation == token else { return }
-            guard Self.hasHeadroom, !blocked else { status = .paused; return }
+            guard Self.hasHeadroom, !blocked else { show(.paused); return }
             var indices: [Int] = []
             var size = 0
             for index in remaining.prefix(12) {
@@ -222,17 +249,19 @@ final class LyricsPolishing {
                     return try await group.next() ?? []
                 }
                 guard !Task.isCancelled, generation == token else { return }
-                guard let valid = LyricsPolishValidation.validate(edited, expected: expected) else { status = .failed; return }
-                lines.merge(valid) { _, newer in newer }
-                let checkpoint = Dictionary(uniqueKeysWithValues: lines.map { (String($0.key), $0.value) })
-                await cache.store(.init(fragments: checkpoint), for: key)
+                guard let valid = LyricsPolishValidation.validate(edited, expected: expected) else { show(.failed); return }
+                output.merge(valid) { _, newer in newer }
+                if presentsResult { lines = output }
+                let checkpoint = Dictionary(uniqueKeysWithValues: output.map { (String($0.key), $0.value) })
+                let complete = work.completed && remaining.isEmpty
+                if !replace || complete { await cache.store(.init(fragments: checkpoint, isComplete: complete), for: key) }
             } catch {
                 guard !Task.isCancelled, generation == token else { return }
-                status = .failed
+                show(error is OnDeviceLyricEditor.Unavailable ? .language : .failed)
                 return
             }
         }
         guard generation == token, !Task.isCancelled else { return }
-        status = work.completed && work.base.keys.allSatisfy({ lines[$0] != nil }) ? .complete : .partial
+        show(work.completed && work.base.keys.allSatisfy({ output[$0] != nil }) ? .complete : .partial)
     }
 }

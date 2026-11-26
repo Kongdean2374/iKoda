@@ -127,8 +127,8 @@ final class LyricsVersions {
             let saved = await store.preference(profile: profile, songID: context.song.id)
             let cached = force || source != nil ? nil : await store.catalogue(key: context.cacheKey)
             guard let self, self.accepts(token) else { return }
-            self.preference = saved
-            if self.current == nil, let selected = saved.selected { self.apply(selected) }
+            self.acceptPreference(saved)
+            if self.current == nil, let selected = self.preference.selected { self.apply(selected) }
             if let cached {
                 self.results = cached.results
                 self.autoSelect(finished: cached.isFresh)
@@ -152,12 +152,16 @@ final class LyricsVersions {
             }
             guard self.accepts(token) else { return }
             self.autoSelect(finished: true)
+            if userInitiated, !received.contains(where: { $0.state == .found }), self.current != nil {
+                self.error = String(localized: "Refresh found no usable lyrics. The current version is still available.")
+            }
             await store.cache(.init(results: received, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
             self.finishLookup(token)
         }
     }
 
-    func manualSearch(_ search: LyricsSearch, source: String?) {
+    func manualSearch(_ search: LyricsSearch, source: String?, songID: String, scope: UUID) {
+        guard song?.id == songID, scope == profileScope else { return }
         #if DEBUG
         if let fixtureResults {
             manualResults = source.map { selected in fixtureResults.filter { $0.source == selected } } ?? fixtureResults
@@ -200,8 +204,8 @@ final class LyricsVersions {
         do {
             let saved = try await store.select(candidate, profile: profile, songID: song.id)
             guard generation == token else { return }
-            preference = saved
-            apply(candidate ?? recommendation)
+            acceptPreference(saved)
+            apply(preference.selected ?? recommendation)
             if wasSearching || current == nil { search() }
         } catch { setError(error, token: token) }
     }
@@ -220,8 +224,8 @@ final class LyricsVersions {
         guard let profile, song?.id == candidate.songID else { return false }
         do {
             let saved = try await store.setOffset(offset, for: candidate.id, profile: profile, songID: candidate.songID)
-            guard self.profile == profile, song?.id == candidate.songID else { return false }
-            preference = saved
+            guard profileScope == expectedScope, song?.id == candidate.songID else { return false }
+            acceptPreference(saved)
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
@@ -231,8 +235,8 @@ final class LyricsVersions {
         guard let profile, song?.id == candidate.songID else { return false }
         do {
             let saved = try await store.saveEdits(edits, for: candidate, profile: profile)
-            guard self.profile == profile, song?.id == candidate.songID else { return false }
-            preference = saved
+            guard profileScope == expectedScope, song?.id == candidate.songID else { return false }
+            acceptPreference(saved)
             editRevision &+= 1
             return true
         } catch { self.error = error.localizedDescription; return false }
@@ -248,15 +252,16 @@ final class LyricsVersions {
               candidate.id == current?.id else { throw CancellationError() }
         let saved = try await store.importTranslation(document, for: candidate, profile: profile)
         guard profileScope == expectedScope, song?.id == candidate.songID else { throw CancellationError() }
-        preference = saved
+        acceptPreference(saved)
         editRevision &+= 1
     }
 
     func resetAllSelections() async {
         guard let profile else { return }
+        let scope = profileScope
         do {
             try await store.resetSelections(profile: profile)
-            guard self.profile == profile else { return }
+            guard profileScope == scope else { return }
             await select(nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -326,6 +331,10 @@ final class LyricsVersions {
         guard accepts(token) else { return }
         searching = false
         lookup = nil
+    }
+
+    private func acceptPreference(_ saved: LyricsVersionStore.Preference) {
+        if (saved.revision ?? 0) >= (preference.revision ?? 0) { preference = saved }
     }
 
     private func accepts(_ token: UUID) -> Bool { generation == token && !Task.isCancelled }

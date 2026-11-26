@@ -36,6 +36,8 @@ final class LyricsTranslationCoordinator {
     private var mode: LyricsTranslationMode = .quality
     private var queueEnded = false
     private var prefetchLimit = 5
+    @ObservationIgnored private var cacheCapacityUpdate: Task<Void, Never>?
+    @ObservationIgnored private var configuredMegabytes: Int?
     private var hasHeadroom = true
     private var originalReadsAllowed = false
     private var buffered = false
@@ -59,6 +61,7 @@ final class LyricsTranslationCoordinator {
     @ObservationIgnored private var desiredLookups: [String: LookupKey] = [:]
     @ObservationIgnored private var prefetchTask: Task<Void, Never>?
     @ObservationIgnored private var prefetchGeneration = UUID()
+    @ObservationIgnored private var attemptedPrefetch: Set<LookupKey> = []
     @ObservationIgnored private var lookupContext: [LookupKey] = []
     @ObservationIgnored private var backgroundExecutionAllowed = false
     @ObservationIgnored private var backgroundContinuationKey: LookupKey?
@@ -89,7 +92,8 @@ final class LyricsTranslationCoordinator {
                 constrained: Bool, buffering: Bool) {
         let newMode = self.mode != mode
         if newMode { invalidateLanguageWork() }
-        let budgetChanged = self.prefetchLimit != prefetchLimit || self.hasHeadroom != hasHeadroom || self.buffered != buffering
+        let budgetChanged = self.prefetchLimit != prefetchLimit || self.hasHeadroom != hasHeadroom
+            || self.buffered != buffering || self.constrained != constrained || originalReadsAllowed != allowed
         self.mode = mode
         self.prefetchLimit = prefetchLimit
         self.hasHeadroom = hasHeadroom
@@ -121,7 +125,11 @@ final class LyricsTranslationCoordinator {
         if changed {
             let oldDesired = desiredLookups
             desiredLookups = Dictionary(uniqueKeysWithValues: context.map { ($0.song.id, $0) })
-            for (id, old) in oldDesired where desiredLookups[id] != old { inputs.removeValue(forKey: id) }
+            for (id, old) in oldDesired where desiredLookups[id] != old {
+                inputs.removeValue(forKey: id)
+                if desiredLookups[id] != nil { versionBySong.removeValue(forKey: id) }
+            }
+            attemptedPrefetch.formIntersection(Set(context))
             lookupContext = context
         }
         versions.follow(song: current, sources: sources, custom: customSources,
@@ -140,13 +148,11 @@ final class LyricsTranslationCoordinator {
         if becameActive || changedSong || currentLookupKey != priorCurrentLookupKey || (!wasPreparing && prepares) {
             currentRetryKey = currentLookupKey
         }
-        if !isForeground || !prepares || expirationSuspended || !hasHeadroom || constrained || buffering {
+        if !isForeground || !allowed || expirationSuspended || !hasHeadroom || constrained || buffering {
             cancelPrefetch(keepingCurrent: true)
-        } else if changed || becameActive || !wasPreparing || newMode || budgetChanged {
-            // A prefetched B lookup is already useful when A advances to B: keep
-            // the work matching the new current key, not the old current ID.
-            cancelPrefetch(keepingCurrent: true)
-            startPrefetch(context)
+        } else {
+            if changed || becameActive || newMode || budgetChanged { cancelPrefetch(keepingCurrent: true) }
+            if prefetchTask == nil { startPrefetch(context) }
         }
         if !automaticEnabled { pipeline.suspend() }
         refreshTranslationRequests()
@@ -182,6 +188,7 @@ final class LyricsTranslationCoordinator {
         inputs.removeAll()
         versionBySong.removeAll()
         lookupContext = []
+        attemptedPrefetch.removeAll()
         currentRetryKey = nil
         versions.setProfile(directory)
         polish.stop()
@@ -211,9 +218,17 @@ final class LyricsTranslationCoordinator {
 
     func adjustPolish(allowed: Bool) {
         let snapshot = polishTrigger
+        let upcoming: LyricsPolishing.Work?
+        if mode == .immersive, hasHeadroom, !constrained, !buffered,
+           let song = upcomingSongs.first, let version = versionBySong[song.id], let prepared = inputs[song.id] {
+            let next = pipeline.snapshot(for: prepared.input)
+            upcoming = next.phase == .ready
+                ? .init(song: song, candidate: version, rows: prepared.lines, base: next.lines, completed: true)
+                : nil
+        } else { upcoming = nil }
         polish.update(song: currentSong, candidate: versions.current,
                       rows: currentSong.flatMap { inputs[$0.id]?.lines } ?? [], base: snapshot.lines,
-                      complete: snapshot.phase == .ready, allowed: allowed && !expirationSuspended,
+                      complete: snapshot.phase == .ready, upcoming: upcoming, allowed: allowed && !expirationSuspended,
                       enabled: mode == .immersive && automaticEnabled && showsTranslation && !queueEnded && !playbackSessionFinished)
     }
 
@@ -241,7 +256,21 @@ final class LyricsTranslationCoordinator {
         return base.merging(polished) { _, newer in newer }
     }
 
+    func setCacheCapacity(megabytes: Int) {
+        guard configuredMegabytes != megabytes else { return }
+        configuredMegabytes = megabytes
+        let previous = cacheCapacityUpdate
+        cacheCapacityUpdate = Task { [versions, translationCache, polish] in
+            await previous?.value
+            let total = min(250, max(25, megabytes)) * 1_000_000
+            await versions.store.setCapacity(total * 2 / 5)
+            await translationCache.setCapacity(total * 2 / 5)
+            await polish.setCapacity(total / 5)
+        }
+    }
+
     func cacheUsage() async -> Int {
+        await cacheCapacityUpdate?.value
         let originals = await versions.store.usage()
         let translated = await translationCache.byteCount()
         let polished = await polish.usage()
@@ -450,8 +479,9 @@ final class LyricsTranslationCoordinator {
 
     private func startPrefetch(_ context: [LookupKey]) {
         guard !playbackSessionFinished, !queueEnded, foreground, !expirationSuspended,
-              hasHeadroom, !buffered, !constrained, versions.current != nil else { return }
-        let lookups = context.dropFirst().filter { versionBySong[$0.song.id] == nil }
+              originalReadsAllowed, hasHeadroom, !buffered, !constrained,
+              !versions.searching || versions.current != nil else { return }
+        let lookups = context.dropFirst().filter { versionBySong[$0.song.id] == nil && !attemptedPrefetch.contains($0) }
         guard !lookups.isEmpty else { return }
         let generation = UUID()
         prefetchGeneration = generation
@@ -462,6 +492,7 @@ final class LyricsTranslationCoordinator {
                 guard !Task.isCancelled, self.prefetchGeneration == generation, self.foreground else { return }
                 let version = await self.versions.preparedVersion(.init(song: next.song, sources: sources, custom: custom))
                 guard !Task.isCancelled, self.prefetchGeneration == generation, self.desiredLookups[next.song.id] == next else { return }
+                self.attemptedPrefetch.insert(next)
                 if let version {
                     self.install(version)
                     self.refreshTranslationRequests()
