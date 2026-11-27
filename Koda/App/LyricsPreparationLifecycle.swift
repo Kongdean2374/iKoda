@@ -100,9 +100,15 @@ final class LyricsPreparationLifecycle {
             _ = resourceRevision
             _ = coordinator.polishTrigger
             _ = coordinator.lyricsRevision
+            _ = coordinator.versions.editRevision
             let constrained = network.isConstrained || network.isExpensive
-            let headroom = !ProcessInfo.processInfo.isLowPowerModeEnabled && !memoryPressure
-                && ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue
+            var limits = Set<LyricWorkLimit>()
+            if ProcessInfo.processInfo.isLowPowerModeEnabled { limits.insert(.lowPower) }
+            if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue { limits.insert(.thermal) }
+            if memoryPressure { limits.insert(.memory) }
+            let headroom = limits.isEmpty
+            if !foreground { limits.insert(.background) }
+            if player.isBuffering { limits.insert(.buffering) }
             // The queue itself intentionally is not observable; these projections are.
             _ = player.upcoming
             _ = player.repeatMode
@@ -120,7 +126,7 @@ final class LyricsPreparationLifecycle {
                 background: background, hasCurrentWork: coordinator.hasCurrentWork,
                 sessionFinished: player.isPlaybackSessionFinished, mode: settings.lyricsTranslationMode,
                 prefetchLimit: settings.lyricsPrefetchLimit, cacheMegabytes: settings.lyricsCacheMegabytes, online: network.status != .offline,
-                headroom: headroom, constrained: constrained, buffering: player.isBuffering,
+                headroom: headroom, constrained: constrained, buffering: player.isBuffering, limits: limits,
                 permitsForegroundLookup: foreground || (player.wantsToPlay && preparesCarPlayLyrics))
         } onChange: { [weak self] in
             // Observation fires before the property mutation. Read the committed values
@@ -134,7 +140,7 @@ final class LyricsPreparationLifecycle {
             prefetchLimit: input.prefetchLimit, allowed: input.permitsForegroundLookup && input.online,
             hasHeadroom: input.headroom, constrained: input.constrained, buffering: input.buffering)
         coordinator.setCacheCapacity(megabytes: input.cacheMegabytes)
-        coordinator.adjustPolish(allowed: input.foreground && input.headroom && !input.buffering)
+        coordinator.adjustPolish(limits: input.limits)
         updateBackgroundTask(isBackground: input.background, hasWork: coordinator.hasCurrentWork)
     }
 
@@ -203,6 +209,7 @@ final class LyricsPreparationLifecycle {
         let headroom: Bool
         let constrained: Bool
         let buffering: Bool
+        let limits: Set<LyricWorkLimit>
         let permitsForegroundLookup: Bool
     }
 }

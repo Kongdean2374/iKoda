@@ -14,6 +14,8 @@ struct KodaUITestFixture: View {
     @State private var firstPlaylist: PlaylistSummary?
     @State private var songs: [Song] = []
     @State private var sheet: FixtureSheet?
+    @State private var showsPlayer = false
+    @State private var demoAudio: URL?
     @State private var accountSync: UITestAccountSyncBoundary?
 
     private enum FixtureSheet: String, Identifiable {
@@ -39,6 +41,17 @@ struct KodaUITestFixture: View {
                     Text(verbatim: "Translation control")
                 }
                 .accessibilityIdentifier("fixture.translation")
+                if let demoAudio, let song = songs.first {
+                    Button {
+                        app.player.useUITestAudio(at: demoAudio, duration: 180)
+                        app.player.autoplay = false
+                        app.player.play([song])
+                        showsPlayer = true
+                    } label: {
+                        Text(verbatim: "Play bilingual lyric fixture")
+                    }
+                    .accessibilityIdentifier("fixture.lyrics.player")
+                }
                 if ProcessInfo.processInfo.arguments.contains("-KodaUITestAdvancedLyrics") {
                     NavigationLink { LyricsVersionsView() } label: { Text(verbatim: "Advanced lyrics demo") }
                         .accessibilityIdentifier("fixture.lyrics.versions")
@@ -164,6 +177,11 @@ struct KodaUITestFixture: View {
             .dynamicTypeSize(largeText ? .accessibility3 : .large)
             .preferredColorScheme(dark ? .dark : .light)
         }
+        .fullScreenCover(isPresented: $showsPlayer, onDismiss: { app.player.stop() }) {
+            NowPlayingView()
+                .appEnvironment(app)
+                .dynamicTypeSize(largeText ? .accessibility3 : .large)
+        }
         .task { await prepare() }
     }
 
@@ -218,6 +236,11 @@ struct KodaUITestFixture: View {
         let second = Song(id: "ui-smoke-b", title: "Second Song", artistLine: "Fixture Artist", duration: 210)
         let third = Song(id: "ui-smoke-c", title: "Third Song (Live)", artistLine: "Fixture Artist", duration: 240)
         songs = [first, second, third]
+        if ProcessInfo.processInfo.arguments.contains("-KodaUITestCompactLyrics") {
+            app.settings.compactBilingualPlayer = true
+            app.lyricsTranslation.versions.installUITestVersions(for: first, playable: true)
+            demoAudio = try? await Task.detached(priority: .utility) { try Self.makeUITestWave() }.value
+        }
         if ProcessInfo.processInfo.arguments.contains("-KodaUITestAdvancedLyrics") {
             app.settings.lyricsTranslationMode = .quality
             app.lyricsTranslation.versions.installUITestVersions(for: first)
@@ -283,6 +306,32 @@ struct KodaUITestFixture: View {
             catalogReader: catalogFailure ? unavailableCatalog : nil)
         if catalogFailure { await app.cloudPlaylists.refresh(force: true) }
         prepared = true
+    }
+
+    private nonisolated static func makeUITestWave() throws -> URL {
+        let sampleRate = 8_000
+        let bytes = 180 * sampleRate * 2
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+        data.append(contentsOf: "RIFF".utf8)
+        append(UInt32(bytes + 36))
+        data.append(contentsOf: "WAVEfmt ".utf8)
+        append(UInt32(16))
+        append(UInt16(1))
+        append(UInt16(1))
+        append(UInt32(sampleRate))
+        append(UInt32(sampleRate * 2))
+        append(UInt16(2))
+        append(UInt16(16))
+        data.append(contentsOf: "data".utf8)
+        append(UInt32(bytes))
+        data.append(Data(count: bytes))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("koda-ui-lyric-silence.wav")
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     private func recognizer(for song: Song) -> UITestMusicRecognizer {

@@ -16,6 +16,7 @@ struct SyncedLyrics: View {
     @Environment(Library.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.lyricsPlayerChrome) private var chrome
     @State private var userScrolled = false
     /// How far the lines have scrolled up, up to `topFadeHeight`: the top fade grows with it.
     @State private var topFade: CGFloat = 0
@@ -37,7 +38,8 @@ struct SyncedLyrics: View {
     private var sourceID: String { player.current?.id ?? "" }
     private var automaticTranslation: AutomaticLyricsResult {
         app.lyricsTranslation.result(songID: player.current?.id,
-            lines: lines.map { LyricsTranslationText(id: $0.id, text: $0.text) })
+            lines: lines.map { LyricsTranslationText(id: $0.id, text: $0.text) },
+            imported: importedTranslations, importsEnabled: app.settings.importedLyricsEnabled)
     }
     private struct ExtrasPresentation: Equatable {
         var lines: [Int: String] = [:]
@@ -45,12 +47,7 @@ struct SyncedLyrics: View {
     }
     private var desiredExtras: ExtrasPresentation {
         if showsChineseTranslation {
-            var translations = TraditionalChineseLyrics.merged(
-                automatic: app.settings.automaticLyricsTranslation ? automaticTranslation.lines : [:],
-                imported: importedTranslations, importsEnabled: app.settings.importedLyricsEnabled)
-            let versions = app.lyricsTranslation.versions
-            if let current = versions.current { translations.merge(versions.edits(for: current)) { _, new in new } }
-            return ExtrasPresentation(lines: translations, isTranslation: true)
+            return ExtrasPresentation(lines: automaticTranslation.lines, isTranslation: true)
         }
         return ExtrasPresentation(lines: app.settings.lyricsExtra == .pronunciation ? pronunciations : [:])
     }
@@ -84,12 +81,13 @@ struct SyncedLyrics: View {
             HStack {
                 LyricsTranslationControl(lines: lines.map { .init(id: $0.id, text: $0.text) },
                     importedCount: importsLoaded ? importedTranslations.count : 0,
+                    importedLines: importedTranslations,
                     information: !automaticallyTranslates && showsChineseTranslation && importsLoaded
                         && displayedExtras.lines.count < lines.filter({ !$0.text.isEmpty }).count
                         ? (displayedExtras.lines.isEmpty
                             ? String(localized: "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.")
-                            : String(localized: "Some lines have no translation and show the original lyrics.")) : nil)
-                if let openSources { LyricsSourceOrb(action: openSources) }
+                            : String(localized: "Some lines have no translation and show the original lyrics.")) : nil,
+                    openSources: openSources)
                 Spacer(minLength: 8)
                 if userScrolled {
                     Button("Follow", systemImage: "arrow.down.to.line") { userScrolled = false }
@@ -108,6 +106,10 @@ struct SyncedLyrics: View {
             if scroll.isIdle { applyExtras(presentation) }
         }
         .onChange(of: showsChineseTranslation) { _, _ in applyExtras(desiredExtras) }
+        .onChange(of: chrome) { _, _ in
+            let current = Lyrics.index(of: player.position() + Self.lead - offset, in: lines)
+            scroll.prepareLayoutChange(source: sourceID, preferredRowID: userScrolled ? nil : current)
+        }
         .onChange(of: sourceID) { _, _ in scroll.reset() }
         .task(id: lines) { await readLanguage() }
         .task(id: ImportRequest(songID: player.current?.id, lines: lines, revision: app.lyricsTranslation.versions.editRevision,

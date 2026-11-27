@@ -50,22 +50,34 @@ struct LyricsPanel: View {
     }
 
     private var sourceFooter: some View {
-        HStack { LyricsSourceOrb { showsSources = true }; Spacer() }.padding(.top, 6)
+        HStack {
+            LyricsTranslationControl(lines: [], openSources: { showsSources = true })
+            Spacer()
+        }
+        .padding(.top, 6)
     }
 }
 
 struct LyricsSourceOrb: View {
     let action: () -> Void
+    @State private var selections = 0
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "square.stack")
-                .font(.body.weight(.semibold))
-                .frame(width: 44, height: 44)
+        Button {
+            selections &+= 1
+            action()
+        } label: {
+            LyricsOrbGlyph(symbol: "square.stack")
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(LyricsSourceOrbStyle())
+        .sensoryFeedback(.selection, trigger: selections)
         .accessibilityLabel("Lyrics Sources")
         .accessibilityIdentifier("lyrics.sources.open")
+    }
+}
+
+private struct LyricsSourceOrbStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.modifier(LyricsOrbAppearance(pressed: configuration.isPressed))
     }
 }

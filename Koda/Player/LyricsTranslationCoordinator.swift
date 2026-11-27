@@ -76,7 +76,7 @@ final class LyricsTranslationCoordinator {
         let cache = AutomaticLyricTranslationCache(directory: directory)
         translationCache = cache
         pipeline = AutomaticLyricTranslationPipeline(cache: cache, maximumUpcoming: Self.upcomingCount,
-                                                     contextualEngine: NativeLyricsTranslationEngine.translate)
+                                                     observedEngine: NativeLyricsTranslationEngine.translate)
         versions.onSelection = { [weak self] in self?.selectedVersionChanged($0) }
     }
 
@@ -216,20 +216,23 @@ final class LyricsTranslationCoordinator {
         return pipeline.snapshot(for: prepared.input)
     }
 
-    func adjustPolish(allowed: Bool) {
-        let snapshot = polishTrigger
-        let upcoming: LyricsPolishing.Work?
-        if mode == .immersive, hasHeadroom, !constrained, !buffered,
-           let song = upcomingSongs.first, let version = versionBySong[song.id], let prepared = inputs[song.id] {
-            let next = pipeline.snapshot(for: prepared.input)
-            upcoming = next.phase == .ready
-                ? .init(song: song, candidate: version, rows: prepared.lines, base: next.lines, completed: true)
-                : nil
-        } else { upcoming = nil }
-        polish.update(song: currentSong, candidate: versions.current,
-                      rows: currentSong.flatMap { inputs[$0.id]?.lines } ?? [], base: snapshot.lines,
-                      complete: snapshot.phase == .ready, upcoming: upcoming, allowed: allowed && !expirationSuspended,
-                      enabled: mode == .immersive && automaticEnabled && showsTranslation && !queueEnded && !playbackSessionFinished)
+    private var polishLimits: Set<LyricWorkLimit> = []
+
+    func adjustPolish(limits: Set<LyricWorkLimit>) {
+        polishLimits = expirationSuspended ? limits.union([.background]) : limits
+        let wantsAI = mode == .immersive || versions.translationSelection == .foundationModels
+        var work: LyricsPolishing.Work?
+        var upcoming: LyricsPolishing.Work?
+        if wantsAI, let song = currentSong, let version = versions.current, let prepared = inputs[song.id] {
+            work = .init(song: song, candidate: version, rows: prepared.lines, snapshot: pipeline.snapshot(for: prepared.input))
+            if mode == .immersive, hasHeadroom, !constrained, !buffered,
+               let next = upcomingSongs.first, let nextVersion = versionBySong[next.id], let nextInput = inputs[next.id] {
+                upcoming = .init(song: next, candidate: nextVersion, rows: nextInput.lines,
+                                 snapshot: pipeline.snapshot(for: nextInput.input))
+            }
+        }
+        polish.update(work, upcoming: upcoming, limits: polishLimits,
+                      enabled: wantsAI && automaticEnabled && showsTranslation && !queueEnded && !playbackSessionFinished)
     }
 
     func regenerate(clear: Bool, polishOnly: Bool = false) async {
@@ -238,8 +241,10 @@ final class LyricsTranslationCoordinator {
         let version = versions.current?.id
         let requestMode = mode
         if !polishOnly { await pipeline.regenerate(input, discardDisk: clear) }
-        guard requestMode == .immersive, mode == requestMode, versions.profileScope == scope,
+        guard (requestMode == .immersive || versions.translationSelection == .foundationModels),
+              mode == requestMode, versions.profileScope == scope,
               versions.current?.id == version, currentSong?.id == id, !playbackSessionFinished, !queueEnded else { return }
+        adjustPolish(limits: polishLimits)
         await polish.regenerate(clear: clear)
     }
 
@@ -248,7 +253,7 @@ final class LyricsTranslationCoordinator {
         let input = AutomaticLyricTranslationPipeline.Input(songID: candidate.songID, rows: rows,
                   namespace: candidate.id.cacheNamespace, mode: mode)
         let saved = await translationCache.entry(for: AutomaticLyricTranslationPipeline.cacheKey(input))
-        let polished = mode == .immersive ? await polish.cached(candidate, rows: rows) : [:]
+        let polished = mode == .immersive ? await polish.cached(candidate) : [:]
         guard let saved else { return polished }
         let base = await Task.detached(priority: .utility) {
             ChineseLyricTranslationPlan(rows: rows).renderedLines(translations: saved.fragments)
@@ -279,51 +284,59 @@ final class LyricsTranslationCoordinator {
 
     /// This only reads already registered rows/snapshots; no disk access, network, language
     /// detection or fingerprint hashing occurs in the frame-by-frame lyrics presentation.
-    func result(songID: String?, lines: [LyricsTranslationText]) -> AutomaticLyricsResult {
+    func result(songID: String?, lines: [LyricsTranslationText], imported: [Int: String] = [:],
+                importsEnabled: Bool = true) -> AutomaticLyricsResult {
+        let current = versions.current
+        let currentVersion = current?.songID == songID ? current : nil
+        let selection = currentVersion == nil ? .automatic : versions.translationSelection
+        let isImmersive = mode == .immersive || selection == .foundationModels
         guard let songID, let prepared = inputs[songID], prepared.lines == lines else {
-            return .init(phase: playbackSessionFinished ? .paused : .idle, playbackSessionFinished: playbackSessionFinished)
+            return .init(phase: playbackSessionFinished ? .paused : .idle, playbackSessionFinished: playbackSessionFinished,
+                         immersiveStatus: isImmersive ? .preparing : nil,
+                         originalReady: currentVersion != nil, originalSearching: versions.searching, limits: polishLimits)
         }
         let snapshot = pipeline.snapshot(for: prepared.input)
         let phase: AutomaticLyricsResult.Phase
+        let baseStage: ImmersiveLyricStatus.Base
         switch snapshot.phase {
-        case .idle: phase = .idle
-        case .preparing: phase = .preparing
-        case .translating: phase = .translating
-        case .ready: phase = .ready
-        case .needsLanguage: phase = .needsLanguage
-        case .unavailable: phase = .unavailable
-        case .failed: phase = .failed
-        case .paused: phase = .paused
+        case .idle: (phase, baseStage) = (.idle, .preparing)
+        case .preparing: (phase, baseStage) = (.preparing, .preparing)
+        case .translating: (phase, baseStage) = (.translating, .translating)
+        case .ready: (phase, baseStage) = (.ready, .ready)
+        case .needsLanguage: (phase, baseStage) = (.needsLanguage, snapshot.lines.isEmpty ? .unavailable : .partial)
+        case .unavailable: (phase, baseStage) = (.unavailable, snapshot.lines.isEmpty ? .unavailable : .partial)
+        case .failed: (phase, baseStage) = (.failed, snapshot.lines.isEmpty ? .unavailable : .partial)
+        case .paused: (phase, baseStage) = (.paused, .preparing)
         }
-        let version = versionBySong[songID]
-        var resultLines = snapshot.lines
-        if mode == .immersive, polish.version == version?.id { resultLines.merge(polish.lines) { _, new in new } }
-        if let version { resultLines.merge(versions.edits(for: version)) { _, new in new } }
-        let label = strategyStatus(phase: phase, compatibility: snapshot.usedCompatibility)
+
+        let workMatches = currentVersion != nil && polish.version == currentVersion?.id
+        let contextual = automaticEnabled && isImmersive && workMatches ? polish.lines : [:]
+        let preferred = currentVersion.map {
+            $0.id.source == "local" || [.high, .medium].contains($0.match.confidence)
+                || versions.assessments[$0.id]?.content == .verified
+        } ?? false
+        let resolved = ResolvedLyricTranslations(selection: selection, embedded: currentVersion?.embeddedTranslations ?? [],
+                        prefersProvider: preferred, imported: importsEnabled ? imported : [:],
+                        base: automaticEnabled ? snapshot.lines : [:], contextual: contextual,
+                        edits: currentVersion.map { versions.edits(for: $0) } ?? [:])
+        let polishStatus: ImmersiveLyricStatus.Polish = workMatches ? polish.status : .idle
+        let immersive = isImmersive ? ImmersiveLyricStatus.resolve(base: baseStage, polish: polishStatus) : nil
+        let status = snapshot.usedCompatibility ? String(localized: "Using Compatible Translation") : nil
         return AutomaticLyricsResult(phase: playbackSessionFinished && phase != .ready ? .paused : phase,
-            lines: resultLines, completed: snapshot.completed, total: snapshot.total,
-            playbackSessionFinished: playbackSessionFinished, strategyStatus: label)
+            lines: resolved.lines, completed: snapshot.completed, total: snapshot.total,
+            playbackSessionFinished: playbackSessionFinished, strategyStatus: status,
+            immersiveStatus: immersive, baseDiagnostics: snapshot, polishDiagnostics: workMatches ? polish.diagnostics : .init(),
+            originalReady: currentVersion != nil, originalSearching: versions.searching,
+            originalLookupSeconds: versions.originalLookupSeconds, originalCacheUse: versions.originalCacheUse,
+            origins: resolved.origins, selectedSource: selection, limits: polishLimits)
     }
 
-    private func strategyStatus(phase: AutomaticLyricsResult.Phase, compatibility: Bool) -> String? {
-        if mode == .immersive {
-            switch polish.status {
-            case .checking: return String(localized: "Checking On-Device Model…")
-            case .working: return String(localized: "Polishing Lyrics in Context…")
-            case .complete: return String(localized: "Context Polish Complete")
-            case .partial where phase == .ready: return String(localized: "Context Polish Partially Complete")
-            case .modelNotReady: return String(localized: "On-Device Model Not Ready · Showing Base Translation")
-            case .language: return String(localized: "Context Polish Language Unavailable · Showing Base Translation")
-            case .unavailable, .failed: return String(localized: "Context Polish Unavailable · Showing Base Translation")
-            case .paused: return String(localized: "Context Polish Paused")
-            default: break
-            }
-        }
-        if compatibility { return String(localized: "Using Compatible Translation") }
-        if phase == .translating {
-            return mode == .quick ? String(localized: "Quick Translation…") : String(localized: "High Fidelity Requested…")
-        }
-        return nil
+    func cachedContextualLines(for candidate: LyricsCandidate) async -> [Int: String] {
+        await polish.cached(candidate)
+    }
+
+    func contextualLines(for candidate: LyricsCandidate) -> [Int: String] {
+        polish.version == candidate.id ? polish.lines : [:]
     }
 
     private func invalidateLanguageWork() {

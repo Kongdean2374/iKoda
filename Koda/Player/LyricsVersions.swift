@@ -14,6 +14,13 @@ final class LyricsVersions {
     private(set) var preference = LyricsVersionStore.Preference()
     private(set) var cacheBytes = 0
     private(set) var editRevision = 0
+    private(set) var assessments: [LyricsCandidate.Identity: LyricsCandidateAssessment] = [:]
+    @ObservationIgnored private let evaluator = LyricsCandidateEvaluator.Cache()
+    @ObservationIgnored private var assessmentTask: Task<Void, Never>?
+    @ObservationIgnored private var assessmentGeneration = UUID()
+    @ObservationIgnored private var assessedIDs: [LyricsCandidate.Identity] = []
+    private(set) var originalLookupSeconds: TimeInterval?
+    private(set) var originalCacheUse: LyricCacheUse = .unchecked
     private(set) var profileScope = UUID()
     var error: String?
 
@@ -64,7 +71,9 @@ final class LyricsVersions {
             + context.custom.filter(\.isEnabled).map { .init(id: $0.id.uuidString, name: $0.name) }
     }
     var candidates: [LyricsCandidate] { results.flatMap(\.candidates) }
-    var recommendation: LyricsCandidate? { LyricsVersionSelection.recommended(candidates, allowLowConfidence: true) }
+    var recommendation: LyricsCandidate? {
+        LyricsVersionSelection.recommended(candidates, allowLowConfidence: true, assessments: assessments)
+    }
 
     func setProfile(_ directory: URL, replacingSession: Bool = false) {
         guard profile != directory || replacingSession else { return }
@@ -91,6 +100,10 @@ final class LyricsVersions {
     func suspend() {
         lookup?.cancel(); lookup = nil
         manualLookup?.cancel(); manualLookup = nil
+        assessmentTask?.cancel()
+        assessmentTask = nil
+        assessmentGeneration = UUID()
+        assessedIDs = []
         manualGeneration = UUID()
         searching = false; searchingManually = false
         generation = UUID()
@@ -101,7 +114,10 @@ final class LyricsVersions {
         context = next
         attempted = false
         results = []; manualResults = []
+        assessments = [:]
         preference = .init()
+        originalLookupSeconds = nil
+        originalCacheUse = .unchecked
         error = nil
         apply(nil)
     }
@@ -119,6 +135,7 @@ final class LyricsVersions {
         generation = UUID()
         let token = generation
         let startedAt = Date()
+        let lookupStarted = ContinuousClock.now
         searching = true
         error = nil
 
@@ -128,10 +145,16 @@ final class LyricsVersions {
             let cached = force || source != nil ? nil : await store.catalogue(key: context.cacheKey)
             guard let self, self.accepts(token) else { return }
             self.acceptPreference(saved)
-            if self.current == nil, let selected = self.preference.selected { self.apply(selected) }
+            self.originalCacheUse = cached == nil && saved.selected == nil ? .miss : .hit
+            if self.current == nil, let selected = self.preference.selected {
+                self.originalLookupSeconds = lookupStarted.duration(to: .now).lyricSeconds
+                self.apply(selected)
+            }
             if let cached {
+                if self.originalLookupSeconds == nil { self.originalLookupSeconds = lookupStarted.duration(to: .now).lyricSeconds }
                 self.results = cached.results
-                self.autoSelect(finished: cached.isFresh)
+                self.autoSelect(finished: false)
+                self.assessCandidates(allowFallback: cached.isFresh)
                 let returned = Set(cached.results.map(\.source))
                 if cached.isFresh && self.configuredSources.allSatisfy({ returned.contains($0.id) }) {
                     self.finishLookup(token)
@@ -139,7 +162,11 @@ final class LyricsVersions {
                 }
             }
 
-            guard self.allowed else { self.finishLookup(token); return }
+            guard self.allowed else {
+                self.assessCandidates(allowFallback: true)
+                self.finishLookup(token)
+                return
+            }
             var received: [LyricsSourceResult] = []
             var sources = context.sources
             var custom = context.custom
@@ -148,10 +175,18 @@ final class LyricsVersions {
                 guard self.accepts(token) else { return }
                 Self.merge(event, into: &received)
                 Self.merge(event, into: &self.results)
+                if let current = self.current, let answer = event.candidates.first(where: { $0.id == current.id }) {
+                    let updated = current.retainingTranslations(from: answer)
+                    if updated != current { self.current = updated }
+                }
                 self.autoSelect(finished: false)
+                self.assessCandidates(allowFallback: false)
+                if self.current != nil, self.originalLookupSeconds == nil {
+                    self.originalLookupSeconds = lookupStarted.duration(to: .now).lyricSeconds
+                }
             }
             guard self.accepts(token) else { return }
-            self.autoSelect(finished: true)
+            self.assessCandidates(allowFallback: true)
             if userInitiated, !received.contains(where: { $0.state == .found }), self.current != nil {
                 self.error = String(localized: "Refresh found no usable lyrics. The current version is still available.")
             }
@@ -242,6 +277,25 @@ final class LyricsVersions {
         } catch { self.error = error.localizedDescription; return false }
     }
 
+    var translationSelection: LyricTranslationSelection {
+        guard let current else { return .automatic }
+        return preference.translationSelections?[current.id.cacheNamespace] ?? .automatic
+    }
+
+    func selectTranslation(_ choice: LyricTranslationSelection) async {
+        guard let current, let profile else { return }
+        let scope = profileScope
+        do {
+            let saved = try await store.selectTranslation(choice, for: current, profile: profile)
+            guard profileScope == scope, self.current?.id == current.id else { return }
+            acceptPreference(saved)
+            editRevision &+= 1
+        } catch {
+            guard profileScope == scope, self.current?.id == current.id else { return }
+            self.error = error.localizedDescription
+        }
+    }
+
     func importedDocument(for candidate: LyricsCandidate) -> LyricTranslationDocument? {
         guard candidate.songID == song?.id else { return nil }
         return preference.imports?[candidate.id.cacheNamespace]
@@ -267,12 +321,25 @@ final class LyricsVersions {
     }
 
     #if DEBUG
-    func installUITestVersions(for song: Song) {
+    func installUITestVersions(for song: Song, playable: Bool = false) {
         setProfile(FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
         resetContext(.init(song: song, sources: [.lrclib, .youLyPlus], custom: []))
-        let first = LyricsCandidate(song: song, source: LyricsSource.lrclib.rawValue, sourceName: "LRCLIB",
-            metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
-            lyrics: .synced(Lyrics.parseLRC("[00:12.00]We listen to the ocean\n[00:15.00]The waves return")))
+        let first: LyricsCandidate
+        if playable, let tagged = LyricsCandidate.imported(song: song, sourceName: "Fixture Lyrics", text: """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal">
+        <head><metadata><itunes:translations><itunes:translation xml:lang="zh-Hant">
+        <itunes:text for="a">我們等著晨光</itunes:text>
+        </itunes:translation></itunes:translations></metadata></head>
+        <body><div><p begin="0s" end="120s" itunes:key="a"><span begin="0s" end="30s">We wait</span> <span begin="30s" end="115s">for dawn</span></p>
+        <p begin="120s" end="175s" itunes:key="b">The paper boat sails</p></div></body>
+        </tt>
+        """) {
+            first = tagged
+        } else {
+            first = LyricsCandidate(song: song, source: LyricsSource.lrclib.rawValue, sourceName: "LRCLIB",
+                metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
+                lyrics: .synced(Lyrics.parseLRC("[00:12.00]We listen to the ocean\n[00:15.00]The waves return")))
+        }
         let second = LyricsCandidate(song: song, source: LyricsSource.youLyPlus.rawValue, sourceName: "YouLyPlus",
             metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
             lyrics: .synced(Lyrics.parseLRC("[00:13.00]The song of the ocean\n[00:18.00]We follow the tide")))
@@ -281,6 +348,7 @@ final class LyricsVersions {
         allowed = true
         results = prepared
         apply(first)
+        assessCandidates(allowFallback: true)
     }
     #endif
 
@@ -299,26 +367,51 @@ final class LyricsVersions {
         let pref = await store.preference(profile: profile, songID: context.song.id)
         if let selected = pref.selected { return selected }
         if let cached = await store.catalogue(key: context.cacheKey),
-           let winner = LyricsVersionSelection.recommended(cached.results.flatMap(\.candidates), allowLowConfidence: true) {
+           let winner = LyricsVersionSelection.recommended(cached.results.flatMap(\.candidates), allowLowConfidence: true,
+              assessments: await evaluator.evaluate(cached.results.flatMap(\.candidates))) {
             return winner
         }
         var results: [LyricsSourceResult] = []
         for await result in client.candidateResults(for: context.song, sources: context.sources, customSources: context.custom) {
             guard !Task.isCancelled else { return nil }
             Self.merge(result, into: &results)
-            if let winner = LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: false) {
+            if let winner = LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: false, assessments: [:]) {
                 await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
                 return winner
             }
         }
         guard !Task.isCancelled else { return nil }
         await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
-        return LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: true)
+        let candidates = results.flatMap(\.candidates)
+        let assessed = await evaluator.evaluate(candidates)
+        return Task.isCancelled ? nil : LyricsVersionSelection.recommended(candidates, allowLowConfidence: true, assessments: assessed)
     }
 
     private func autoSelect(finished: Bool) {
         guard current == nil else { return }
-        if let winner = LyricsVersionSelection.recommended(candidates, allowLowConfidence: finished) { apply(winner) }
+        if let winner = LyricsVersionSelection.recommended(candidates, allowLowConfidence: finished, assessments: assessments) {
+            apply(winner)
+        }
+    }
+
+    private func assessCandidates(allowFallback: Bool) {
+        let available = candidates
+        let ids = available.map(\.id)
+        guard ids != assessedIDs || (allowFallback && current == nil && assessmentTask != nil) else {
+            if allowFallback, assessmentTask == nil { autoSelect(finished: true) }
+            return
+        }
+        assessmentTask?.cancel()
+        assessedIDs = ids
+        assessmentGeneration = UUID()
+        let token = assessmentGeneration
+        assessmentTask = Task(priority: .utility) { [weak self, evaluator] in
+            let assessments = await evaluator.evaluate(available)
+            guard let self, !Task.isCancelled, assessmentGeneration == token else { return }
+            self.assessmentTask = nil
+            self.assessments = assessments
+            self.autoSelect(finished: allowFallback)
+        }
     }
 
     private func apply(_ candidate: LyricsCandidate?) {

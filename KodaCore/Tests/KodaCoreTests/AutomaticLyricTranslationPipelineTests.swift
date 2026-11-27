@@ -144,6 +144,43 @@ struct AutomaticLyricTranslationPipelineTests {
         await service.flush()
     }
 
+    @Test(.timeLimit(.minutes(1))) func diagnosticsReportActualRouteAndMarkSubsequentCacheReads() async throws {
+        let folder = directory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cache = AutomaticLyricTranslationCache(directory: folder)
+        let song = Input(songID: "observed", rows: [.init(id: 0, text: "The door opens")], namespace: "test")
+        let service = Pipeline(cache: cache, detectLanguage: { _ in "en" }, observedEngine: { _, fragments, publish, report in
+            var details = AppleLyricDiagnostics()
+            details.strategies = [.lowLatency]
+            details.languages = [.init(source: "en", target: "zh-Hant", support: .available)]
+            details.usedCompatibility = true
+            await report(details)
+            await publish(Dictionary(uniqueKeysWithValues: fragments.map { ($0.id, "門打開了") }))
+            return .compatible
+        })
+        service.setRequests(current: song, upcoming: [], enabled: true, isForeground: true)
+        try await eventually { service.snapshot(for: song).phase == .ready }
+        let initial = service.snapshot(for: song)
+        #expect(initial.cacheUse == .miss)
+        #expect(initial.apple.strategies == [.lowLatency])
+        #expect(initial.apple.usedCompatibility == true)
+        #expect(initial.sourceRows == 1 && initial.completedRows == 1)
+        #expect(initial.translationSeconds != nil)
+        await service.flush()
+
+        let restored = Pipeline(cache: cache, detectLanguage: { _ in "en" }, observedEngine: { _, _, _, _ in
+            Issue.record("The complete cache should prevent a translation request")
+            return .unavailable
+        })
+        restored.setRequests(current: song, upcoming: [], enabled: true, isForeground: true)
+        try await eventually { restored.snapshot(for: song).phase == .ready }
+        let cached = restored.snapshot(for: song)
+        #expect(cached.cacheUse == .hit)
+        #expect(cached.translationSeconds == nil)
+        #expect(cached.apple.strategies == initial.apple.strategies)
+        await restored.flush()
+    }
+
     @Test(.timeLimit(.minutes(1))) func backgroundExpirationRetainsProgressAndResumesOnlyMissingFragments() async throws {
         let folder = directory(), engine = ControlledLyricsEngine()
         let service = pipeline(directory: folder, engine: engine)

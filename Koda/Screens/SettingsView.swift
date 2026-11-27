@@ -303,6 +303,7 @@ struct LyricsSettingsView: View {
                 Picker("Text Size", selection: $settings.lyricsSize) {
                     ForEach(AppSettings.LyricsSize.allCases) { Text($0.title).tag($0) }
                 }
+                Toggle("Compact Player for Bilingual Lyrics", isOn: $settings.compactBilingualPlayer)
                 Toggle("Word Motion", isOn: $settings.lyricsMotion)
                 Toggle("Backing Vocals", isOn: $settings.showsBackingVocals)
                 Toggle("Duet Sides", isOn: $settings.duetSides)

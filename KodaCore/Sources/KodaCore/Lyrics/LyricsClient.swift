@@ -504,8 +504,10 @@ extension LyricsClient {
                 for value in usable.prefix(12) where answers.count < 24 {
                     let candidate = LyricsCandidate(song: song, source: provider.id, sourceName: provider.name,
                         upstream: value.upstream ?? upstream, version: value.version, metadata: value.metadata,
-                        lyrics: value.lyrics, original: value.raw, query: lookup)
-                    if !answers.contains(where: { $0.id == candidate.id }) { answers.append(candidate) }
+                        lyrics: value.lyrics, original: value.raw, query: lookup, embeddedTranslations: value.translations)
+                    if let index = answers.firstIndex(where: { $0.id == candidate.id }) {
+                        answers[index] = candidate.retainingTranslations(from: answers[index])
+                    } else { answers.append(candidate) }
                 }
                 if !Task.isCancelled, answers.count > before { emit(provider.result(.found, candidates: answers)) }
             } catch is CancellationError {
@@ -595,6 +597,7 @@ extension LyricsClient {
         var metadata: LyricsCandidate.Metadata
         var version: String?
         var upstream: String?
+        var translations: [LyricEmbeddedTranslation] = []
     }
 
     private static func metadata(_ json: JSON) -> LyricsCandidate.Metadata {
@@ -609,19 +612,24 @@ extension LyricsClient {
                   parts.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return nil }
             return parts.reduce(0) { $0 * 60 + $1 }
         } ?? json["duration"].double
-        return .init(title: title, artist: artist, album: album, duration: duration)
+        return .init(title: title, artist: artist, album: album, duration: duration,
+                     recordingID: nested["isrc"].nonEmpty ?? json["isrc"].nonEmpty,
+                     provenance: nested["source"].nonEmpty ?? json["source"].nonEmpty ?? json["from"].nonEmpty)
     }
 
     private static func catalogCandidates(_ data: Data, lrcLib: Bool) throws -> [CandidatePayload] {
         guard let json = try? JSON(data: data), json.isObject || json.raw is [Any] else { throw CandidateFetchError.invalid }
         let items = json.isObject ? [json] : json.array
         let payloads = items.prefix(32).compactMap { item -> CandidatePayload? in
-            let raw = lrcLib ? item["syncedLyrics"].nonEmpty ?? item["plainLyrics"].nonEmpty : item["lyrics"].nonEmpty
-            guard item["instrumental"].bool != true, let raw,
-                  let lyrics = lrcLib ? lrclibLyrics(from: item) : Lyrics.parseAny(raw) else { return nil }
+            let raw = lrcLib ? item["syncedLyrics"].nonEmpty ?? item["plainLyrics"].nonEmpty
+                : item["lyrics"].nonEmpty ?? item["lrc"].nonEmpty
+            guard item["instrumental"].bool != true, let raw else { return nil }
+            let payload = Lyrics.parseCandidateFile(raw, translationLanguage: item["translationLanguage"].nonEmpty)
+            guard let lyrics = lrcLib && (payload?.translations.isEmpty ?? true) ? lrclibLyrics(from: item) : payload?.lyrics else { return nil }
             return CandidatePayload(lyrics: lyrics, raw: raw, metadata: metadata(item),
                                     version: item["id"].nonEmpty ?? item["id"].int.map(String.init),
-                                    upstream: item["source"].nonEmpty)
+                                    upstream: item["source"].nonEmpty,
+                                    translations: (payload?.translations ?? []) + companionTranslations(item, to: lyrics))
         }
         if payloads.isEmpty && items.contains(where: { $0["instrumental"].bool != true && $0["id"].raw != nil }) {
             throw CandidateFetchError.invalid
@@ -633,15 +641,42 @@ extension LyricsClient {
         let json = try? JSON(data: data)
         let raw = String(data: data, encoding: .utf8)
         if allowsPlain, let json, json.raw is [Any] { return try catalogCandidates(data, lrcLib: false) }
-        let lyrics = youLy ? decodeYouLyPlus(data) : decodeWrapped(data)
-        guard let found = lyrics ?? (allowsPlain && json == nil ? raw.flatMap(Lyrics.parseAny) : nil) else {
+        let payload: (lyrics: Lyrics, translations: [LyricEmbeddedTranslation])?
+        if youLy, let json, let decoded = Lyrics.parseYouLyPlusPayload(json) {
+            payload = (.synced(decoded.lines), decoded.translations)
+        } else if let json {
+            payload = ["ttml", "syncedLyrics", "lyrics", "lrc", "plainLyrics", "content", "text"].lazy.compactMap { key in
+                json[key].nonEmpty.flatMap {
+                    Lyrics.parseCandidateFile($0, translationLanguage: json["translationLanguage"].nonEmpty)
+                }
+            }.first
+        } else if let raw {
+            // A wrapperless response must carry real timing unless configured
+            // explicitly as the user's plain-text source.
+            let decoded = Lyrics.parseCandidateFile(raw)
+            if case .synced? = decoded?.lyrics { payload = decoded }
+            else { payload = allowsPlain ? decoded : nil }
+        } else { payload = nil }
+        guard let payload else {
             if let json, json["lyrics"].string == "" { return [] }
             throw CandidateFetchError.invalid
         }
         let info = json.map(metadata) ?? .init()
         let version = json?["id"].nonEmpty ?? json?["id"].int.map(String.init) ?? json?["metadata"]["isrc"].nonEmpty
         let upstream = json?["metadata"]["source"].nonEmpty ?? json?["source"].nonEmpty
-        return [CandidatePayload(lyrics: found, raw: raw, metadata: info, version: version, upstream: upstream)]
+        return [CandidatePayload(lyrics: payload.lyrics, raw: raw, metadata: info, version: version, upstream: upstream,
+                                 translations: payload.translations + (json.map { companionTranslations($0, to: payload.lyrics) } ?? []))]
+    }
+
+    private static func companionTranslations(_ json: JSON, to lyrics: Lyrics) -> [LyricEmbeddedTranslation] {
+        let fields = json["translations"]
+        return fields.keys.prefix(12).flatMap { language in
+            let field = fields[language]
+            guard let text = field["lrc"].nonEmpty ?? field["syncedLyrics"].nonEmpty ?? field.nonEmpty else {
+                return [LyricEmbeddedTranslation]()
+            }
+            return Lyrics.alignEmbeddedLRC(text, language: language, to: lyrics)
+        }
     }
 
     private func fetchCandidate(_ base: String, _ parameters: [String: String]) async throws -> Data {

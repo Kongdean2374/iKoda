@@ -9,6 +9,7 @@ import SwiftUI
 /// Position is read from the player's time anchor inside a TimelineView, so
 /// only this bar redraws as the song plays, never the screen around it.
 struct Scrubber: View {
+    var compact = false
     @Environment(Player.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -24,7 +25,7 @@ struct Scrubber: View {
             let duration = max(player.duration, 1)
             let fraction = dragFraction ?? min(1, player.position(at: context.date) / duration)
             let mixing = player.mixing
-            VStack(spacing: 6) {
+            VStack(spacing: compact ? 0 : 6) {
                 GeometryReader { geometry in
                     let width = geometry.size.width
                     ZStack(alignment: .leading) {
@@ -81,8 +82,10 @@ struct Scrubber: View {
                 }
                 .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: mixing)
             }
+            .frame(minHeight: compact ? ControlMetrics.touchTarget : nil)
             .accessibilityElement()
             .accessibilityLabel("Position")
+            .accessibilityIdentifier("player.position")
             .accessibilityValue("\(format(fraction * duration)) of \(format(duration))")
             .accessibilityAdjustableAction { direction in
                 let step: TimeInterval = direction == .increment ? 10 : -10
@@ -154,6 +157,7 @@ struct VolumeSlider: View {
         }
         .accessibilityElement()
         .accessibilityLabel("Volume")
+        .accessibilityIdentifier("player.volume")
         .accessibilityValue(Text(Double(level), format: .percent.precision(.fractionLength(0))))
         .accessibilityAdjustableAction { direction in
             setLevel(level + (direction == .increment ? 0.0625 : -0.0625))

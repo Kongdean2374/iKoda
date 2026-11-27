@@ -374,6 +374,16 @@ public final class Player {
     @ObservationIgnored var remoteStreamLoader: ((Song, StreamQuality) async throws -> ResolvedStream)?
     @ObservationIgnored var radioLoader: (@Sendable (String) async throws -> [Song])?
     @ObservationIgnored var audioSessionActivator: (() -> Bool)?
+    #if DEBUG
+    /// Uses a generated local file through the normal AVFoundation load path in UI tests.
+    public func useUITestAudio(at url: URL, duration: TimeInterval) {
+        guard url.isFileURL else { return }
+        streamLoader = { song, _ in
+            ResolvedStream(videoId: song.id, url: url, userAgent: "", itag: 0, contentLength: nil,
+                           duration: duration, loudnessDb: nil, expiresAt: nil)
+        }
+    }
+    #endif
     var networkSnapshotOverride: NetworkSnapshot?
     private var recoveryNetwork: NetworkSnapshot { networkSnapshotOverride ?? latestNetwork }
     var engineIdentifier: ObjectIdentifier { ObjectIdentifier(avPlayer) }

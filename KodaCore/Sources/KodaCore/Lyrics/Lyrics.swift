@@ -60,11 +60,12 @@ public enum Lyrics: Codable, Sendable, Equatable {
     case synced([LyricLine])
     case plain(String)
 
-    /// Word timing beats line timing beats none.
+    /// The compatibility lookup promotes only substantially word-synchronized lyrics.
     var quality: Int {
-        switch self {
+        switch LyricTimingQuality.measure(self, duration: nil).grade {
         case .plain: 0
-        case .synced(let lines): lines.contains(where: \.isWordTimed) ? 2 : 1
+        case .line, .partialWords: 1
+        case .highCoverageWords, .completeWords: 2
         }
     }
 

@@ -196,7 +196,11 @@ struct PlayerSleepSessionTests {
         let h = try Harness(count: 2)
         defer { h.cleanup() }
         h.player.resume()
-        try await waitFor("ready local item") { h.player.currentPlayerItem?.status == .readyToPlay }
+        // AVFoundation can become ready before Player finishes restoring the seek
+        // position. Resume reuses the item only after both are ready.
+        try await waitFor("ready restored player") {
+            h.player.currentPlayerItem?.status == .readyToPlay && h.player.phase == .ready
+        }
         let original = h.player.currentPlayerItem
         h.player.pause()
         #expect(h.player.currentPlayerItem === original)

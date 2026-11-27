@@ -48,12 +48,15 @@ public actor AutomaticLyricTranslationCache {
         public var isComplete: Bool
         public var savedAt: Date
         public var usedCompatibility: Bool?
+        public var appleDiagnostics: AppleLyricDiagnostics?
 
-        public init(fragments: [String: String], isComplete: Bool = false, savedAt: Date = Date(), usedCompatibility: Bool? = nil) {
+        public init(fragments: [String: String], isComplete: Bool = false, savedAt: Date = Date(),
+                    usedCompatibility: Bool? = nil, appleDiagnostics: AppleLyricDiagnostics? = nil) {
             self.fragments = fragments
             self.isComplete = isComplete
             self.savedAt = savedAt
             self.usedCompatibility = usedCompatibility
+            self.appleDiagnostics = appleDiagnostics
         }
     }
 
@@ -129,7 +132,8 @@ public actor AutomaticLyricTranslationCache {
             let fragments = previous.fragments.merging(clean.fragments) { old, new in newer ? new : old }
             merged = Entry(fragments: fragments, isComplete: previous.isComplete || clean.isComplete,
                            savedAt: max(previous.savedAt, clean.savedAt),
-                           usedCompatibility: newer ? clean.usedCompatibility : previous.usedCompatibility)
+                           usedCompatibility: newer ? clean.usedCompatibility : previous.usedCompatibility,
+                           appleDiagnostics: (newer ? clean.appleDiagnostics : previous.appleDiagnostics) ?? previous.appleDiagnostics)
         } else {
             merged = clean
         }
@@ -170,7 +174,7 @@ public actor AutomaticLyricTranslationCache {
         let fragments = entry.fragments.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return Entry(fragments: fragments,
                      isComplete: entry.isComplete && fragments.count == entry.fragments.count,
-                     savedAt: entry.savedAt, usedCompatibility: entry.usedCompatibility)
+                     savedAt: entry.savedAt, usedCompatibility: entry.usedCompatibility, appleDiagnostics: entry.appleDiagnostics)
     }
 
     private func nextAccess() -> UInt64 {

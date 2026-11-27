@@ -18,6 +18,16 @@ nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
     var total = 0
     var playbackSessionFinished = false
     var strategyStatus: String?
+    var immersiveStatus: ImmersiveLyricStatus?
+    var baseDiagnostics = AutomaticLyricTranslationPipeline.Snapshot()
+    var polishDiagnostics = LyricPolishDiagnostics()
+    var originalReady = false
+    var originalSearching = false
+    var originalLookupSeconds: TimeInterval?
+    var originalCacheUse: LyricCacheUse = .unchecked
+    var origins: [Int: LyricTranslationOrigin] = [:]
+    var selectedSource: LyricTranslationSelection = .automatic
+    var limits: Set<LyricWorkLimit> = []
 }
 
 /// Installed language sessions belong to the work task, not to any lyrics view.
@@ -32,7 +42,8 @@ nonisolated enum NativeLyricsTranslationEngine {
 
     @concurrent
     static func translate(_ input: AutomaticLyricTranslationPipeline.Input, _ fragments: [ChineseLyricTranslationPlan.Fragment],
-                          publish: @escaping @Sendable ([String: String]) async -> Void) async throws -> AutomaticLyricTranslationPipeline.Outcome {
+                          publish: @escaping AutomaticLyricTranslationPipeline.Publish,
+                          report: @escaping AutomaticLyricTranslationPipeline.Report) async throws -> AutomaticLyricTranslationPipeline.Outcome {
         var languages: [String] = []
         for fragment in fragments where !languages.contains(fragment.language) { languages.append(fragment.language) }
         let compatibleChoices = await languageChoices(for: languages)
@@ -46,6 +57,13 @@ nonisolated enum NativeLyricsTranslationEngine {
         try Task.checkCancellation()
         var unavailable = false
         var usedCompatibility = false
+        var diagnostics = AppleLyricDiagnostics()
+        diagnostics.languages = languages.map { source in
+            let choice = choices[source]
+            return .init(source: source, target: choice?.target.minimalIdentifier,
+                         support: choice.map { $0.installed ? .available : .download } ?? .unsupported)
+        }
+        await report(diagnostics)
         var missingLanguage: AutomaticLyricTranslationPipeline.LanguagePair?
         var translated: [String: String] = [:]
         for language in languages {
@@ -78,16 +96,25 @@ nonisolated enum NativeLyricsTranslationEngine {
                 usedCompatibility = usedCompatibility || (input.mode != .quick && !route.highFidelity)
                 let requests = missing.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
                 let session: TranslationSession
+                let strategy: AppleLyricDiagnostics.Strategy
                 #if compiler(>=6.3)
                 if #available(iOS 26.4, macCatalyst 26.4, *) {
+                    strategy = route.highFidelity ? .highFidelity : .lowLatency
                     session = TranslationSession(installedSource: route.source, target: route.target,
                                                  preferredStrategy: route.highFidelity ? .highFidelity : .lowLatency)
                 } else {
+                    strategy = .standard
                     session = TranslationSession(installedSource: route.source, target: route.target)
                 }
                 #else
+                strategy = .standard
                 session = TranslationSession(installedSource: route.source, target: route.target)
                 #endif
+                diagnostics.strategies.insert(strategy)
+                diagnostics.usedCompatibility = usedCompatibility
+                diagnostics.languages.removeAll { $0.source == language }
+                diagnostics.languages.append(.init(source: language, target: route.target.minimalIdentifier, support: .available))
+                await report(diagnostics)
                 defer { session.cancel() }
                 var lastPublished = ContinuousClock.now
                 do {
@@ -105,6 +132,8 @@ nonisolated enum NativeLyricsTranslationEngine {
                     }
                 } catch {
                     try Task.checkCancellation()
+                    diagnostics.lastError = (error as? URLError)?.code == .timedOut ? .timeout : .translation
+                    await report(diagnostics)
                     guard route.highFidelity, routes.count > 1 else { throw error }
                 }
             }

@@ -27,6 +27,9 @@ struct LyricsVersionsView: View {
                 else { Text("No Lyrics") }
                 if let recommendation = versions.recommendation {
                     LabeledContent("Auto Recommendation", value: recommendation.sourceName)
+                    if recommendation.id != versions.current?.id {
+                        Text("A recommended version is available to switch to.").font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
                 if versions.preference.selected != nil {
                     Button("Restore Automatic Selection") { Task { await versions.select(nil) } }
@@ -114,7 +117,9 @@ private struct ResultsList: View {
                     }
                 }
             }
-            ForEach(result.candidates) { candidateLink($0) }
+            ForEach(result.candidates) { candidate in
+                candidateLink(candidate, recommended: showsRetry && candidate.id == app.lyricsTranslation.versions.recommendation?.id)
+            }
         }
     }
 }
@@ -133,7 +138,7 @@ private extension LyricsSourceResult.State {
     }
 }
 
-@MainActor private func candidateLink(_ candidate: LyricsCandidate, identifier: String? = nil) -> some View {
+@MainActor private func candidateLink(_ candidate: LyricsCandidate, identifier: String? = nil, recommended: Bool = false) -> some View {
     NavigationLink {
         LyricsVersionPreview(candidate: candidate)
     } label: {
@@ -141,22 +146,32 @@ private extension LyricsSourceResult.State {
             Text(candidate.metadata.title ?? candidate.sourceName).font(.headline)
             Text([candidate.sourceName, candidate.id.upstream].compactMap { $0 }.joined(separator: " · "))
                 .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Text(candidate.format.title)
-                Text("\(candidate.lineCount) Lines")
-                Text(candidate.match.confidence.title)
-                    .foregroundStyle(candidate.match.confidence == .conflict ? Color.orange : Color.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    Text(candidate.timing.grade.title)
+                    Text(candidate.match.confidence.title)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(candidate.timing.grade.title)
+                    Text(candidate.match.confidence.title)
+                }
             }
             .font(.caption)
+            .foregroundStyle(candidate.match.confidence == .conflict ? Color.orange : Color.secondary)
+            if recommended {
+                Label("Auto Recommendation", systemImage: "checkmark.circle").font(.caption)
+            }
         }
     }
     .accessibilityIdentifier(identifier ?? "lyrics.candidate.\(candidate.id.source)")
 }
 
-private extension LyricsCandidate.Format {
+private extension LyricTimingQuality.Grade {
     var title: LocalizedStringKey {
         switch self {
-        case .word: "Word Synced"
+        case .completeWords: "Complete Word Sync"
+        case .highCoverageWords: "High Coverage Word Sync"
+        case .partialWords: "Partial Word Sync"
         case .line: "Line Synced"
         case .plain: "Plain Text Lyrics"
         }
@@ -166,10 +181,22 @@ private extension LyricsCandidate.Format {
 private extension LyricsMatch.Confidence {
     var title: LocalizedStringKey {
         switch self {
-        case .high: "High Confidence"
-        case .medium: "Medium Confidence"
-        case .low: "Low Confidence"
+        case .high: "Recording Identity Matched"
+        case .medium: "Some Metadata Missing"
+        case .low: "Recording Needs Confirmation"
         case .conflict: "Recording May Not Match"
+        }
+    }
+}
+
+private extension LyricsCandidateAssessment.Content {
+    var title: LocalizedStringKey {
+        switch self {
+        case .unconfirmed: "Original Text Not Yet Verified"
+        case .textAgrees: "Original Text Agrees · Timing Unconfirmed"
+        case .verified: "Original Text and Timing Cross-Verified"
+        case .differentRecording: "Original Text Agrees · Recording May Differ"
+        case .conflict: "Original Text Conflicts"
         }
     }
 }
@@ -290,7 +317,8 @@ private struct LyricsVersionPreview: View {
             }
             Section("Source Details") {
                 LabeledContent("Lyrics Sources", value: candidate.sourceName)
-                if let upstream = candidate.id.upstream { LabeledContent("Upstream Source", value: upstream) }
+                if let upstream = candidate.id.upstream ?? candidate.metadata.provenance { LabeledContent("Upstream Source", value: upstream) }
+                if let recordingID = candidate.metadata.recordingID { LabeledContent("Recording ISRC", value: recordingID) }
                 metadata("Title", value: candidate.metadata.title)
                 metadata("Artist", value: candidate.metadata.artist)
                 metadata("Album", value: candidate.metadata.album)
@@ -300,23 +328,24 @@ private struct LyricsVersionPreview: View {
                         LabeledContent("Duration Difference", value: (duration - played).formatted(.number.sign(strategy: .always()).precision(.fractionLength(1))) + " s")
                     }
                 } else { metadata("Duration", value: nil) }
-                LabeledContent("Lyrics Format") { Text(candidate.format.title) }
-                LabeledContent("Match Confidence") { Text(candidate.match.confidence.title) }
-                LabeledContent("Match Score", value: candidate.match.score.formatted(.number.precision(.fractionLength(1))))
+                LabeledContent("Recording Identity") { Text(candidate.match.confidence.title) }
+                LabeledContent("Match Score", value: candidate.match.identityScore.formatted(.number.precision(.fractionLength(1))))
                 ForEach(candidate.match.evidence, id: \.self) { Text($0.title).font(.caption) }
             }
+            verification
             Section("Complete Lyrics") {
                 let edits = versions.edits(for: candidate)
+                let embedded = candidate.embeddedTranslations?.first(where: \.isChinese)?.lines ?? [:]
                 ForEach(LyricsPreviewRow.make(candidate.lyrics).filter { filter.isEmpty
                     || $0.text.localizedCaseInsensitiveContains(filter)
-                    || (edits[$0.id] ?? cached[$0.id] ?? "").localizedCaseInsensitiveContains(filter) }) { row in
+                    || (edits[$0.id] ?? embedded[$0.id] ?? cached[$0.id] ?? "").localizedCaseInsensitiveContains(filter) }) { row in
                     VStack(alignment: .leading, spacing: 6) {
                         if let time = row.time {
                             Text(time, format: .number.precision(.fractionLength(2)))
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                         Text(row.text).font(largeText ? .title2 : .body).textSelection(.enabled)
-                        if let translation = edits[row.id] ?? cached[row.id] {
+                        if let translation = edits[row.id] ?? embedded[row.id] ?? cached[row.id] {
                             Text(translation).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                     }
@@ -337,6 +366,46 @@ private struct LyricsVersionPreview: View {
         .sheet(isPresented: $editing) {
             if let scope { NavigationStack { LyricsVersionEditor(candidate: candidate, automatic: cached, scope: scope) }.appEnvironment(app) }
         }
+    }
+
+    private var verification: some View {
+        let assessment = versions.assessments[candidate.id]
+        let timing = assessment?.timing ?? candidate.timing
+        return Section("Lyrics Verification") {
+            LabeledContent("Original Text Agreement") { Text((assessment?.content ?? .unconfirmed).title) }
+            if let compared = assessment?.comparedSource { LabeledContent("Compared Source", value: compared) }
+            if let sources = assessment?.independentSources, sources > 0 {
+                LabeledContent("Independent Sources", value: sources.formatted())
+            }
+            if let similarity = assessment?.similarity {
+                LabeledContent("Text Sequence Similarity", value: percentage(similarity))
+            }
+            LabeledContent("Relative Lyrics Completeness", value: assessment?.completeness.map(percentage) ?? String(localized: "Unknown"))
+            LabeledContent("Lyrics Format") { Text(timing.grade.title) }
+            if timing.grade != .plain {
+                LabeledContent("Valid Word Coverage", value: percentage(timing.wordCoverage))
+                LabeledContent("Fully Word-Synced Lines", value: timing.timedLines.formatted() + " / " + timing.sungLines.formatted())
+                if timing.voicedLines > 0 { LabeledContent("Lines With Multiple Voices", value: timing.voicedLines.formatted()) }
+                if timing.invalidTimes > 0 { LabeledContent("Invalid Timestamps", value: timing.invalidTimes.formatted()) }
+                if timing.textMismatches > 0 { LabeledContent("Word Timing Text Mismatches", value: timing.textMismatches.formatted()) }
+            }
+            if versions.recommendation?.id == candidate.id {
+                if assessment?.content == .verified {
+                    Text("Recommended because the original text and timing agree with an independent source.")
+                } else if candidate.match.confidence == .high || candidate.match.confidence == .medium {
+                    Text("Recommended using the available recording evidence and synchronization quality.")
+                } else {
+                    Text("This version needs confirmation. Independent recording evidence is incomplete.")
+                }
+            } else if candidate.match.confidence == .conflict || assessment?.excludesAutomaticSelection == true {
+                Text("This version needs review because its recording, text, or timing disagrees.")
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func percentage(_ value: Double) -> String {
+        value.formatted(.percent.precision(.fractionLength(0...1)))
     }
 
     private func metadata(_ title: LocalizedStringKey, value: String?) -> some View {

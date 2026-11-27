@@ -4,7 +4,9 @@ extension Lyrics {
     /// Apple-style TTML: `<p begin end ttm:agent>` lines of `<span begin end>` words, the
     /// whitespace between spans marking word breaks, and backing vocals in a
     /// `<span ttm:role="x-bg">` of their own. Line-timed TTML (no word spans) works too.
-    public static func parseTTML(_ text: String) -> [LyricLine]? {
+    public static func parseTTML(_ text: String) -> [LyricLine]? { parseTTMLPayload(text)?.lines }
+
+    static func parseTTMLPayload(_ text: String) -> (lines: [LyricLine], translations: [LyricEmbeddedTranslation])? {
         guard let data = text.data(using: .utf8) else { return nil }
         let reader = TTMLReader()
         let parser = XMLParser(data: data)
@@ -15,12 +17,26 @@ extension Lyrics {
         let voices = voices(for: reader.agents, groups: reader.groupAgents)
         var lines = reader.lines
         for index in lines.indices { lines[index].voice = voices[index] }
-        let finished = finish(lines.filter { !$0.text.isEmpty })
-        return finished.isEmpty ? nil : finished
+        let order = lines.indices.filter { !lines[$0].text.isEmpty }.sorted { lines[$0].time < lines[$1].time }
+        let finished = finish(order.map { lines[$0] })
+        guard !finished.isEmpty else { return nil }
+        var uniqueKeys: [String: Int] = [:]
+        var duplicates = Set<String>()
+        for (id, sourceIndex) in order.enumerated() {
+            guard let key = reader.lineKeys[sourceIndex] else { continue }
+            if uniqueKeys.updateValue(id, forKey: key) != nil { duplicates.insert(key) }
+        }
+        let entries = reader.translations.compactMap { row -> (Int, String, String)? in
+            guard !duplicates.contains(row.key), let id = uniqueKeys[row.key] else { return nil }
+            return (id, row.language, row.text)
+        }
+        return (finished, LyricEmbeddedTranslation.collect(entries))
     }
 
     /// YouLyPlus's own JSON: `lyrics[]` of `{time, duration, text, syllabus[], element.singer}`, times in milliseconds.
-    static func parseYouLyPlus(_ json: JSON) -> [LyricLine]? {
+    static func parseYouLyPlus(_ json: JSON) -> [LyricLine]? { parseYouLyPlusPayload(json)?.lines }
+
+    static func parseYouLyPlusPayload(_ json: JSON) -> (lines: [LyricLine], translations: [LyricEmbeddedTranslation])? {
         let items = json["lyrics"].array
         guard !items.isEmpty else { return nil }
         var groups = Set<String>()
@@ -29,6 +45,7 @@ extension Lyrics {
 
         var lines: [LyricLine] = []
         var singers: [String?] = []
+        var attachments: [[(language: String, text: String)]] = []
         for item in items {
             guard let time = item["time"].double else { continue }
             var words: [LyricWord] = [], background: [LyricWord] = []
@@ -50,11 +67,24 @@ extension Lyrics {
             lines.append(LyricLine(id: 0, time: time / 1000, text: text, words: words, background: background,
                                    end: duration > 0 ? (time + duration) / 1000 : nil))
             singers.append(item["element"]["singer"].string)
+            var row: [(String, String)] = []
+            let single = item["translation"]
+            if let lang = single["lang"].nonEmpty, let text = single["text"].nonEmpty { row.append((lang, text)) }
+            let multilingual = item["translations"]
+            for language in multilingual.keys {
+                if let text = multilingual[language]["text"].nonEmpty { row.append((language, text)) }
+            }
+            attachments.append(row)
         }
         let voices = voices(for: singers, groups: groups)
         for index in lines.indices { lines[index].voice = voices[index] }
-        let finished = finish(lines)
-        return finished.isEmpty ? nil : finished
+        let order = lines.indices.sorted { lines[$0].time < lines[$1].time }
+        let finished = finish(order.map { lines[$0] })
+        guard !finished.isEmpty else { return nil }
+        let entries = order.enumerated().flatMap { id, index in
+            attachments[index].map { (id, $0.language, $0.text) }
+        }
+        return (finished, LyricEmbeddedTranslation.collect(entries))
     }
 
     /// Whatever a provider sent, as lyrics: TTML, LRC (plain or enhanced), or plain text.
@@ -68,6 +98,46 @@ extension Lyrics {
         let synced = parseLRC(cleaned)
         if !synced.isEmpty { return .synced(synced) }
         return .plain(cleaned)
+    }
+
+    static func parseCandidateFile(_ text: String, translationLanguage: String? = nil)
+        -> (lyrics: Lyrics, translations: [LyricEmbeddedTranslation])? {
+        let clean = text.replacingOccurrences(of: "\u{FEFF}", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.hasPrefix("<"), clean.contains("<tt") || clean.contains("www.w3.org/ns/ttml") {
+            return parseTTMLPayload(clean).map { (.synced($0.lines), $0.translations) }
+        }
+        guard let lyrics = parseAny(clean) else { return nil }
+        let declaration = clean.firstMatch(of: /(?i)\[translation-language:([a-z0-9_-]+)\]/)
+        guard let language = translationLanguage ?? declaration.map({ String($0.output.1) }),
+              case .synced(let lines) = lyrics, lines.allSatisfy({ !$0.isWordTimed }) else {
+            return (lyrics, [])
+        }
+        // Unlabelled duplicates or multi-voice groups are ambiguous. Only a
+        // declared original/translation pair at the same timestamp is split.
+        let byTime = Dictionary(grouping: lines, by: \.time)
+        guard byTime.values.allSatisfy({ $0.count <= 2 }) else { return (lyrics, []) }
+        var originals: [LyricLine] = []
+        var pairs: [(Int, String, String)] = []
+        for draft in byTime.values.sorted(by: { ($0.first?.time ?? 0) < ($1.first?.time ?? 0) }) {
+            guard var first = draft.first else { continue }
+            first.end = draft.last?.end
+            if draft.count == 2 { pairs.append((originals.count, language, draft[1].text)) }
+            originals.append(first)
+        }
+        let translated = LyricEmbeddedTranslation.collect(pairs)
+        return translated.isEmpty ? (lyrics, []) : (.synced(finish(originals)), translated)
+    }
+
+    /// Companion LRC files can target an original recording by exact, unique
+    /// timestamps. Close-but-distinct or simultaneous rows are left unmatched.
+    static func alignEmbeddedLRC(_ text: String, language: String, to original: Lyrics) -> [LyricEmbeddedTranslation] {
+        guard case .synced(let lines) = original else { return [] }
+        let distinct = Dictionary(grouping: lines, by: \.time)
+        let entries = parseLRC(text).compactMap { line -> (Int, String, String)? in
+            guard let group = distinct[line.time], group.count == 1, let original = group.first else { return nil }
+            return (original.id, language, line.text)
+        }
+        return LyricEmbeddedTranslation.collect(entries)
     }
 
     static func joined(_ words: [LyricWord]) -> String {
@@ -103,6 +173,8 @@ extension Lyrics {
 private final class TTMLReader: NSObject, XMLParserDelegate {
     var lines: [LyricLine] = []
     var agents: [String?] = []
+    var lineKeys: [String?] = []
+    var translations: [(key: String, language: String, text: String)] = []
     var groupAgents = Set<String>()
 
     private struct Span {
@@ -116,6 +188,11 @@ private final class TTMLReader: NSObject, XMLParserDelegate {
     private var lineStart: TimeInterval = 0
     private var lineEnd: TimeInterval?
     private var lineAgent: String?
+    private var lineKey: String?
+    private var inTranslations = false
+    private var translationLanguage: String?
+    private var translationKey: String?
+    private var translationText = ""
     private var lineText = ""
     private var spans: [Span] = []
     private var words: [LyricWord] = []
@@ -140,7 +217,18 @@ private final class TTMLReader: NSObject, XMLParserDelegate {
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
                 qualifiedName qName: String?, attributes: [String: String] = [:]) {
-        switch local(elementName) {
+        let name = local(elementName)
+        if name == "translations" { inTranslations = true; return }
+        if inTranslations {
+            if name == "translation", (attribute(attributes, "type") ?? "subtitle").lowercased() == "subtitle" {
+                translationLanguage = attribute(attributes, "lang")
+            } else if name == "text", translationLanguage != nil {
+                translationKey = attribute(attributes, "for")
+                translationText = ""
+            }
+            return
+        }
+        switch name {
         case "agent":
             if attribute(attributes, "type")?.lowercased() == "group", let id = attribute(attributes, "id") {
                 groupAgents.insert(id)
@@ -152,6 +240,7 @@ private final class TTMLReader: NSObject, XMLParserDelegate {
             lineStart = begin
             lineEnd = end
             lineAgent = attribute(attributes, "agent")
+            lineKey = attribute(attributes, "key") ?? attribute(attributes, "id")
             lineText = ""
             spans = []
             words = []
@@ -166,6 +255,10 @@ private final class TTMLReader: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if inTranslations {
+            if translationKey != nil { translationText += string }
+            return
+        }
         guard inLine else { return }
         if let index = spans.indices.last, spans[index].begin != nil {
             spans[index].text += string
@@ -184,7 +277,17 @@ private final class TTMLReader: NSObject, XMLParserDelegate {
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-        switch local(elementName) {
+        let name = local(elementName)
+        if inTranslations {
+            if name == "text", let key = translationKey, let language = translationLanguage {
+                translations.append((key, language, translationText))
+                translationKey = nil
+            }
+            if name == "translation" { translationLanguage = nil; translationKey = nil }
+            if name == "translations" { inTranslations = false }
+            return
+        }
+        switch name {
         case "span" where inLine:
             guard let span = spans.popLast() else { return }
             guard let begin = span.begin else { return }
@@ -206,6 +309,7 @@ private final class TTMLReader: NSObject, XMLParserDelegate {
                 : Lyrics.joined(words)
             lines.append(LyricLine(id: 0, time: lineStart, text: text, words: words, background: background, end: lineEnd))
             agents.append(lineAgent)
+            lineKeys.append(lineKey)
         default:
             break
         }

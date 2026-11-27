@@ -797,6 +797,74 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testCompactBilingualPlayerKeepsPlaybackAndOffersDiagnostics() throws {
+        let app = launch(largeText: true, extraArguments: ["-KodaUITestCompactLyrics"])
+        let demo = app.buttons["fixture.lyrics.player"]
+        reveal(demo, in: app)
+        XCTAssertTrue(demo.exists)
+        demo.tap()
+        let lyrics = app.buttons["player.panel.lyrics"]
+        XCTAssertTrue(lyrics.waitForExistence(timeout: 10))
+        lyrics.tap()
+        let orb = app.buttons["lyrics.translation.toggle"]
+        let source = app.buttons["lyrics.sources.open"]
+        let controls = app.buttons["lyrics.player.controls"]
+        let position = app.descendants(matching: .any).matching(identifier: "player.position").firstMatch
+        let volume = app.descendants(matching: .any).matching(identifier: "player.volume").firstMatch
+        XCTAssertTrue(orb.waitForExistence(timeout: 10))
+        XCTAssertTrue(source.exists)
+        XCTAssertEqual(orb.frame.width, source.frame.width, accuracy: 1)
+        XCTAssertEqual(orb.frame.height, source.frame.height, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(orb.frame.width, 44)
+        XCTAssertFalse(controls.exists)
+        XCTAssertTrue(volume.exists)
+        XCTAssertTrue(app.buttons["Pause"].exists)
+        let initial = try XCTUnwrap(position.value as? String)
+        orb.tap()
+        XCTAssertTrue(controls.waitForExistence(timeout: 10))
+        XCTAssertFalse(volume.exists)
+        let translatedLine = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "我們等著晨光")).firstMatch
+        XCTAssertTrue(translatedLine.waitForExistence(timeout: 10))
+        controls.tap()
+        XCTAssertTrue(volume.waitForExistence(timeout: 10))
+        controls.tap()
+        XCTAssertFalse(volume.exists)
+        XCTAssertTrue(app.buttons["Pause"].exists)
+        func elapsed(_ text: String) -> Int {
+            text.split(separator: " ").first?.split(separator: ":").compactMap { Int($0) }
+                .reduce(0) { $0 * 60 + $1 } ?? -1
+        }
+        let after = try XCTUnwrap(position.value as? String)
+        XCTAssertGreaterThan(elapsed(after), elapsed(initial))
+
+        orb.press(forDuration: 0.8)
+        let link = app.buttons["lyrics.translation.diagnostics"]
+        reveal(link, in: app)
+        XCTAssertTrue(link.exists)
+        link.tap()
+        let origin = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@ OR value CONTAINS %@", "Lyrics Provider Translation (1)", "Lyrics Provider Translation (1)")).firstMatch
+        XCTAssertTrue(origin.waitForExistence(timeout: 10))
+        let modelAvailability = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "Foundation Models Availability")).firstMatch
+        reveal(modelAvailability, in: app)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["lyrics.translation.done"].tap()
+        XCTAssertTrue(controls.waitForExistence(timeout: 10))
+
+        app.buttons["player.panel.queue"].tap()
+        XCTAssertTrue(volume.waitForExistence(timeout: 10))
+        XCTAssertFalse(controls.exists)
+        lyrics.tap()
+        XCTAssertTrue(controls.waitForExistence(timeout: 10))
+        orb.tap()
+        XCTAssertTrue(volume.waitForExistence(timeout: 10))
+        XCTAssertFalse(controls.exists)
+        XCTAssertTrue(app.buttons["Pause"].exists)
+    }
+
+    @MainActor
     private func pullLibraryToRefresh(in app: XCUIApplication) {
         let scroll = app.scrollViews["library.scroll"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 10))
