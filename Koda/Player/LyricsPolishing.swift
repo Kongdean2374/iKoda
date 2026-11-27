@@ -111,6 +111,7 @@ final class LyricsPolishing {
     @ObservationIgnored private var preparedUpcoming: AutomaticLyricTranslationCache.Key?
     @ObservationIgnored private var verified: [Int: String] = [:]
     @ObservationIgnored private var attempted: Set<Int> = []
+    @ObservationIgnored private var submitted: Set<Int> = []
     @ObservationIgnored private var loaded = false
     @ObservationIgnored private var regenerating: UUID?
     @ObservationIgnored private var summary: String?
@@ -155,6 +156,7 @@ final class LyricsPolishing {
             worker?.cancel()
             verified = [:]
             attempted = []
+            submitted = []
             lines = [:]
             summary = nil
             summarized = false
@@ -166,7 +168,12 @@ final class LyricsPolishing {
         }
         self.target = target
         self.upcoming = upcoming
+        let resumed = !self.limits.isEmpty && limits.isEmpty
         self.limits = limits
+        if resumed, [.ineligible, .disabled, .notReady, .unknown].contains(diagnostics.availability) {
+            attempted.removeAll()
+        }
+        if diagnostics.total != target.required.count { diagnostics.total = target.required.count }
         if diagnostics.limits != limits { diagnostics.limits = limits }
         if !limits.isEmpty {
             worker?.cancel()
@@ -188,6 +195,7 @@ final class LyricsPolishing {
         lines = [:]
         verified = [:]
         attempted = []
+        submitted = []
         diagnostics = .init()
         status = .idle
         loaded = false
@@ -213,6 +221,7 @@ final class LyricsPolishing {
         }
         verified = [:]
         attempted = []
+        submitted = []
         summary = nil
         summarized = false
         diagnostics = .init()
@@ -277,6 +286,7 @@ final class LyricsPolishing {
         var report = presenting ? diagnostics : .init()
         report.total = work.required.count
         var output = presenting ? verified : [:]
+        var submittedIDs: Set<Int> = presenting ? submitted : []
         if !presenting || !loaded {
             let lookupStarted = ContinuousClock.now
             let saved = await cache.entry(for: work.key)
@@ -291,9 +301,12 @@ final class LyricsPolishing {
             guard presenting else { return }
             report.validated = output.count
             report.changed = output.count { id, text in
-                let reference = work.base[id] ?? work.rows.first(where: { $0.id == id })?.text ?? ""
+                guard let reference = work.base[id] else { return false }
                 return text != TraditionalChineseLyrics.convert(reference.trimmingCharacters(in: .whitespacesAndNewlines))
             }
+            report.translatedWithoutBase = output.keys.count { work.base[$0] == nil }
+            report.processed = submittedIDs.count
+            submitted = submittedIDs
             verified = output
             lines.merge(output) { _, new in new }
             diagnostics = report
@@ -312,7 +325,9 @@ final class LyricsPolishing {
         let targetLanguage = "zh-Hant-TW"
         report.target = targetLanguage
         if report.availability == .available {
-            report.targetSupported = OnDeviceLyricEditor.supported(targetLanguage, by: model) != nil
+            let supported = OnDeviceLyricEditor.supported(targetLanguage, by: model)
+            report.target = supported ?? targetLanguage
+            report.targetSupported = supported != nil
             report.sources = Dictionary(sourceLanguages.map { ($0, OnDeviceLyricEditor.supported($0, by: model) != nil) },
                                         uniquingKeysWith: { first, _ in first })
         }
@@ -372,8 +387,8 @@ final class LyricsPolishing {
                     .map { report.sources[$0] == false || OnDeviceLyricEditor.supported($0, by: model) == nil } ?? false
                 if unsupported {
                     report.lastError = .language
-                    report.failedBatches += 1
                 } else {
+                    submittedIDs.formUnion(expected.map(\.id))
                     let request = OnDeviceLyricEditor.Input(title: String(work.song.title.prefix(100)),
                         artist: String(work.song.artistLine.prefix(100)), overview: contextSummary,
                         context: context, requested: expected.map(\.id), references: references)
@@ -402,7 +417,6 @@ final class LyricsPolishing {
                 }
                 if initial {
                     initial = false
-                    report.processed += expected.count
                     pending = LyricPolishBatch.retryGroups(batch.filter { missing.contains(work.rows[$0].id) })
                 }
                 publish()

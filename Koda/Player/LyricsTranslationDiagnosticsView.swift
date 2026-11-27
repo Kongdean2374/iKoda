@@ -17,6 +17,7 @@ extension ImmersiveLyricStatus {
         case .fallback: "Showing Base Translation"
         case .failed: "Context Polish Failed"
         case .unnecessary: "No Semantic Translation Needed"
+        case .unavailable: "Unavailable"
         }
     }
 }
@@ -80,6 +81,7 @@ private struct LyricsTranslationComparison: View {
     let imported: [Int: String]
     @Environment(AppModel.self) private var app
     @State private var cachedContext: [Int: String] = [:]
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let result = app.lyricsTranslation.result(songID: candidate.songID, lines: rows)
@@ -104,6 +106,7 @@ private struct LyricsTranslationComparison: View {
             }
         }
         .navigationTitle("Compare Translations")
+        .onChange(of: app.lyricsTranslation.versions.profileScope) { _, _ in dismiss() }
         .task(id: candidate.id) {
             cachedContext = await app.lyricsTranslation.cachedContextualLines(for: candidate)
         }
@@ -170,6 +173,12 @@ struct LyricsTranslationDiagnosticsView: View {
             .map { $0.key + " (" + count($0.value.count) + ")" }.sorted()
         let restrictions = result.limits.union(ai.limits).map(\.label).sorted()
         let latestError = ai.lastError?.label ?? base.apple.lastError?.label ?? String(localized: "None")
+        let validation: String
+        if ai.validated > 0 {
+            validation = ai.validated == ai.total ? String(localized: "All AI Rows Validated") : String(localized: "Some AI Rows Validated")
+        } else if ai.failedBatches > 0 {
+            validation = String(localized: "AI Validation Failed")
+        } else { validation = String(localized: "Validation Pending") }
         return [
             .init(title: String(localized: "Selected Translation Mode"), value: app.settings.lyricsTranslationMode.title),
             .init(title: String(localized: "Displayed Translation Sources"), value: origins.isEmpty ? String(localized: "None") : origins.joined(separator: "\n")),
@@ -184,10 +193,14 @@ struct LyricsTranslationDiagnosticsView: View {
             .init(title: String(localized: "Context Translation Status"), value: result.immersiveStatus.map { String(localized: $0.diagnosticTitle) } ?? unavailable),
             .init(title: String(localized: "Model Source Language Support"), value: modelRoute.isEmpty ? unavailable : modelRoute.joined(separator: "\n")),
             .init(title: String(localized: "Model Target Language Support"), value: ai.target.map { $0 + " · " + yesNo(ai.targetSupported) } ?? unavailable),
+            .init(title: String(localized: "AI Validation Status"), value: validation),
+            .init(title: String(localized: "Base Fallback Displayed"),
+                  value: yesNo(result.immersiveStatus != nil && result.origins.values.contains(.appleTranslation))),
             .init(title: String(localized: "AI Lines Pending"), value: count(max(0, ai.total - ai.validated))),
             .init(title: String(localized: "AI Lines Processed This Run"), value: count(ai.processed)),
             .init(title: String(localized: "AI Lines Validated"), value: count(ai.validated)),
             .init(title: String(localized: "AI Lines Changed"), value: count(ai.changed)),
+            .init(title: String(localized: "AI Lines Translated Without Base"), value: count(ai.translatedWithoutBase)),
             .init(title: String(localized: "AI Lines Verified Unchanged"), value: count(ai.unchanged)),
             .init(title: String(localized: "Incomplete or Failed AI Batches"), value: count(ai.failedBatches)),
             .init(title: String(localized: "AI Batches Rejected by the Model"), value: count(ai.rejectedBatches)),
@@ -222,6 +235,7 @@ private extension ImmersiveLyricStatus {
         case .fallback: "Showing Base Translation"
         case .failed: "Context Polish Failed"
         case .unnecessary: "No Semantic Translation Needed"
+        case .unavailable: "Unavailable"
         }
     }
 }

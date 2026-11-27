@@ -131,7 +131,6 @@ struct NowPlayingView: View {
                     compactHeader
                     LyricsPanel()
                         .environment(\.lyricsPlayerChrome, lyricsChrome)
-                        .layoutPriority(1)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 case .queue:
                     compactHeader

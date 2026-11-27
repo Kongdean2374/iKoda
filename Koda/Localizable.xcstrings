@@ -28145,6 +28145,22 @@
           }
         }
       }
+    },
+    "AI Lines Translated Without Base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Lines Translated Without Base"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未參考基礎譯文的 AI 翻譯行數"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

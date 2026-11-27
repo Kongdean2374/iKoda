@@ -74,7 +74,11 @@ public actor LyricsVersionStore {
         let file = location(cache, key)
         guard let value: Catalogue = load(file, limit: maximumRecordBytes) else { return nil }
         try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
-        return value
+        let results = value.results.map { item in
+            LyricsSourceResult(source: item.source, name: item.name, state: item.state,
+                               candidates: item.candidates.map { $0.withMeasuredTiming() })
+        }
+        return Catalogue(results: results, fetchedAt: value.fetchedAt)
     }
 
     public func cache(_ value: Catalogue, key: String, ticket: UUID? = nil) {
@@ -120,7 +124,10 @@ public actor LyricsVersionStore {
     }
 
     public func preference(profile: URL, songID: String) -> Preference {
-        load(location(userDirectory(profile), songID), limit: maximumRecordBytes) ?? Preference()
+        var saved: Preference = load(location(userDirectory(profile), songID), limit: maximumRecordBytes) ?? Preference()
+        saved.selected = saved.selected?.withMeasuredTiming()
+        saved.localVersions = saved.localVersions?.map { $0.withMeasuredTiming() }
+        return saved
     }
 
     @discardableResult

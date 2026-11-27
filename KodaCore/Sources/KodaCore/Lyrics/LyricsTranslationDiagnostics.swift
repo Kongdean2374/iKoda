@@ -43,13 +43,13 @@ public enum ImmersiveLyricStatus: Equatable, Sendable {
     public enum Polish: Equatable, Sendable {
         case idle, checking, working, completed, partial, unavailable, language, paused, failed, unnecessary
     }
-    case preparing, baseTranslation, polishing, completed, partial, modelUnavailable, languageUnsupported, paused, fallback, failed, unnecessary
+    case preparing, baseTranslation, polishing, completed, partial, modelUnavailable, languageUnsupported, paused, fallback, failed, unnecessary, unavailable
 
     public static func resolve(base: Base, polish: Polish) -> Self {
         if base == .preparing { return .preparing }
         if base == .translating { return .baseTranslation }
         switch polish {
-        case .idle, .checking: return base == .unavailable ? .fallback : .preparing
+        case .idle, .checking: return .preparing
         case .working: return .polishing
         case .completed: return .completed
         case .partial: return .partial
@@ -57,7 +57,8 @@ public enum ImmersiveLyricStatus: Equatable, Sendable {
         case .language: return .languageUnsupported
         case .paused: return .paused
         case .failed: return .failed
-        case .unnecessary: return base == .ready ? .unnecessary : .fallback
+        case .unnecessary:
+            return base == .ready ? .unnecessary : base == .partial ? .fallback : .unavailable
         }
     }
 }
@@ -71,6 +72,7 @@ public struct LyricPolishDiagnostics: Equatable, Sendable {
     public var processed = 0
     public var validated = 0
     public var changed = 0
+    public var translatedWithoutBase = 0
     public var failedBatches = 0
     public var rejectedBatches = 0
     public var cache: LyricCacheUse = .unchecked
@@ -81,7 +83,7 @@ public struct LyricPolishDiagnostics: Equatable, Sendable {
     public var cacheSeconds: TimeInterval?
     public var lastError: LyricWorkError?
     public var limits: Set<LyricWorkLimit> = []
-    public var unchanged: Int { max(0, validated - changed) }
+    public var unchanged: Int { max(0, validated - changed - translatedWithoutBase) }
     public init() {}
 }
 

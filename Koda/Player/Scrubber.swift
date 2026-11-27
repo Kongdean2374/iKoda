@@ -85,6 +85,7 @@ struct Scrubber: View {
             .frame(minHeight: compact ? ControlMetrics.touchTarget : nil)
             .accessibilityElement()
             .accessibilityLabel("Position")
+            .accessibilityIdentifier("player.position")
             .accessibilityValue("\(format(fraction * duration)) of \(format(duration))")
             .accessibilityAdjustableAction { direction in
                 let step: TimeInterval = direction == .increment ? 10 : -10
@@ -156,6 +157,7 @@ struct VolumeSlider: View {
         }
         .accessibilityElement()
         .accessibilityLabel("Volume")
+        .accessibilityIdentifier("player.volume")
         .accessibilityValue(Text(Double(level), format: .percent.precision(.fractionLength(0))))
         .accessibilityAdjustableAction { direction in
             setLevel(level + (direction == .increment ? 0.0625 : -0.0625))

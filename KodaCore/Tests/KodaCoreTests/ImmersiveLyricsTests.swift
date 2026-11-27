@@ -10,7 +10,7 @@ import Testing
         #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .completed) == .completed)
         #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .unavailable) == .modelUnavailable)
         #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .language) == .languageUnsupported)
-        #expect(ImmersiveLyricStatus.resolve(base: .unavailable, polish: .idle) == .fallback)
+        #expect(ImmersiveLyricStatus.resolve(base: .partial, polish: .unnecessary) == .fallback)
         #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .paused) == .paused)
     }
 

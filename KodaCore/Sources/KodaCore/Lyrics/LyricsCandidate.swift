@@ -51,7 +51,7 @@ public struct LyricsCandidate: Codable, Equatable, Identifiable, Sendable {
     public let original: String?
     public let fetchedAt: Date
     public let match: LyricsMatch
-    private let measuredTiming: LyricTimingQuality?
+    private var measuredTiming: LyricTimingQuality?
     public var timing: LyricTimingQuality { measuredTiming ?? .measure(lyrics, duration: metadata.duration) }
     public var format: Format { timing.grade >= .partialWords ? .word : timing.grade == .line ? .line : .plain }
     public var lineCount: Int {
@@ -84,6 +84,13 @@ public struct LyricsCandidate: Codable, Equatable, Identifiable, Sendable {
               areUsable(payload.lyrics) else { return nil }
         return Self(song: song, source: "local", sourceName: sourceName, metadata: .init(),
                     lyrics: payload.lyrics, original: text, embeddedTranslations: payload.translations)
+    }
+
+    func withMeasuredTiming() -> Self {
+        guard measuredTiming == nil else { return self }
+        var candidate = self
+        candidate.measuredTiming = timing
+        return candidate
     }
 
     public func retainingTranslations(from previous: Self) -> Self {

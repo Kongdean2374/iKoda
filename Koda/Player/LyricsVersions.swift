@@ -321,12 +321,25 @@ final class LyricsVersions {
     }
 
     #if DEBUG
-    func installUITestVersions(for song: Song) {
+    func installUITestVersions(for song: Song, playable: Bool = false) {
         setProfile(FileManager.default.temporaryDirectory.appending(path: UUID().uuidString))
         resetContext(.init(song: song, sources: [.lrclib, .youLyPlus], custom: []))
-        let first = LyricsCandidate(song: song, source: LyricsSource.lrclib.rawValue, sourceName: "LRCLIB",
-            metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
-            lyrics: .synced(Lyrics.parseLRC("[00:12.00]We listen to the ocean\n[00:15.00]The waves return")))
+        let first: LyricsCandidate
+        if playable, let tagged = LyricsCandidate.imported(song: song, sourceName: "Fixture Lyrics", text: """
+        <tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal">
+        <head><metadata><itunes:translations><itunes:translation xml:lang="zh-Hant">
+        <itunes:text for="a">我們等著晨光</itunes:text>
+        </itunes:translation></itunes:translations></metadata></head>
+        <body><div><p begin="0s" end="120s" itunes:key="a"><span begin="0s" end="30s">We wait</span> <span begin="30s" end="115s">for dawn</span></p>
+        <p begin="120s" end="175s" itunes:key="b">The paper boat sails</p></div></body>
+        </tt>
+        """) {
+            first = tagged
+        } else {
+            first = LyricsCandidate(song: song, source: LyricsSource.lrclib.rawValue, sourceName: "LRCLIB",
+                metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
+                lyrics: .synced(Lyrics.parseLRC("[00:12.00]We listen to the ocean\n[00:15.00]The waves return")))
+        }
         let second = LyricsCandidate(song: song, source: LyricsSource.youLyPlus.rawValue, sourceName: "YouLyPlus",
             metadata: .init(title: song.title, artist: song.artistLine, duration: song.duration),
             lyrics: .synced(Lyrics.parseLRC("[00:13.00]The song of the ocean\n[00:18.00]We follow the tide")))

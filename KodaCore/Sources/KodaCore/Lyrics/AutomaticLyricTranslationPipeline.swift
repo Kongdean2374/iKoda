@@ -376,7 +376,8 @@ public final class AutomaticLyricTranslationPipeline {
             stopEngineClock(key)
             switch outcome {
             case .complete, .compatible:
-                records[key]?.usedCompatibility = (records[key]?.apple.usedCompatibility ?? false) || outcome == .compatible
+                let compatible = records[key]?.apple.usedCompatibility ?? false
+                records[key]?.usedCompatibility = compatible || outcome == .compatible
                 let complete = records[key]?.fragments.count == plan.fragments.count
                 publishSnapshot(key: key, phase: complete && !plan.hasUnrecognizedText ? .ready : .unavailable)
             case .needsLanguage(let pair):
@@ -396,7 +397,8 @@ public final class AutomaticLyricTranslationPipeline {
     private func stopEngineClock(_ key: Key) {
         guard let started = records[key]?.engineStarted else { return }
         let duration = started.duration(to: .now).lyricSeconds
-        records[key]?.translationSeconds = (records[key]?.translationSeconds ?? 0) + duration
+        let accumulated = records[key]?.translationSeconds ?? 0
+        records[key]?.translationSeconds = accumulated + duration
         records[key]?.engineStarted = nil
     }
 
