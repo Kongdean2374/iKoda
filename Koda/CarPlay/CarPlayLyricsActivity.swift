@@ -179,12 +179,11 @@ final class CarPlayLyricsActivity {
                 } else {
                     let sample = CarPlayLyricsTiming.sample(at: position, offset: app.library.carPlayLyricsOffset(for: song.id), versionOffset: versions.offset(for: song.id),
                                                             in: prepared.lines)
-                    let automatic = settings.automaticLyricsTranslation
-                        ? app.lyricsTranslation.result(songID: song.id, lines: prepared.translationInput).lines : [:]
+                    let translatedLines = app.lyricsTranslation.result(songID: song.id, lines: prepared.translationInput,
+                        imported: prepared.imported, importsEnabled: settings.importedLyricsEnabled).lines
                     state.status = .betweenLines
                     if let line = sample.line {
-                        let edited = candidate.flatMap { versions.edits(for: $0)[line.id] }
-                        let translated = edited ?? (settings.importedLyricsEnabled ? prepared.imported[line.id] : nil) ?? automatic[line.id]
+                        let translated = translatedLines[line.id]
                         state = State(title: song.title, isPlaying: isPlaying, status: .line,
                                       original: line.text, translation: translated)
                     }

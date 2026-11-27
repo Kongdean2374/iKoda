@@ -2,19 +2,54 @@ import KodaCore
 import SwiftUI
 import UIKit
 
+struct LyricsOrbGlyph: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 18, weight: .semibold))
+            .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
+    }
+}
+
+struct LyricsOrbAppearance: ViewModifier {
+    var selected = false
+    let pressed: Bool
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(selected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
+            .background {
+                if selected { Circle().fill(Color.primary.opacity(pressed ? 0.8 : 1)) }
+                else if pressed { Circle().fill(Color.primary.opacity(0.14)) }
+            }
+            .kodaGlassSurface(in: Circle())
+            .contentShape(.rect)
+            .opacity(enabled ? 1 : 0.5)
+            .scaleEffect(pressed && !reduceMotion ? 0.95 : 1)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: pressed)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: selected)
+    }
+}
+
 /// One circle owns display toggling; its exclusive long press opens progress/settings.
 /// Keeping this in the fixed footer prevents either interaction from covering lyric rows.
 struct LyricsTranslationControl: View {
     let lines: [LyricsTranslationText]
     var importedCount = 0
+    var importedLines: [Int: String] = [:]
     var information: String?
+    var openSources: (() -> Void)? = nil
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @State private var showsDetails = false
     @State private var holdFeedback = 0
 
     private var result: AutomaticLyricsResult {
-        app.lyricsTranslation.result(songID: player.current?.id, lines: lines)
+        app.lyricsTranslation.result(songID: player.current?.id, lines: lines, imported: importedLines,
+                                     importsEnabled: app.settings.importedLyricsEnabled)
     }
     private var enabled: Bool { app.settings.showsLyricsTranslation }
     private var status: LocalizedStringKey {
@@ -25,11 +60,9 @@ struct LyricsTranslationControl: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button { app.settings.showsLyricsTranslation.toggle() } label: {
-                Image(systemName: "translate")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
+                LyricsOrbGlyph(symbol: "translate")
             }
             .buttonStyle(LyricsTranslationOrbStyle(isOn: enabled, onHold: {
                 holdFeedback &+= 1
@@ -45,15 +78,18 @@ struct LyricsTranslationControl: View {
             .accessibilityAction(named: Text("Translation Details")) { showsDetails = true }
             .accessibilityIdentifier("lyrics.translation.toggle")
 
+            if let openSources { LyricsSourceOrb(action: openSources) }
+
             Text(status)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.75)
+                .accessibilityIdentifier("lyrics.translation.status")
         }
         .sheet(isPresented: $showsDetails) {
             NavigationStack {
-                LyricsTranslationDetails(lines: lines, importedCount: importedCount, information: information)
+                LyricsTranslationDetails(lines: lines, importedCount: importedCount, importedLines: importedLines, information: information)
             }
             .appEnvironment(app)
             .presentationDetents([.medium, .large])
@@ -82,21 +118,16 @@ private struct LyricsTranslationOrbSurface<Label: View>: View {
     let onHold: () -> Void
     let showDetails: () -> Void
     @State private var isPressed = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
         label
-            .foregroundStyle(isOn ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
-            .background {
-                Circle().fill(Color.primary.opacity(isOn ? (isPressed ? 0.85 : 1) : (isPressed ? 0.2 : 0.08)))
-            }
-            .contentShape(.circle)
-            .scaleEffect(isPressed && !reduceMotion ? 0.95 : 1)
-            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: isPressed)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: isOn)
+            .modifier(LyricsOrbAppearance(selected: isOn, pressed: isPressed))
             .overlay {
-                LyricsTranslationTouchTarget(activate: activate, onHold: onHold, isPressed: $isPressed)
-                    .accessibilityHidden(true)
+                if enabled {
+                    LyricsTranslationTouchTarget(activate: activate, onHold: onHold, isPressed: $isPressed)
+                        .accessibilityHidden(true)
+                }
             }
             .focusable()
             .onKeyPress(keys: [.space, .return], phases: .down) { _ in activate(); return .handled }
@@ -184,10 +215,17 @@ private enum LyricsTranslationStatus {
     static func label(shown: Bool, automatic: Bool, importsEnabled: Bool, importedCount: Int,
                       originalCount: Int, result: AutomaticLyricsResult) -> LocalizedStringKey {
         guard shown else { return "Off" }
+        let origins = Set(result.origins.values)
+        if !origins.isEmpty && origins.allSatisfy({ if case .provider = $0 { return true }; return false }) {
+            return "Lyrics Provider Translation"
+        }
+        if origins == [.imported] { return "Imported Translation" }
+        if origins == [.edited] { return "Edited Translation" }
         guard automatic else {
             guard importsEnabled, importedCount > 0 else { return "No Translation" }
             return importedCount >= originalCount ? "Translated" : "Partially Translated"
         }
+        if let immersive = result.immersiveStatus { return immersive.title }
         switch result.phase {
         case .idle, .preparing: return "Preparing…"
         case .translating: return "Translating…"
@@ -205,13 +243,15 @@ private enum LyricsTranslationStatus {
 private struct LyricsTranslationDetails: View {
     let lines: [LyricsTranslationText]
     let importedCount: Int
+    let importedLines: [Int: String]
     let information: String?
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @Environment(\.dismiss) private var dismiss
 
     private var result: AutomaticLyricsResult {
-        app.lyricsTranslation.result(songID: player.current?.id, lines: lines)
+        app.lyricsTranslation.result(songID: player.current?.id, lines: lines, imported: importedLines,
+                                     importsEnabled: app.settings.importedLyricsEnabled)
     }
     private var status: LocalizedStringKey {
         LyricsTranslationStatus.label(shown: app.settings.showsLyricsTranslation,
@@ -244,7 +284,16 @@ private struct LyricsTranslationDetails: View {
                 }
                 if let information { Text(information).font(.footnote).foregroundStyle(.secondary) }
             }
+            if app.lyricsTranslation.versions.current?.songID == player.current?.id, !lines.isEmpty {
+                LyricsTranslationSourceSection(lines: lines, imported: importedLines, result: result)
+            }
             Section {
+                NavigationLink {
+                    LyricsTranslationDiagnosticsView(lines: lines, imported: importedLines)
+                } label: {
+                    Label("Translation Diagnostics", systemImage: "stethoscope")
+                }
+                .accessibilityIdentifier("lyrics.translation.diagnostics")
                 NavigationLink {
                     LyricsTranslationSettingsView(showsDisplayToggle: false)
                 } label: {
@@ -268,6 +317,7 @@ private struct LyricsTranslationDetails: View {
 
 /// Unsynced lyrics can still be translated, but never receive made-up timestamps or highlights.
 struct PlainTranslatedLyricsView: View {
+    @Environment(\.lyricsPlayerChrome) private var chrome
     let text: String
     var openSources: (() -> Void)? = nil
     @Environment(AppModel.self) private var app
@@ -283,10 +333,7 @@ struct PlainTranslatedLyricsView: View {
     private var result: AutomaticLyricsResult { app.lyricsTranslation.result(songID: player.current?.id, lines: lines) }
     private var desiredTranslations: [Int: String] {
         guard app.settings.showsLyricsTranslation else { return [:] }
-        let versions = app.lyricsTranslation.versions
-        var out = enabled ? result.lines : [:]
-        if let current = versions.current { out.merge(versions.edits(for: current)) { _, new in new } }
-        return out
+        return result.lines
     }
     private var sourceID: String { player.current?.id ?? "" }
 
@@ -333,8 +380,8 @@ struct PlainTranslatedLyricsView: View {
             HStack {
                 LyricsTranslationControl(lines: lines,
                     information: app.settings.importedLyricsEnabled
-                        ? String(localized: "This song has no synced lyrics. The original text is shown; imported translations need timestamps.") : nil)
-                if let openSources { LyricsSourceOrb(action: openSources) }
+                        ? String(localized: "This song has no synced lyrics. The original text is shown; imported translations need timestamps.") : nil,
+                    openSources: openSources)
                 Spacer(minLength: 0)
             }
             .frame(height: 44)
@@ -344,6 +391,7 @@ struct PlainTranslatedLyricsView: View {
             if scroll.isIdle { applyTranslations(translated) }
         }
         .onChange(of: enabled) { _, _ in applyTranslations(desiredTranslations) }
+        .onChange(of: chrome) { _, _ in scroll.prepareLayoutChange(source: sourceID) }
         .onChange(of: sourceID) { _, _ in scroll.reset() }
     }
 
@@ -422,6 +470,7 @@ final class LyricsScrollTracking {
     @ObservationIgnored private var pendingRevision: Int?
 
     func prepareLayoutChange(source: String, preferredRowID: Int? = nil) {
+        guard pendingRevision == nil else { return }
         pending = isIdle ? LyricScrollAnchor(source: source, rows: coreRows(rows),
             offset: Double(viewport.offset), viewportHeight: Double(viewport.height), preferredRowID: preferredRowID) : nil
         revision += 1

@@ -1,5 +1,6 @@
 import KodaCore
 import SwiftUI
+import UIKit
 
 /// The full-screen player.
 struct NowPlayingView: View {
@@ -21,6 +22,13 @@ struct NowPlayingView: View {
     @State private var hasTallArt = false
     @State private var size: CGSize = .zero
     @State private var utility: PlayerUtility?
+    @State private var lyricControlsExpanded = false
+
+    private var lyricsChrome: LyricsPlayerChrome {
+        LyricsPlayerChrome.resolve(isPortraitPhone: !isWide && UIDevice.current.userInterfaceIdiom == .phone && size.width < size.height,
+            lyricsVisible: panel == .lyrics, translationVisible: app.settings.showsLyricsTranslation,
+            enabled: app.settings.compactBilingualPlayer, controlsExpanded: lyricControlsExpanded)
+    }
 
     private enum PlayerUtility: Hashable, Identifiable {
         case sound, audio, sleep(custom: Bool)
@@ -71,6 +79,7 @@ struct NowPlayingView: View {
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
+        .onChange(of: lyricsChrome == .full) { _, full in if full { lyricControlsExpanded = false } }
         .onChange(of: player.current == nil) { _, isEmpty in if isEmpty { close() } }
         .onChange(of: app.requestedPanel, initial: true) { _, requested in
             guard let requested else { return }
@@ -121,6 +130,8 @@ struct NowPlayingView: View {
                 case .lyrics:
                     compactHeader
                     LyricsPanel()
+                        .environment(\.lyricsPlayerChrome, lyricsChrome)
+                        .layoutPriority(1)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 case .queue:
                     compactHeader
@@ -131,17 +142,21 @@ struct NowPlayingView: View {
                     FailureBanner(message: message) { player.resume() }
                         .padding(.top, 12)
                 }
-                Scrubber()
-                    .padding(.top, 20)
-                TransportControls()
-                    .padding(.vertical, 18)
-                VolumeSlider()
-                    .frame(height: 34)
+                Scrubber(compact: lyricsChrome != .full)
+                    .padding(.top, lyricsChrome == .full ? 20 : 2)
+                TransportControls(compact: lyricsChrome == .compact,
+                                  showsAdditionalControls: lyricsChrome == .expanded)
+                    .padding(.vertical, lyricsChrome == .full ? 18 : 2)
+                if lyricsChrome != .compact {
+                    VolumeSlider()
+                        .frame(height: lyricsChrome == .expanded ? 44 : 34)
+                }
                 bottomBar
-                    .padding(.top, 14)
+                    .padding(.top, lyricsChrome == .full ? 14 : 2)
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 8)
+            .padding(.bottom, lyricsChrome == .full ? 8 : 2)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.26), value: lyricsChrome)
             .overlay {
                 if player.current != nil { floatingArtwork }
             }
@@ -258,7 +273,7 @@ struct NowPlayingView: View {
                 Color.clear.frame(width: 44, height: 44)
             }
         }
-        .padding(.top, 8)
+        .padding(.top, lyricsChrome == .full ? 8 : 0)
         .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.8), value: app.sleepTimer.isActive)
     }
 
@@ -333,13 +348,16 @@ struct NowPlayingView: View {
 
     /// The cover, title and like button in one row, above lyrics or the queue.
     private var compactHeader: some View {
-        HStack(spacing: 14) {
+        let compact = lyricsChrome != .full
+        let cover: CGFloat = compact ? 40 : 64
+        return HStack(spacing: compact ? 10 : 14) {
             Color.clear
-                .frame(width: 64, height: 64)
+                .frame(width: cover, height: cover)
                 .matchedGeometryEffect(id: "artwork", in: artworkSpace)
-            songLines(title: .headline, byline: .subheadline)
+            songLines(title: compact ? .subheadline.bold() : .headline,
+                      byline: compact ? .footnote : .subheadline)
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, compact ? 2 : 16)
     }
 
     /// Lyrics, AirPlay and the queue, as plain symbols like the transport above them, each
@@ -353,6 +371,20 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity)
             panelButton(.queue, systemImage: "list.bullet", activeImage: "list.bullet", label: "Queue")
                 .frame(maxWidth: .infinity)
+            if lyricsChrome != .full {
+                Button {
+                    lyricControlsExpanded.toggle()
+                } label: {
+                    Image(systemName: lyricControlsExpanded ? "chevron.down" : "slider.horizontal.3")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 52, height: ControlMetrics.touchTarget)
+                }
+                .buttonStyle(PlayerToggleStyle(isOn: lyricControlsExpanded))
+                .sensoryFeedback(.selection, trigger: lyricControlsExpanded)
+                .accessibilityLabel(lyricControlsExpanded ? Text("Collapse Playback Controls") : Text("Expand Playback Controls"))
+                .accessibilityIdentifier("lyrics.player.controls")
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 
@@ -369,6 +401,7 @@ struct NowPlayingView: View {
         .buttonStyle(PlayerToggleStyle(isOn: active))
         .sensoryFeedback(.selection, trigger: active)
         .accessibilityLabel(label)
+        .accessibilityIdentifier(target == .lyrics ? "player.panel.lyrics" : "player.panel.queue")
         .accessibilityAddTraits(active ? .isSelected : [])
     }
 
@@ -437,6 +470,8 @@ struct LikeButton: View {
 /// the bottom bar uses, so the two rows line up. With skip buttons on (Settings), they sit
 /// at either end, smaller, and the row is shared five ways.
 struct TransportControls: View {
+    var compact = false
+    var showsAdditionalControls = false
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -448,8 +483,9 @@ struct TransportControls: View {
     var body: some View {
         let settings = app.settings
         let interval = settings.skipInterval
+        let showsSkips = !compact && (settings.showsSkipButtons || showsAdditionalControls)
         HStack(spacing: 0) {
-            if settings.showsSkipButtons {
+            if showsSkips {
                 skipButton(interval.backSymbol, label: "Back \(interval.rawValue) Seconds", size: 24, taps: rewinds) {
                     rewinds += 1
                     player.skip(by: -interval.seconds)
@@ -457,19 +493,19 @@ struct TransportControls: View {
                 .frame(maxWidth: .infinity)
                 .disabled(player.phase != .ready)
             }
-            skipButton("backward.fill", label: "Previous", taps: backs) {
+            skipButton("backward.fill", label: "Previous", size: compact ? 21 : 32, taps: backs) {
                 backs += 1
                 player.previous()
             }
             .frame(maxWidth: .infinity)
-            PlayPauseButton(size: 44)
+            PlayPauseButton(size: compact ? 26 : 44)
                 .frame(maxWidth: .infinity)
-            skipButton("forward.fill", label: "Next", taps: forwards) {
+            skipButton("forward.fill", label: "Next", size: compact ? 21 : 32, taps: forwards) {
                 forwards += 1
                 player.next()
             }
             .frame(maxWidth: .infinity)
-            if settings.showsSkipButtons {
+            if showsSkips {
                 skipButton(interval.forwardSymbol, label: "Ahead \(interval.rawValue) Seconds", size: 24, taps: advances) {
                     advances += 1
                     player.skip(by: interval.seconds)
@@ -490,7 +526,9 @@ struct TransportControls: View {
                 .symbolEffect(.bounce.down, value: taps)
                 .symbolEffectsRemoved(reduceMotion)
                 // Up to 72 wide: five to a row still fits the narrowest iPhone.
-                .frame(maxWidth: 72, minHeight: 60)
+                .frame(minWidth: ControlMetrics.touchTarget, maxWidth: 72,
+                       minHeight: compact ? ControlMetrics.touchTarget : 60)
+                .contentShape(.rect)
         }
         .buttonStyle(TransportButtonStyle())
         .accessibilityLabel(label)
@@ -611,4 +649,8 @@ private struct LyricsTimingMenu: View {
 extension EnvironmentValues {
     /// Closes Now Playing when it is shown as part of a window rather than presented.
     @Entry var closeNowPlaying: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    @Entry var lyricsPlayerChrome: LyricsPlayerChrome = .full
 }

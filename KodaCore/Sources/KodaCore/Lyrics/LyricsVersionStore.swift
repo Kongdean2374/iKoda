@@ -8,6 +8,7 @@ public actor LyricsVersionStore {
         public var translations: [String: [Int: String]] = [:]
         public var imports: [String: LyricTranslationDocument]?
         public var localVersions: [LyricsCandidate]?
+        public var translationSelections: [String: LyricTranslationSelection]?
         public fileprivate(set) var revision: UInt64?
 
         public init() {}
@@ -19,6 +20,15 @@ public actor LyricsVersionStore {
 
         public func edits(for id: LyricsCandidate.Identity) -> [Int: String] {
             translations[id.cacheNamespace] ?? [:]
+        }
+    }
+
+    public func selectTranslation(_ selection: LyricTranslationSelection, for candidate: LyricsCandidate,
+                                  profile: URL) throws -> Preference {
+        try modify(profile, songID: candidate.songID) {
+            var selections = $0.translationSelections ?? [:]
+            selections[candidate.id.cacheNamespace] = selection == .automatic ? nil : selection
+            $0.translationSelections = selections
         }
     }
 

@@ -21,6 +21,9 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
     /// Chinese, URLs and numeric-only rows need no semantic translation or notice.
     public let hasUnrecognizedText: Bool
     private let rows: [PreparedRow]
+    var semanticRows: Set<Int> {
+        Set(fragments.map(\.lineID) + rows.filter(\.unrecognized).map(\.id))
+    }
 
     private enum Piece: Equatable, Sendable {
         case literal(String), fragment(Fragment)
@@ -110,6 +113,16 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
             if (row.chinese || hasTranslation), text != row.originalText { result[row.id] = text }
         }
         return result
+    }
+
+    func rowProgress(translations: [String: String]) -> (completed: Int, total: Int) {
+        let completed = rows.count { row in
+            !row.unrecognized && row.pieces.allSatisfy {
+                if case .fragment(let fragment) = $0 { return translations[fragment.id] != nil }
+                return true
+            }
+        }
+        return (completed, rows.count)
     }
 
     private static func appendFragment(_ text: String, language: String, to row: inout PreparedRow, next: inout Int) {

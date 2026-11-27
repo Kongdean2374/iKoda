@@ -26,12 +26,18 @@ public struct LyricsCandidate: Codable, Equatable, Identifiable, Sendable {
         public var artist: String?
         public var album: String?
         public var duration: TimeInterval?
+        public var recordingID: String?
+        public var provenance: String?
 
-        public init(title: String? = nil, artist: String? = nil, album: String? = nil, duration: TimeInterval? = nil) {
+        public init(title: String? = nil, artist: String? = nil, album: String? = nil, duration: TimeInterval? = nil,
+                    recordingID: String? = nil, provenance: String? = nil) {
             self.title = title
             self.artist = artist
             self.album = album
             self.duration = duration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+            let isrc = recordingID?.uppercased().replacingOccurrences(of: "-", with: "")
+            self.recordingID = isrc?.range(of: #"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$"#, options: .regularExpression) == nil ? nil : isrc
+            self.provenance = provenance
         }
     }
 
@@ -40,10 +46,14 @@ public struct LyricsCandidate: Codable, Equatable, Identifiable, Sendable {
     public let sourceName: String
     public let metadata: Metadata
     public let lyrics: Lyrics
+    /// Optional for backwards compatibility with 0.7.0 candidate files.
+    public private(set) var embeddedTranslations: [LyricEmbeddedTranslation]?
     public let original: String?
     public let fetchedAt: Date
     public let match: LyricsMatch
-    public var format: Format { lyrics.quality == 2 ? .word : lyrics.quality == 1 ? .line : .plain }
+    private let measuredTiming: LyricTimingQuality?
+    public var timing: LyricTimingQuality { measuredTiming ?? .measure(lyrics, duration: metadata.duration) }
+    public var format: Format { timing.grade >= .partialWords ? .word : timing.grade == .line ? .line : .plain }
     public var lineCount: Int {
         switch lyrics {
         case .synced(let lines): lines.count
@@ -52,21 +62,38 @@ public struct LyricsCandidate: Codable, Equatable, Identifiable, Sendable {
     }
 
     public init(song: Song, source: String, sourceName: String, upstream: String? = nil, version: String? = nil,
-                metadata: Metadata, lyrics: Lyrics, original: String? = nil, query: LyricsSearch? = nil) {
+                metadata: Metadata, lyrics: Lyrics, original: String? = nil, query: LyricsSearch? = nil,
+                embeddedTranslations: [LyricEmbeddedTranslation] = []) {
         id = Identity(source: source, upstream: upstream, version: version,
                       fingerprint: Self.digest((try? JSONEncoder.sorted.encode(lyrics)) ?? Data()))
         songID = song.id
         self.sourceName = sourceName
         self.metadata = metadata
         self.lyrics = lyrics
+        self.embeddedTranslations = embeddedTranslations.isEmpty ? nil : embeddedTranslations
         self.original = original
         fetchedAt = Date()
-        match = LyricsMatch.evaluate(query ?? LyricsSearch(song: song), metadata: metadata, quality: lyrics.quality)
+        let measurement = LyricTimingQuality.measure(lyrics, duration: song.duration ?? metadata.duration)
+        measuredTiming = measurement
+        let quality = measurement.grade >= .highCoverageWords ? 2 : measurement.grade == .plain ? 0 : 1
+        match = LyricsMatch.evaluate(query ?? LyricsSearch(song: song), metadata: metadata, quality: quality)
     }
 
     public static func imported(song: Song, sourceName: String, text: String) -> Self? {
-        guard text.utf8.count <= 1_000_000, let lyrics = Lyrics.parseAny(text), areUsable(lyrics) else { return nil }
-        return Self(song: song, source: "local", sourceName: sourceName, metadata: .init(), lyrics: lyrics, original: text)
+        guard text.utf8.count <= 1_000_000, let payload = Lyrics.parseCandidateFile(text),
+              areUsable(payload.lyrics) else { return nil }
+        return Self(song: song, source: "local", sourceName: sourceName, metadata: .init(),
+                    lyrics: payload.lyrics, original: text, embeddedTranslations: payload.translations)
+    }
+
+    public func retainingTranslations(from previous: Self) -> Self {
+        guard id == previous.id, songID == previous.songID else { return self }
+        var result = self
+        var seen = Set<String>()
+        let merged = ((embeddedTranslations ?? []) + (previous.embeddedTranslations ?? []))
+            .filter { seen.insert($0.id).inserted }
+        result.embeddedTranslations = merged.isEmpty ? nil : Array(merged.prefix(12))
+        return result
     }
 
     static func areUsable(_ lyrics: Lyrics) -> Bool {
@@ -232,8 +259,17 @@ public struct LyricsSourceResult: Codable, Equatable, Sendable {
         self.source = source
         self.name = name
         self.state = state
-        var seen = Set<LyricsCandidate.Identity>()
-        self.candidates = candidates.filter { seen.insert($0.id).inserted }
+        var indices: [LyricsCandidate.Identity: Int] = [:]
+        var unique: [LyricsCandidate] = []
+        for candidate in candidates {
+            if let index = indices[candidate.id] {
+                unique[index] = unique[index].retainingTranslations(from: candidate)
+            } else {
+                indices[candidate.id] = unique.count
+                unique.append(candidate)
+            }
+        }
+        self.candidates = unique
     }
 }
 
@@ -247,16 +283,30 @@ public struct LyricsVersionSelection: Sendable {
         self.preferred = preferred?.id
     }
 
-    public static func recommended(_ candidates: [LyricsCandidate], allowLowConfidence: Bool) -> LyricsCandidate? {
-        candidates.filter {
-            switch $0.match.confidence {
-            case .conflict: false
-            case .low: allowLowConfidence
-            case .high, .medium: true
+    public static func recommended(_ candidates: [LyricsCandidate], allowLowConfidence: Bool,
+                                   assessments: [LyricsCandidate.Identity: LyricsCandidateAssessment]? = nil) -> LyricsCandidate? {
+        let assessments = assessments ?? LyricsCandidateEvaluator.evaluate(candidates)
+        let eligible = candidates.filter { candidate in
+            candidate.match.confidence != .conflict && candidate.timing.invalidTimes == 0
+                && assessments[candidate.id]?.excludesAutomaticSelection != true
+        }
+        let trusted = eligible.filter {
+            [.medium, .high].contains($0.match.confidence) || assessments[$0.id]?.content == .verified
+        }
+        if !trusted.isEmpty {
+            return trusted.max { left, right in
+                if left.timing.grade != right.timing.grade { return left.timing.grade < right.timing.grade }
+                if left.timing.wordCoverage != right.timing.wordCoverage { return left.timing.wordCoverage < right.timing.wordCoverage }
+                let leftVerified = assessments[left.id]?.content == .verified
+                let rightVerified = assessments[right.id]?.content == .verified
+                if leftVerified != rightVerified { return !leftVerified }
+                return left.match.identityScore < right.match.identityScore
             }
-        }.max {
-            if $0.match.identityScore != $1.match.identityScore { return $0.match.identityScore < $1.match.identityScore }
-            return $0.match.timingQuality < $1.match.timingQuality
+        }
+        guard allowLowConfidence else { return nil }
+        return eligible.max { left, right in
+            if left.match.identityScore != right.match.identityScore { return left.match.identityScore < right.match.identityScore }
+            return left.timing.grade < right.timing.grade
         }
     }
 
