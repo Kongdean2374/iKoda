@@ -27,6 +27,7 @@ struct LyricsTranslationSourceSection: View {
     let imported: [Int: String]
     let result: AutomaticLyricsResult
     @Environment(AppModel.self) private var app
+    @State private var hasCachedContext = false
 
     private var versions: LyricsVersions { app.lyricsTranslation.versions }
 
@@ -43,7 +44,7 @@ struct LyricsTranslationSourceSection: View {
                     if !imported.isEmpty || selected == .imported {
                         Text("Imported Translation").tag(LyricTranslationSelection.imported)
                     }
-                    if app.settings.lyricsTranslationMode == .immersive || selected == .foundationModels
+                    if app.settings.lyricsTranslationMode == .immersive || selected == .foundationModels || hasCachedContext
                         || !app.lyricsTranslation.contextualLines(for: candidate).isEmpty {
                         Text("Apple Intelligence").tag(LyricTranslationSelection.foundationModels)
                     }
@@ -61,6 +62,10 @@ struct LyricsTranslationSourceSection: View {
                     LyricsTranslationComparison(candidate: candidate, rows: lines, imported: imported)
                 }
                 if let error = versions.error { Text(error).foregroundStyle(.secondary) }
+            }
+            .task(id: candidate.id) {
+                let cache = await app.lyricsTranslation.cachedContextualLines(for: candidate)
+                if !Task.isCancelled, candidate.id == versions.current?.id { hasCachedContext = !cache.isEmpty }
             }
         }
     }
@@ -172,6 +177,8 @@ struct LyricsTranslationDiagnosticsView: View {
         let origins = Dictionary(grouping: result.origins.values, by: \.label)
             .map { $0.key + " (" + count($0.value.count) + ")" }.sorted()
         let restrictions = result.limits.union(ai.limits).map(\.label).sorted()
+        let isFallback = result.immersiveStatus != nil && result.selectedSource != .appleTranslation
+            && result.origins.values.contains(.appleTranslation)
         let latestError = ai.lastError?.label ?? base.apple.lastError?.label ?? String(localized: "None")
         let validation: String
         if ai.validated > 0 {
@@ -195,7 +202,7 @@ struct LyricsTranslationDiagnosticsView: View {
             .init(title: String(localized: "Model Target Language Support"), value: ai.target.map { $0 + " · " + yesNo(ai.targetSupported) } ?? unavailable),
             .init(title: String(localized: "AI Validation Status"), value: validation),
             .init(title: String(localized: "Base Fallback Displayed"),
-                  value: yesNo(result.immersiveStatus != nil && result.origins.values.contains(.appleTranslation))),
+                  value: yesNo(isFallback)),
             .init(title: String(localized: "AI Lines Pending"), value: count(max(0, ai.total - ai.validated))),
             .init(title: String(localized: "AI Lines Processed This Run"), value: count(ai.processed)),
             .init(title: String(localized: "AI Lines Validated"), value: count(ai.validated)),

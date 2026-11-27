@@ -301,7 +301,13 @@ public struct LyricsVersionSelection: Sendable {
             [.medium, .high].contains($0.match.confidence) || assessments[$0.id]?.content == .verified
         }
         if !trusted.isEmpty {
-            return trusted.max { left, right in
+            // A name match can still refer to a different recording. Compare
+            // presentation quality among versions with compatible duration or
+            // independently corroborated timelines first.
+            let confirmedTiming = trusted.filter {
+                $0.match.evidence.contains(.duration) || assessments[$0.id]?.content == .verified
+            }
+            return (confirmedTiming.isEmpty ? trusted : confirmedTiming).max { left, right in
                 if left.timing.grade != right.timing.grade { return left.timing.grade < right.timing.grade }
                 if left.timing.wordCoverage != right.timing.wordCoverage { return left.timing.wordCoverage < right.timing.wordCoverage }
                 let leftVerified = assessments[left.id]?.content == .verified

@@ -9,9 +9,10 @@ import Testing
                   "Leave a light for me", "The clock forgets the rain"]
 
     private func version(_ identifier: String, upstream: String? = nil, metadata: LyricsCandidate.Metadata = .init(),
-                         texts: [String]? = nil, shift: Double = 0, wordLines: Int = 0, voice: Bool = false) -> LyricsCandidate {
+                         texts: [String]? = nil, shift: Double = 0, spacing: Double = 10,
+                         wordLines: Int = 0, voice: Bool = false) -> LyricsCandidate {
         let lines = (texts ?? verses).enumerated().map { index, text in
-            let time = 7 + Double(index) * 10 + shift
+            let time = 7 + Double(index) * spacing + shift
             let words = index < wordLines ? text.split(separator: " ").enumerated().map { offset, word in
                 LyricWord(text: String(word), start: time + Double(offset) * 0.4, end: time + Double(offset + 1) * 0.4)
             } : []
@@ -75,11 +76,24 @@ import Testing
         #expect(LyricsVersionSelection.recommended([trusted, other], allowLowConfidence: true)?.id == trusted.id)
     }
 
+    @Test func namesAloneDoNotOutrankCompatibleRecordingEvidence() {
+        let exactNames = LyricsCandidate.Metadata(title: song.title, artist: song.artistLine)
+        let unconfirmed = version("unknown", metadata: exactNames, shift: 6, wordLines: 6)
+        #expect(unconfirmed.match.confidence == .medium)
+        #expect(unconfirmed.timing.grade == .completeWords)
+        #expect(LyricsVersionSelection.recommended([trusted, unconfirmed], allowLowConfidence: false)?.id == trusted.id)
+        #expect(LyricsVersionSelection.recommended([unconfirmed], allowLowConfidence: false)?.id == unconfirmed.id)
+    }
+
     @Test func missingOneRepeatedChorusDoesNotCountAsCrossVerification() {
         let long = verses + verses + verses
-        let reference = version("lrclib", metadata: trusted.metadata, texts: long)
-        let omitted = version("youLyPlus", upstream: "qApple", texts: verses + verses, wordLines: 12)
-        #expect(LyricsCandidateEvaluator.evaluate([reference, omitted])[omitted.id]?.content != .verified)
+        let reference = version("lrclib", metadata: trusted.metadata, texts: long, spacing: 6)
+        let omitted = version("youLyPlus", upstream: "qApple", texts: verses + verses, spacing: 6, wordLines: 12)
+        let assessment = LyricsCandidateEvaluator.evaluate([reference, omitted])[omitted.id]
+        #expect(reference.timing.invalidTimes == 0)
+        #expect(omitted.timing.invalidTimes == 0)
+        #expect(assessment?.content == .conflict)
+        #expect(assessment?.completeness == 2.0 / 3.0)
     }
 
     @Test func wordCoverageChecksTheTextAndAllowsOverlappingBackgroundVoices() {

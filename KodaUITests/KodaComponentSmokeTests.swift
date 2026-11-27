@@ -823,7 +823,9 @@ final class KodaComponentSmokeTests: XCTestCase {
         orb.tap()
         XCTAssertTrue(controls.waitForExistence(timeout: 10))
         XCTAssertFalse(volume.exists)
-        XCTAssertTrue(app.staticTexts["我們等著晨光"].waitForExistence(timeout: 10))
+        let translatedLine = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "我們等著晨光")).firstMatch
+        XCTAssertTrue(translatedLine.waitForExistence(timeout: 10))
         controls.tap()
         XCTAssertTrue(volume.waitForExistence(timeout: 10))
         controls.tap()
@@ -841,8 +843,12 @@ final class KodaComponentSmokeTests: XCTestCase {
         reveal(link, in: app)
         XCTAssertTrue(link.exists)
         link.tap()
-        XCTAssertTrue(app.staticTexts["Foundation Models Availability"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Lyrics Provider Translation (1)"].exists)
+        let origin = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@ OR value CONTAINS %@", "Lyrics Provider Translation (1)", "Lyrics Provider Translation (1)")).firstMatch
+        XCTAssertTrue(origin.waitForExistence(timeout: 10))
+        let modelAvailability = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "Foundation Models Availability")).firstMatch
+        reveal(modelAvailability, in: app)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["lyrics.translation.done"].tap()
         XCTAssertTrue(controls.waitForExistence(timeout: 10))

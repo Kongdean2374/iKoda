@@ -311,7 +311,10 @@ final class LyricsTranslationCoordinator {
 
         let workMatches = currentVersion != nil && polish.version == currentVersion?.id
         let contextual = automaticEnabled && isImmersive && workMatches ? polish.lines : [:]
-        let preferred = currentVersion.map { [.high, .medium].contains($0.match.confidence) || $0.id.source == "local" } ?? false
+        let preferred = currentVersion.map {
+            $0.id.source == "local" || [.high, .medium].contains($0.match.confidence)
+                || versions.assessments[$0.id]?.content == .verified
+        } ?? false
         let resolved = ResolvedLyricTranslations(selection: selection, embedded: currentVersion?.embeddedTranslations ?? [],
                         prefersProvider: preferred, imported: importsEnabled ? imported : [:],
                         base: automaticEnabled ? snapshot.lines : [:], contextual: contextual,

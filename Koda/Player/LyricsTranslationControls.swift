@@ -225,7 +225,24 @@ private enum LyricsTranslationStatus {
             guard importsEnabled, importedCount > 0 else { return "No Translation" }
             return importedCount >= originalCount ? "Translated" : "Partially Translated"
         }
-        if let immersive = result.immersiveStatus { return immersive.title }
+        let showingBase = origins.contains(.appleTranslation)
+        let showingContext = origins.contains(.foundationModels)
+        switch result.selectedSource {
+        case .appleTranslation where showingBase && result.phase == .ready:
+            return "Apple Translation"
+        case .provider, .imported:
+            if showingBase && !showingContext { return "Showing Base Translation" }
+        default:
+            break
+        }
+        if result.selectedSource == .automatic || result.selectedSource == .foundationModels,
+           let immersive = result.immersiveStatus {
+            if immersive == .completed && !showingContext {
+                if showingBase { return "Showing Base Translation" }
+                if !origins.isEmpty { return "Available Translations" }
+            }
+            return immersive.title
+        }
         switch result.phase {
         case .idle, .preparing: return "Preparing…"
         case .translating: return "Translating…"

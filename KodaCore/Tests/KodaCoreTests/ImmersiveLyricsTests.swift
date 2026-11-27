@@ -139,6 +139,25 @@ import Testing
         #expect(result.translations.first?.lines == [0: "我保持沉默", 1: "我終於開口"])
     }
 
+    @Test func lrcAPIRealFieldAndTaggedCompanionTranslationAreKept() async throws {
+        let body = Data(#"""
+        [{"id":"fixture","title":"The Paper Gate","artist":"Fictional Quartet","lrc":"[00:04]A paper gate\n[00:07]Opens at dawn",
+          "translations":{"zh-Hant":{"lrc":"[00:04]紙門\n[00:06.95]不使用近似時間\n[00:07]在天明時開啟"}}}]
+        """#.utf8)
+        let client = LyricsClient(transport: { request in
+            let url = try #require(request.url)
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            return (body, response)
+        })
+        let song = Song(id: "lrc-json", title: "The Paper Gate", artistLine: "Fictional Quartet")
+        var candidate: LyricsCandidate?
+        for await event in client.candidateResults(for: song, sources: [.lrcAPI], customSources: []) {
+            candidate = event.candidates.first ?? candidate
+        }
+        #expect(candidate?.lineCount == 2)
+        #expect(candidate?.embeddedTranslations?.first?.lines == [0: "紙門", 1: "在天明時開啟"])
+    }
+
     @Test func sourceChoicePersistsOnlyForItsOriginalVersionAndProfile() async throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: path) }

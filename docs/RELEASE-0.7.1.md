@@ -44,7 +44,8 @@ only. LRCLIB returned its text, timing and lyricsfile fields without a separate
 translation field in the sampled response. LrcAPI returned an `lrc` field,
 which is now recognized by the candidate parser. The sampled BetterLyrics main
 endpoint returned 401, the sampled Lyrics.ovh request returned 404, and the
-initial YouLyPlus request timed out. Protected endpoint behavior is preserved.
+initial YouLyPlus request timed out and the sampled public mirror returned 404.
+LrcAPI returned its `lrc` value as a string. Protected endpoint behavior is preserved.
 The published YouLyPlus format and BetterLyrics TTML wrapper were exercised
 with original test fixtures.
 
