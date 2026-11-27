@@ -81,7 +81,7 @@ import Testing
         try await store.setOffset(27.8, for: selected.id, profile: first, songID: song.id)
         try await store.saveEdits([0: "手動譯文"], for: selected, profile: first)
         let original = LyricTranslationDocument(lines: [.init(time: 2, text: "匯入譯文")])
-        try await store.importTranslation(original, for: selected, profile: first)
+        _ = try await store.importTranslation(original, for: selected, profile: first)
         try await store.clearCache()
         let reopened = LyricsVersionStore(cache: cache)
         let saved = await reopened.preference(profile: first, songID: song.id)

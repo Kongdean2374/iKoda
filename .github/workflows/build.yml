@@ -164,8 +164,10 @@ jobs:
         device: [compact, large]
     runs-on: xcode-27
     # Isolate each size on a fresh runner: a second boot on a heavily used runner
-    # can stall accessibility snapshots. Retain logs even if one size fails.
-    timeout-minutes: 55
+    # can stall accessibility snapshots. The compact run reached the previous
+    # 45-minute test limit after 25 passing tests. Keep time for the full suite
+    # and artifact export even when Simulator accessibility actions are slow.
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v7
 
@@ -174,7 +176,7 @@ jobs:
         run: python3 scripts/build-version.py --github-output "$GITHUB_OUTPUT"
 
       - name: Validate controls on available iPhone Simulators
-        timeout-minutes: 45
+        timeout-minutes: 60
         env:
           KODA_UI_DEVICE: ${{ matrix.device }}
         run: python3 scripts/run-ui-smoke.py

@@ -42,6 +42,14 @@ attaching. The original source, original lyric timestamps and cloud song
 metadata are preserved. Automatic caches from previous releases are not treated
 as matches for the new version identities.
 
+## Simulator verification
+
+The compact iPhone run on iOS 27.2 recorded a system accessibility crash,
+followed by a crash in XCTest's log collector. Both affected cases passed on
+the next attempt. That attempt then reached the old 45-minute workflow limit
+after 25 passing cases. The UI job now has time for the full suite and result
+export. All test cases and assertions remain enabled.
+
 ## Platform limits and iPhone testing
 
 - Apple Translation support and language download requirements vary by system
