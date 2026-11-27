@@ -212,12 +212,15 @@ import Testing
         #expect(await reopened.document(for: "song/../untrusted-id") == nil)
     }
 
-    @Test func cacheIsBoundedAndCorruptFilesDoNotBreakPlayback() async throws {
+    @Test func boundedImportsRejectNewWritesWithoutEvictingAndCorruptionIsSafe() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LyricTranslationStore(directory: directory, maximumDocuments: 2)
         let document = LyricTranslationDocument(lines: [.init(time: 10, text: "你好")])
-        for number in 0..<4 { try await store.save(document, for: String(number)) }
+        for number in 0..<2 { try await store.save(document, for: String(number)) }
+        await #expect(throws: CocoaError.self) { try await store.save(document, for: "2") }
+        #expect(await store.document(for: "0") == document)
+        #expect(await store.document(for: "1") == document)
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         #expect(files.count == 2)
         for file in files { try Data("broken".utf8).write(to: file) }

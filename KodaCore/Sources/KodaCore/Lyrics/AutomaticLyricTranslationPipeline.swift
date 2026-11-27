@@ -10,9 +10,14 @@ public final class AutomaticLyricTranslationPipeline {
     nonisolated public struct Input: Equatable, Sendable {
         public let songID: String
         public let rows: [ChineseLyricTranslationPlan.Row]
-        public init(songID: String, rows: [ChineseLyricTranslationPlan.Row]) {
+        public let namespace: String?
+        public let mode: LyricsTranslationMode
+        public init(songID: String, rows: [ChineseLyricTranslationPlan.Row],
+                    namespace: String? = nil, mode: LyricsTranslationMode = .quick) {
             self.songID = songID
             self.rows = rows
+            self.namespace = namespace
+            self.mode = mode
         }
     }
 
@@ -33,6 +38,7 @@ public final class AutomaticLyricTranslationPipeline {
         public var completed: Int
         public var total: Int
         public var languagePair: LanguagePair?
+        public var usedCompatibility = false
         public init(phase: Phase = .idle, lines: [Int: String] = [:], completed: Int = 0,
                     total: Int = 0, languagePair: LanguagePair? = nil) {
             self.phase = phase
@@ -44,9 +50,10 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     nonisolated public enum Outcome: Equatable, Sendable {
-        case complete, needsLanguage(LanguagePair), unavailable
+        case complete, compatible, needsLanguage(LanguagePair), unavailable
     }
     public typealias Publish = @Sendable ([String: String]) async -> Void
+    public typealias ContextEngine = @Sendable (Input, [ChineseLyricTranslationPlan.Fragment], @escaping Publish) async throws -> Outcome
     public typealias Engine = @Sendable ([ChineseLyricTranslationPlan.Fragment], @escaping Publish) async throws -> Outcome
 
     public private(set) var isWorking = false
@@ -59,6 +66,7 @@ public final class AutomaticLyricTranslationPipeline {
         var plan: ChineseLyricTranslationPlan?
         var fragments: [String: String] = [:]
         var loadedCache = false
+        var usedCompatibility = false
         var lastUsed: UInt64
     }
     private struct Active {
@@ -68,7 +76,7 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     @ObservationIgnored private let cache: AutomaticLyricTranslationCache
-    @ObservationIgnored private let engine: Engine
+    @ObservationIgnored private let engine: ContextEngine
     /// Internal asynchronous seam for persistence-order tests. Production always uses
     /// the serialized cache actor; the writer never blocks an executor with a semaphore.
     @ObservationIgnored var checkpointWriter: @Sendable (AutomaticLyricTranslationCache.Key, AutomaticLyricTranslationCache.Entry) async -> Void
@@ -92,19 +100,30 @@ public final class AutomaticLyricTranslationPipeline {
     @ObservationIgnored private var active: Active?
     @ObservationIgnored private var retryAfterFinish: Key?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var refreshing: [Key: UUID] = [:]
     @ObservationIgnored private var dirty: Set<Key> = []
     @ObservationIgnored private var checkpointDelay: Task<Void, Never>?
     @ObservationIgnored private var persistence: Task<Void, Never>?
 
-    public init(cache: AutomaticLyricTranslationCache, maximumUpcoming: Int = 5,
+    public convenience init(cache: AutomaticLyricTranslationCache, maximumUpcoming: Int = 5,
                 maximumSnapshots: Int = 200,
                 detectLanguage: @escaping @Sendable (String) -> String? = { LyricsRomanizer.language(of: [$0]) },
                 engine: @escaping Engine) {
+        self.init(cache: cache, maximumUpcoming: maximumUpcoming, maximumSnapshots: maximumSnapshots,
+                  detectLanguage: detectLanguage, contextualEngine: { _, fragments, publish in
+            try await engine(fragments, publish)
+        })
+    }
+
+    public init(cache: AutomaticLyricTranslationCache, maximumUpcoming: Int = 5,
+                maximumSnapshots: Int = 200,
+                detectLanguage: @escaping @Sendable (String) -> String? = { LyricsRomanizer.language(of: [$0]) },
+                contextualEngine: @escaping ContextEngine) {
         self.cache = cache
         self.maximumUpcoming = min(20, max(0, maximumUpcoming))
         self.maximumSnapshots = max(21, maximumSnapshots)
         self.detectLanguage = detectLanguage
-        self.engine = engine
+        self.engine = contextualEngine
         checkpointWriter = { key, entry in await cache.store(entry, for: key) }
     }
 
@@ -195,10 +214,43 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     private func needsWork(_ key: Key) -> Bool {
-        switch published[key]?.phase ?? .idle {
+        guard refreshing[key] == nil else { return false }
+        return switch published[key]?.phase ?? .idle {
         case .idle, .paused: true
         case .preparing, .translating: active?.key != key
         case .ready, .needsLanguage, .unavailable, .failed: false
+        }
+    }
+
+    public nonisolated static func cacheKey(_ input: Input) -> AutomaticLyricTranslationCache.Key {
+        let namespace = input.namespace.map { $0 + "|" + input.mode.rawValue + "|apple-translation-v2" }
+        return .init(songID: input.songID, rows: input.rows, namespace: namespace)
+    }
+
+    public func regenerate(_ input: Input, discardDisk: Bool) async {
+        let key = Self.cacheKey(input)
+        let token = UUID()
+        refreshing[key] = token
+        defer {
+            if refreshing[key] == token {
+                refreshing[key] = nil
+                schedule()
+            }
+        }
+        if active?.key == key { cancelActive(); await task?.value }
+        await flush()
+        guard refreshing[key] == token, currentKey == key, !playbackSessionFinished else { return }
+        if discardDisk { await cache.discard(key) }
+        guard refreshing[key] == token, currentKey == key, !playbackSessionFinished, var record = records[key] else { return }
+        record.fragments = [:]
+        record.loadedCache = true
+        records[key] = record
+        if var snapshot = published[key] {
+            snapshot.phase = .paused
+            snapshot.languagePair = nil
+            if discardDisk { snapshot.lines = [:]; snapshot.completed = 0 }
+            snapshot.usedCompatibility = false
+            published[key] = snapshot
         }
     }
 
@@ -207,7 +259,7 @@ public final class AutomaticLyricTranslationPipeline {
         if let remembered = memo[input.songID], remembered.input == input {
             key = remembered.key
         } else {
-            key = Key(songID: input.songID, rows: input.rows)
+            key = Self.cacheKey(input)
             memo[input.songID] = (input, key)
         }
         sequence &+= 1
@@ -261,6 +313,7 @@ public final class AutomaticLyricTranslationPipeline {
             guard accepts(key: key, token: token) else { return }
             record.fragments = saved?.fragments.filter { allowed.contains($0.key) && Self.hasText($0.value) } ?? [:]
             record.loadedCache = true
+            record.usedCompatibility = saved?.usedCompatibility ?? false
             records[key] = record
         }
         let missing = plan.fragments.filter { record.fragments[$0.id] == nil }
@@ -270,12 +323,13 @@ public final class AutomaticLyricTranslationPipeline {
             return
         }
         do {
-            let outcome = try await engine(missing) { [weak self] fragments in
+            let outcome = try await engine(record.input, missing) { [weak self] fragments in
                 await self?.receive(fragments, key: key, token: token)
             }
             guard accepts(key: key, token: token) else { return }
             switch outcome {
-            case .complete:
+            case .complete, .compatible:
+                records[key]?.usedCompatibility = outcome == .compatible
                 let complete = records[key]?.fragments.count == plan.fragments.count
                 publishSnapshot(key: key, phase: complete && !plan.hasUnrecognizedText ? .ready : .unavailable)
             case .needsLanguage(let pair):
@@ -308,8 +362,11 @@ public final class AutomaticLyricTranslationPipeline {
 
     private func publishSnapshot(key: Key, phase: Phase, pair: LanguagePair? = nil) {
         guard let record = records[key], let plan = record.plan else { return }
-        let next = Snapshot(phase: phase, lines: plan.renderedLines(translations: record.fragments),
+        let rendered = plan.renderedLines(translations: record.fragments)
+        let lines = phase == .ready ? rendered : (published[key]?.lines ?? [:]).merging(rendered) { _, new in new }
+        var next = Snapshot(phase: phase, lines: lines,
                             completed: record.fragments.count, total: plan.fragments.count, languagePair: pair)
+        next.usedCompatibility = record.usedCompatibility
         if published[key] != next { published[key] = next }
     }
 
@@ -357,7 +414,8 @@ public final class AutomaticLyricTranslationPipeline {
         let entries = dirty.compactMap { key -> (Key, AutomaticLyricTranslationCache.Entry)? in
             guard let record = records[key], let plan = record.plan else { return nil }
             return (key, .init(fragments: record.fragments,
-                              isComplete: record.fragments.count == plan.fragments.count && !plan.hasUnrecognizedText))
+                              isComplete: record.fragments.count == plan.fragments.count && !plan.hasUnrecognizedText,
+                              usedCompatibility: record.usedCompatibility))
         }
         dirty.removeAll()
         let previous = persistence

@@ -269,6 +269,7 @@ private struct LyricsTranslationDetails: View {
 /// Unsynced lyrics can still be translated, but never receive made-up timestamps or highlights.
 struct PlainTranslatedLyricsView: View {
     let text: String
+    var openSources: (() -> Void)? = nil
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @State private var displayedTranslations: [Int: String] = [:]
@@ -280,7 +281,13 @@ struct PlainTranslatedLyricsView: View {
     }
     private var enabled: Bool { app.settings.automaticLyricsTranslation && app.settings.showsLyricsTranslation }
     private var result: AutomaticLyricsResult { app.lyricsTranslation.result(songID: player.current?.id, lines: lines) }
-    private var desiredTranslations: [Int: String] { enabled ? result.lines : [:] }
+    private var desiredTranslations: [Int: String] {
+        guard app.settings.showsLyricsTranslation else { return [:] }
+        let versions = app.lyricsTranslation.versions
+        var out = enabled ? result.lines : [:]
+        if let current = versions.current { out.merge(versions.edits(for: current)) { _, new in new } }
+        return out
+    }
     private var sourceID: String { player.current?.id ?? "" }
 
     var body: some View {
@@ -327,6 +334,7 @@ struct PlainTranslatedLyricsView: View {
                 LyricsTranslationControl(lines: lines,
                     information: app.settings.importedLyricsEnabled
                         ? String(localized: "This song has no synced lyrics. The original text is shown; imported translations need timestamps.") : nil)
+                if let openSources { LyricsSourceOrb(action: openSources) }
                 Spacer(minLength: 0)
             }
             .frame(height: 44)

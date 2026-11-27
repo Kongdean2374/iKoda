@@ -42,9 +42,7 @@ final class CarPlayLyricsActivity {
 
     private struct Request: Equatable {
         let song: Song
-        let sources: [LyricsSource]
-        let customSources: [CustomLyricsSource]
-        let lyricsRevision: Int
+        let candidate: LyricsCandidate?
         let importRevision: Int
     }
 
@@ -170,24 +168,25 @@ final class CarPlayLyricsActivity {
         var state = State(title: song.title, isPlaying: isPlaying, status: .hidden)
         var staleDate: Date?
         if showsLyrics {
-            let needed = Request(song: song, sources: settings.lyricsSources, customSources: settings.customLyricsSources,
-                                 lyricsRevision: app.lyricsTranslation.lyricsRevision,
-                                 importRevision: settings.lyricsTranslationRevision)
+            let versions = app.lyricsTranslation.versions
+            let candidate = versions.current?.songID == song.id ? versions.current : nil
+            let needed = Request(song: song, candidate: candidate, importRevision: versions.editRevision)
             if request != needed { load(needed, in: app) }
-            state.status = .loading
+            state.status = candidate == nil && !versions.searching ? .unavailable : .loading
             if let prepared {
                 if prepared.lines.isEmpty {
                     state.status = .unavailable
                 } else {
-                    let sample = CarPlayLyricsTiming.sample(at: position, offset: app.library.carPlayLyricsOffset(for: song.id),
+                    let sample = CarPlayLyricsTiming.sample(at: position, offset: app.library.carPlayLyricsOffset(for: song.id), versionOffset: versions.offset(for: song.id),
                                                             in: prepared.lines)
                     let automatic = settings.automaticLyricsTranslation
                         ? app.lyricsTranslation.result(songID: song.id, lines: prepared.translationInput).lines : [:]
                     state.status = .betweenLines
                     if let line = sample.line {
-                        let candidate = (settings.importedLyricsEnabled ? prepared.imported[line.id] : nil) ?? automatic[line.id]
+                        let edited = candidate.flatMap { versions.edits(for: $0)[line.id] }
+                        let translated = edited ?? (settings.importedLyricsEnabled ? prepared.imported[line.id] : nil) ?? automatic[line.id]
                         state = State(title: song.title, isPlaying: isPlaying, status: .line,
-                                      original: line.text, translation: candidate)
+                                      original: line.text, translation: translated)
                     }
                     if isPlaying, let next = sample.nextPosition, player.duration <= 0 || next <= player.duration {
                         let delay = max(0, anchor.date.timeIntervalSinceNow) + max(0.05, (next - position) / anchor.rate + 0.02)
@@ -214,18 +213,16 @@ final class CarPlayLyricsActivity {
     private func load(_ needed: Request, in app: AppModel) {
         lookup?.cancel()
         let sameOriginals = request.map {
-            $0.song == needed.song && $0.sources == needed.sources && $0.customSources == needed.customSources
-                && $0.lyricsRevision == needed.lyricsRevision
+            $0.song == needed.song && $0.candidate?.id == needed.candidate?.id
         } ?? false
         if !sameOriginals { prepared = nil }
         request = needed
         let generation = epoch
-        let coordinator = app.lyricsTranslation
         lookup = Task { [weak self, weak app] in
-            let lyrics = await coordinator.lyrics(for: needed.song, sources: needed.sources, customSources: needed.customSources)
+            let lyrics = needed.candidate?.lyrics
             guard let self, let app, self.isCurrent(needed, in: app, generation: generation) else { return }
             guard case .synced(let lines)? = lyrics else {
-                self.prepared = Prepared()
+                self.prepared = needed.candidate == nil ? nil : Prepared()
                 self.observeAfterLoad()
                 return
             }
@@ -233,7 +230,8 @@ final class CarPlayLyricsActivity {
             let imported = self.prepared?.lines == lines ? (self.prepared?.imported ?? [:]) : [:]
             self.prepared = Prepared(lines: lines, translationInput: input, imported: imported)
             self.observeAfterLoad()
-            let saved = await LyricTranslationStore.shared.translations(for: needed.song.id, originals: lines)
+            let document = needed.candidate.flatMap { app.lyricsTranslation.versions.importedDocument(for: $0) }
+            let saved = await Task.detached(priority: .utility) { document?.aligned(to: lines) ?? [:] }.value
             guard self.isCurrent(needed, in: app, generation: generation) else { return }
             self.prepared = Prepared(lines: lines, translationInput: input, imported: saved)
             self.observeAfterLoad()

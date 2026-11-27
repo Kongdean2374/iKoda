@@ -334,19 +334,22 @@ public struct LyricsClient: Sendable {
 
     private func fetch(_ url: URL) async -> Data? {
         guard !Task.isCancelled else { return nil }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 6
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.httpShouldHandleCookies = false
-        request.setValue("Koda iOS (https://github.com/Ivorisnoob/Koda-iOS)", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/json, application/xml, text/plain, */*", forHTTPHeaderField: "Accept")
-        let result: (Data, URLResponse)?
-        if let transport { result = try? await transport(request) }
-        else { result = try? await session.data(for: request) }
+        let result = try? await requestLyrics(url, timeout: 6)
         guard !Task.isCancelled, let (data, response) = result,
               let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status),
               !data.isEmpty, data.count <= 2_000_000 else { return nil }
         return data
+    }
+
+    private func requestLyrics(_ url: URL, timeout: TimeInterval) async throws -> (Data, URLResponse) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.httpShouldHandleCookies = false
+        request.setValue("Koda iOS (https://github.com/Ivorisnoob/Koda-iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json, application/xml, text/plain, */*", forHTTPHeaderField: "Accept")
+        if let transport { return try await transport(request) }
+        return try await session.data(for: request)
     }
 }
 
@@ -411,5 +414,253 @@ public enum LyricsSource: String, CaseIterable, Codable, Sendable, Identifiable 
         case .lrcAPI: NSLocalizedString("Synced lyrics from a public lyrics catalogue", bundle: KodaLocalization.bundle, comment: "")
         case .lyricsOVH: NSLocalizedString("Plain lyrics as an additional fallback", bundle: KodaLocalization.bundle, comment: "")
         }
+    }
+}
+
+extension LyricsClient {
+    /// A bounded batch reports each source independently. Closing the consumer
+    /// cancels the worker and its in-flight URLSession requests.
+    public func candidateResults(for song: Song, search: LyricsSearch? = nil,
+                                 sources: [LyricsSource], customSources: [CustomLyricsSource],
+                                 only sourceID: String? = nil) -> AsyncStream<LyricsSourceResult> {
+        let lookup = search ?? LyricsSearch(song: song)
+        let entries = sources.map { CandidateProvider.builtIn($0) }
+            + customSources.filter(\.isEnabled).prefix(CustomLyricsSource.maximumCount).map(CandidateProvider.custom)
+        var seen = Set<String>()
+        let providers = entries.filter { (sourceID == nil || $0.id == sourceID) && seen.insert($0.id).inserted }
+        return AsyncStream { continuation in
+            let worker = Task {
+                defer { continuation.finish() }
+                guard !providers.isEmpty, !lookup.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                await withTaskGroup(of: LyricsSourceResult?.self) { group in
+                    var pending = Set(providers.map(\.id))
+                    let width = 4
+                    for provider in providers.prefix(width) {
+                        group.addTask { await candidateResult(for: song, lookup: lookup, provider: provider) { _ = continuation.yield($0) } }
+                    }
+                    var remaining = providers.dropFirst(width).makeIterator()
+                    group.addTask { try? await Task.sleep(for: deadline); return nil }
+                    while let result = await group.next() {
+                        guard !Task.isCancelled else { break }
+                        guard let result else {
+                            for provider in providers where pending.contains(provider.id) {
+                                continuation.yield(provider.result(.timedOut))
+                            }
+                            break
+                        }
+                        pending.remove(result.source)
+                        continuation.yield(result)
+                        if pending.isEmpty { break }
+                        if let next = remaining.next() {
+                            group.addTask { await candidateResult(for: song, lookup: lookup, provider: next) { _ = continuation.yield($0) } }
+                        }
+                    }
+                    group.cancelAll()
+                }
+            }
+            continuation.onTermination = { _ in worker.cancel() }
+        }
+    }
+
+    private enum CandidateProvider: Sendable {
+        case builtIn(LyricsSource), custom(CustomLyricsSource)
+        var id: String {
+            switch self {
+            case .builtIn(let source): source.rawValue
+            case .custom(let source): source.id.uuidString
+            }
+        }
+        var name: String {
+            switch self {
+            case .builtIn(let source): source.title
+            case .custom(let source): source.name
+            }
+        }
+        func result(_ state: LyricsSourceResult.State, candidates: [LyricsCandidate] = []) -> LyricsSourceResult {
+            LyricsSourceResult(source: id, name: name, state: state, candidates: candidates)
+        }
+    }
+
+    private enum CandidateFetchError: Error {
+        case empty, invalid, rateLimited, failed
+    }
+
+    private func candidateResult(for song: Song, lookup: LyricsSearch, provider: CandidateProvider,
+                                 emit: @escaping @Sendable (LyricsSourceResult) -> Void) async -> LyricsSourceResult {
+        let query = lookup.query
+        let fallback = Self.fallbackQuery(query)
+        let initial = Self.youLyParameters(query)
+        var answers: [LyricsCandidate] = []
+        var status: LyricsSourceResult.State = .empty
+        func read(_ base: String, _ parameters: [String: String] = [:], upstream: String? = nil,
+                  decode: (Data) throws -> [CandidatePayload]) async {
+            guard !Task.isCancelled else { return }
+            do {
+                let raw = try await fetchCandidate(base, parameters)
+                let payloads = try decode(raw)
+                let usable = payloads.filter { LyricsCandidate.areUsable($0.lyrics) }
+                guard payloads.isEmpty || !usable.isEmpty else { throw CandidateFetchError.invalid }
+                let before = answers.count
+                for value in usable.prefix(12) where answers.count < 24 {
+                    let candidate = LyricsCandidate(song: song, source: provider.id, sourceName: provider.name,
+                        upstream: value.upstream ?? upstream, version: value.version, metadata: value.metadata,
+                        lyrics: value.lyrics, original: value.raw, query: lookup)
+                    if !answers.contains(where: { $0.id == candidate.id }) { answers.append(candidate) }
+                }
+                if !Task.isCancelled, answers.count > before { emit(provider.result(.found, candidates: answers)) }
+            } catch is CancellationError {
+                status = .cancelled
+            } catch CandidateFetchError.empty {
+                // A definitive empty result does not hide another endpoint's failure.
+            } catch CandidateFetchError.invalid {
+                status = .invalid
+            } catch CandidateFetchError.rateLimited {
+                status = .rateLimited
+            } catch let error as URLError where error.code == .timedOut {
+                status = .timedOut
+            } catch {
+                status = .failed
+            }
+        }
+        switch provider {
+        case .builtIn(.youLyPlus):
+            // Mirrors for the same endpoint are alternatives, never catalogues.
+            for mirror in Self.youLyPlusMirrors.prefix(3) {
+                await read(mirror + "v2/lyrics/get", initial) { try Self.singleCandidate($0, youLy: true) }
+                if !answers.isEmpty || status == .rateLimited { break }
+            }
+            if answers.isEmpty && status != .rateLimited {
+                await read(Self.youLyPlusMirrors[0] + "v1/ttml/get", initial) { try Self.singleCandidate($0, youLy: true) }
+                if answers.isEmpty {
+                    await read(Self.youLyPlusMirrors[3] + "v2/lyrics/get", Self.youLyParameters(fallback)) {
+                        try Self.singleCandidate($0, youLy: true)
+                    }
+                }
+            }
+        case .builtIn(.betterLyrics):
+            for (index, endpoint) in Self.betterLyricsEndpoints.enumerated() {
+                for variant in query == fallback ? [query] : [query, fallback] {
+                    var params = ["s": variant.title, "a": variant.artist]
+                    params["al"] = variant.album
+                    params["d"] = Self.durationParameter(variant.duration)
+                    let count = answers.count
+                    await read(endpoint, params, upstream: [nil, "QQ Music", "KuGou"][index]) { try Self.singleCandidate($0) }
+                    if answers.count > count || status == .rateLimited { break }
+                }
+            }
+        case .builtIn(.lrclib):
+            var exact = ["track_name": query.title, "artist_name": query.artist]
+            exact["album_name"] = query.album
+            exact["duration"] = Self.durationParameter(query.duration)
+            await read("https://lrclib.net/api/get", exact) { try Self.catalogCandidates($0, lrcLib: true) }
+            for variant in query.variants().prefix(3) {
+                await read("https://lrclib.net/api/search", ["track_name": variant.title, "artist_name": variant.artist]) {
+                    try Self.catalogCandidates($0, lrcLib: true)
+                }
+                if answers.contains(where: { $0.match.confidence == .high }) || status == .rateLimited { break }
+            }
+            if !answers.contains(where: { [.high, .medium].contains($0.match.confidence) }) && status != .rateLimited {
+                await read("https://lrclib.net/api/search", ["q": fallback.title + " " + fallback.artist]) {
+                    try Self.catalogCandidates($0, lrcLib: true)
+                }
+            }
+        case .builtIn(.lrcAPI):
+            for variant in query == fallback ? [query] : [query, fallback] {
+                var params = ["title": variant.title, "artist": variant.artist]
+                params["album"] = variant.album
+                await read("https://api.lrc.cx/jsonapi", params) { try Self.catalogCandidates($0, lrcLib: false) }
+                if answers.contains(where: { [.high, .medium].contains($0.match.confidence) }) || status == .rateLimited { break }
+            }
+        case .builtIn(.lyricsOVH):
+            var path = CharacterSet.urlPathAllowed
+            path.remove(charactersIn: "/?#%")
+            for variant in query == fallback ? [query] : [query, fallback] {
+                guard let a = variant.artist.addingPercentEncoding(withAllowedCharacters: path),
+                      let t = variant.title.addingPercentEncoding(withAllowedCharacters: path), !a.isEmpty else { continue }
+                await read("https://api.lyrics.ovh/v1/" + a + "/" + t) { try Self.singleCandidate($0) }
+                if !answers.isEmpty || status == .rateLimited { break }
+            }
+        case .custom(let source):
+            if let url = try? source.requestURL(title: query.title, artist: query.artist, album: query.album, duration: query.duration) {
+                await read(url.absoluteString) { try Self.singleCandidate($0, allowsPlain: true) }
+            } else { status = .invalid }
+        }
+        if Task.isCancelled { return provider.result(.cancelled) }
+        return provider.result(answers.isEmpty ? status : .found, candidates: answers)
+    }
+
+    private struct CandidatePayload {
+        var lyrics: Lyrics
+        var raw: String?
+        var metadata: LyricsCandidate.Metadata
+        var version: String?
+        var upstream: String?
+    }
+
+    private static func metadata(_ json: JSON) -> LyricsCandidate.Metadata {
+        let nested = json["metadata"]
+        let title = nested["title"].nonEmpty ?? json["trackName"].nonEmpty ?? json["title"].nonEmpty
+        let artist = nested["artist"].nonEmpty ?? json["artistName"].nonEmpty ?? json["artist"].nonEmpty
+        let album = nested["album"].nonEmpty ?? json["albumName"].nonEmpty ?? json["album"].nonEmpty
+        let duration = nested["totalDuration"].nonEmpty.flatMap { text -> TimeInterval? in
+            let fields = text.split(separator: ":", omittingEmptySubsequences: false)
+            let parts = fields.compactMap { Double($0) }
+            guard (2...3).contains(fields.count), parts.count == fields.count,
+                  parts.allSatisfy({ $0.isFinite && $0 >= 0 }) else { return nil }
+            return parts.reduce(0) { $0 * 60 + $1 }
+        } ?? json["duration"].double
+        return .init(title: title, artist: artist, album: album, duration: duration)
+    }
+
+    private static func catalogCandidates(_ data: Data, lrcLib: Bool) throws -> [CandidatePayload] {
+        guard let json = try? JSON(data: data), json.isObject || json.raw is [Any] else { throw CandidateFetchError.invalid }
+        let items = json.isObject ? [json] : json.array
+        let payloads = items.prefix(32).compactMap { item -> CandidatePayload? in
+            let raw = lrcLib ? item["syncedLyrics"].nonEmpty ?? item["plainLyrics"].nonEmpty : item["lyrics"].nonEmpty
+            guard item["instrumental"].bool != true, let raw,
+                  let lyrics = lrcLib ? lrclibLyrics(from: item) : Lyrics.parseAny(raw) else { return nil }
+            return CandidatePayload(lyrics: lyrics, raw: raw, metadata: metadata(item),
+                                    version: item["id"].nonEmpty ?? item["id"].int.map(String.init),
+                                    upstream: item["source"].nonEmpty)
+        }
+        if payloads.isEmpty && items.contains(where: { $0["instrumental"].bool != true && $0["id"].raw != nil }) {
+            throw CandidateFetchError.invalid
+        }
+        return payloads
+    }
+
+    private static func singleCandidate(_ data: Data, youLy: Bool = false, allowsPlain: Bool = false) throws -> [CandidatePayload] {
+        let json = try? JSON(data: data)
+        let raw = String(data: data, encoding: .utf8)
+        if allowsPlain, let json, json.raw is [Any] { return try catalogCandidates(data, lrcLib: false) }
+        let lyrics = youLy ? decodeYouLyPlus(data) : decodeWrapped(data)
+        guard let found = lyrics ?? (allowsPlain && json == nil ? raw.flatMap(Lyrics.parseAny) : nil) else {
+            if let json, json["lyrics"].string == "" { return [] }
+            throw CandidateFetchError.invalid
+        }
+        let info = json.map(metadata) ?? .init()
+        let version = json?["id"].nonEmpty ?? json?["id"].int.map(String.init) ?? json?["metadata"]["isrc"].nonEmpty
+        let upstream = json?["metadata"]["source"].nonEmpty ?? json?["source"].nonEmpty
+        return [CandidatePayload(lyrics: found, raw: raw, metadata: info, version: version, upstream: upstream)]
+    }
+
+    private func fetchCandidate(_ base: String, _ parameters: [String: String]) async throws -> Data {
+        try Task.checkCancellation()
+        guard var components = URLComponents(string: base) else { throw CandidateFetchError.invalid }
+        if !parameters.isEmpty {
+            components.queryItems = parameters.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        guard let url = components.url else { throw CandidateFetchError.invalid }
+        let result = try await requestLyrics(url, timeout: 4)
+        try Task.checkCancellation()
+        guard let status = (result.1 as? HTTPURLResponse)?.statusCode else { throw CandidateFetchError.failed }
+        switch status {
+        case 204, 404: throw CandidateFetchError.empty
+        case 429: throw CandidateFetchError.rateLimited
+        case 200..<300: break
+        default: throw CandidateFetchError.failed
+        }
+        guard !result.0.isEmpty, result.0.count <= 2_000_000 else { throw CandidateFetchError.invalid }
+        return result.0
     }
 }

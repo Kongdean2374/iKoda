@@ -10,6 +10,7 @@ import SwiftUI
 /// few times a second, when the line changes.
 struct SyncedLyrics: View {
     let lines: [LyricLine]
+    var openSources: (() -> Void)? = nil
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @Environment(Library.self) private var library
@@ -44,9 +45,12 @@ struct SyncedLyrics: View {
     }
     private var desiredExtras: ExtrasPresentation {
         if showsChineseTranslation {
-            return ExtrasPresentation(lines: TraditionalChineseLyrics.merged(
+            var translations = TraditionalChineseLyrics.merged(
                 automatic: app.settings.automaticLyricsTranslation ? automaticTranslation.lines : [:],
-                imported: importedTranslations, importsEnabled: app.settings.importedLyricsEnabled), isTranslation: true)
+                imported: importedTranslations, importsEnabled: app.settings.importedLyricsEnabled)
+            let versions = app.lyricsTranslation.versions
+            if let current = versions.current { translations.merge(versions.edits(for: current)) { _, new in new } }
+            return ExtrasPresentation(lines: translations, isTranslation: true)
         }
         return ExtrasPresentation(lines: app.settings.lyricsExtra == .pronunciation ? pronunciations : [:])
     }
@@ -54,6 +58,7 @@ struct SyncedLyrics: View {
         var songID: String?
         var lines: [LyricLine]
         var revision: Int
+        var candidateID: LyricsCandidate.Identity?
     }
 
     private struct ShareStart: Identifiable {
@@ -63,7 +68,9 @@ struct SyncedLyrics: View {
     }
 
     /// The listener's correction for this song; positive shows each line later.
-    private var offset: TimeInterval { player.current.map { library.lyricsOffset(for: $0.id) } ?? 0 }
+    private var offset: TimeInterval {
+        player.current.map { library.lyricsOffset(for: $0.id) + app.lyricsTranslation.versions.offset(for: $0.id) } ?? 0
+    }
     private var hasDuet: Bool { lines.contains { $0.voice != .lead } }
 
     /// Lead the audio slightly so a line lights up as it is sung, not after.
@@ -82,6 +89,7 @@ struct SyncedLyrics: View {
                         ? (displayedExtras.lines.isEmpty
                             ? String(localized: "No Chinese translation is available. Enable automatic translation or import a translation in Chinese Lyrics settings.")
                             : String(localized: "Some lines have no translation and show the original lyrics.")) : nil)
+                if let openSources { LyricsSourceOrb(action: openSources) }
                 Spacer(minLength: 8)
                 if userScrolled {
                     Button("Follow", systemImage: "arrow.down.to.line") { userScrolled = false }
@@ -102,17 +110,23 @@ struct SyncedLyrics: View {
         .onChange(of: showsChineseTranslation) { _, _ in applyExtras(desiredExtras) }
         .onChange(of: sourceID) { _, _ in scroll.reset() }
         .task(id: lines) { await readLanguage() }
-        .task(id: ImportRequest(songID: player.current?.id, lines: lines, revision: app.settings.lyricsTranslationRevision)) {
+        .task(id: ImportRequest(songID: player.current?.id, lines: lines, revision: app.lyricsTranslation.versions.editRevision,
+                                candidateID: app.lyricsTranslation.versions.current?.id)) {
             importedTranslations = [:]
             importsLoaded = false
             guard let songID = player.current?.id else { return }
-            let found = await LyricTranslationStore.shared.translations(for: songID, originals: lines)
-            guard !Task.isCancelled, player.current?.id == songID else { return }
+            let versions = app.lyricsTranslation.versions
+            let candidate = versions.current
+            let document = candidate.flatMap { versions.importedDocument(for: $0) }
+            let originals = lines
+            let found = await Task.detached(priority: .utility) { document?.aligned(to: originals) ?? [:] }.value
+            guard !Task.isCancelled, player.current?.id == songID, versions.current?.id == candidate?.id else { return }
             importedTranslations = found
             importsLoaded = true
         }
         .sheet(item: $shareFrom) { start in
-            LyricsShareSheet(lines: lines, song: start.song, startingAt: start.line)
+            LyricsShareSheet(lines: lines, song: start.song, startingAt: start.line,
+                             translations: showsChineseTranslation ? desiredExtras.lines : [:])
                 .appEnvironment(app)
                 .environment(\.colorScheme, .dark)
         }

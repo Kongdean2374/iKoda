@@ -712,6 +712,10 @@ final class KodaComponentSmokeTests: XCTestCase {
         if dark { app.launchArguments.append("-KodaUITestDark") }
         if largeText { app.launchArguments.append("-KodaUITestLargeText") }
         app.launchArguments += extraArguments
+        if app.state != .notRunning {
+            app.terminate()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 10), "The previous Koda process must terminate before launch")
+        }
         app.launch()
         XCTAssertTrue(app.buttons["fixture.translation"].waitForExistence(timeout: 20))
         expectState(app.buttons["fixture.translation"], matching: NSPredicate(format: "enabled == true"),
@@ -720,11 +724,90 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
+    func testAdvancedLyricsPreviewSelectionAndTiming() {
+        let app = launch(extraArguments: ["-KodaUITestAdvancedLyrics"])
+        let entry = app.buttons["fixture.lyrics.versions"]
+        reveal(entry, in: app)
+        entry.tap()
+        let candidate = app.buttons.matching(identifier: "lyrics.candidate.youLyPlus").firstMatch
+        reveal(candidate, in: app)
+        XCTAssertTrue(candidate.exists)
+        candidate.tap()
+        let apply = app.buttons["lyrics.candidate.use"]
+        XCTAssertTrue(apply.waitForExistence(timeout: 10))
+        apply.tap()
+        let calibration = app.buttons["lyrics.candidate.calibrate"]
+        reveal(calibration, in: app)
+        calibration.tap()
+        let increment = app.buttons["lyrics.calibration.0.5"]
+        XCTAssertTrue(increment.waitForExistence(timeout: 10))
+        increment.tap()
+        app.buttons["lyrics.calibration.save"].tap()
+        XCTAssertTrue(calibration.waitForExistence(timeout: 10))
+        calibration.tap()
+        XCTAssertTrue(increment.waitForExistence(timeout: 10))
+        let delay = app.descendants(matching: .any).matching(identifier: "lyrics.calibration.value").firstMatch
+        XCTAssertEqual(delay.value as? String, "+0.5")
+        app.buttons["lyrics.calibration.save"].tap()
+        app.navigationBars.firstMatch.buttons.firstMatch.tap()
+        let current = app.buttons["lyrics.current.version"]
+        expectState(current, matching: NSPredicate(format: "label CONTAINS %@", "YouLyPlus"))
+    }
+
+    @MainActor
+    func testAdvancedLyricsManualSearchAndEdit() {
+        let app = launch(extraArguments: ["-KodaUITestAdvancedLyrics"])
+        let entry = app.buttons["fixture.lyrics.versions"]
+        reveal(entry, in: app)
+        entry.tap()
+        let search = app.buttons["lyrics.sources.manual"]
+        reveal(search, in: app)
+        search.tap()
+        let submit = app.buttons["lyrics.manual.submit"]
+        reveal(submit, in: app)
+        submit.tap()
+        let candidate = app.buttons.matching(identifier: "lyrics.candidate.lrclib").firstMatch
+        reveal(candidate, in: app)
+        candidate.tap()
+        let edit = app.buttons["lyrics.candidate.edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        edit.tap()
+        let field = app.textFields["lyrics.edit.line.0"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("Our edited translation")
+        app.buttons["lyrics.edit.save"].tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        edit.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertEqual(field.value as? String, "Our edited translation")
+    }
+
+    @MainActor
+    func testAdvancedLyricsModePickerIsLocalizedAtLargeTextSize() {
+        let app = launch(chinese: true, dark: true, largeText: true, extraArguments: ["-KodaUITestAdvancedLyrics"])
+        let entry = app.buttons["fixture.lyrics.modes"]
+        reveal(entry, in: app)
+        entry.tap()
+        let mode = app.buttons["lyrics.translation.mode"]
+        reveal(mode, in: app)
+        mode.tap()
+        app.buttons["快速翻譯"].tap()
+        expectState(mode, matching: NSPredicate(format: "value CONTAINS %@", "快速翻譯"))
+    }
+
+    @MainActor
     private func pullLibraryToRefresh(in app: XCUIApplication) {
         let scroll = app.scrollViews["library.scroll"]
         XCTAssertTrue(scroll.waitForExistence(timeout: 10))
-        scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18))
-            .press(forDuration: 0.1, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82)))
+        // Work from the visible scroll body. The AX scroll frame can extend
+        // under the large navigation title on compact simulators.
+        let frame = scroll.frame.intersection(app.windows.firstMatch.frame)
+        let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+        let startY = max(frame.minY + frame.height * 0.34, app.navigationBars.firstMatch.frame.maxY + 35)
+        let start = origin.withOffset(CGVector(dx: frame.minX + 13, dy: startY))
+        let end = origin.withOffset(CGVector(dx: frame.minX + 13, dy: frame.maxY - 55))
+        start.press(forDuration: 0.08, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.35)
     }
 
     @MainActor

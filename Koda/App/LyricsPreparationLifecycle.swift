@@ -21,6 +21,10 @@ final class LyricsPreparationLifecycle {
     /// The activity opts into preparing translations independently of the phone view.
     var preparesCarPlayLyrics = false
     private var foreground = false
+    private var network = NetworkPath.shared.snapshot
+    private var resourceRevision = 0
+    private var memoryPressure = false
+    @ObservationIgnored private var resourceObservers: [Task<Void, Never>] = []
     private var background = false
 
     init(player: Player, settings: AppSettings, coordinator: LyricsTranslationCoordinator) {
@@ -32,10 +36,31 @@ final class LyricsPreparationLifecycle {
     func start() {
         guard !started else { return }
         started = true
+        resourceObservers.append(Task { [weak self] in
+            for await network in NetworkPath.shared.updates() {
+                guard let self else { return }
+                self.network = network
+            }
+        })
+        for name in [Notification.Name.NSProcessInfoPowerStateDidChange, ProcessInfo.thermalStateDidChangeNotification,
+                     UIApplication.didReceiveMemoryWarningNotification] {
+            resourceObservers.append(Task { [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: name) {
+                    guard let self else { return }
+                    if name == UIApplication.didReceiveMemoryWarningNotification { self.memoryPressure = true }
+                    self.resourceRevision &+= 1
+                }
+            })
+        }
         observe()
     }
 
+    deinit {
+        for observer in resourceObservers { observer.cancel() }
+    }
+
     func setScenePhase(_ phase: ScenePhase) {
+        if phase == .active { memoryPressure = false }
         foreground = phase == .active
         background = phase == .background
     }
@@ -72,6 +97,12 @@ final class LyricsPreparationLifecycle {
     private func observe() {
         let input = withObservationTracking {
             let current = player.current
+            _ = resourceRevision
+            _ = coordinator.polishTrigger
+            _ = coordinator.lyricsRevision
+            let constrained = network.isConstrained || network.isExpensive
+            let headroom = !ProcessInfo.processInfo.isLowPowerModeEnabled && !memoryPressure
+                && ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue
             // The queue itself intentionally is not observable; these projections are.
             _ = player.upcoming
             _ = player.repeatMode
@@ -87,7 +118,10 @@ final class LyricsPreparationLifecycle {
                 customSources: settings.customLyricsSources, automaticEnabled: settings.automaticLyricsTranslation,
                 showsTranslation: settings.showsLyricsTranslation || preparesCarPlayLyrics, foreground: foreground,
                 background: background, hasCurrentWork: coordinator.hasCurrentWork,
-                sessionFinished: player.isPlaybackSessionFinished)
+                sessionFinished: player.isPlaybackSessionFinished, mode: settings.lyricsTranslationMode,
+                prefetchLimit: settings.lyricsPrefetchLimit, cacheMegabytes: settings.lyricsCacheMegabytes, online: network.status != .offline,
+                headroom: headroom, constrained: constrained, buffering: player.isBuffering,
+                permitsForegroundLookup: foreground || (player.wantsToPlay && preparesCarPlayLyrics))
         } onChange: { [weak self] in
             // Observation fires before the property mutation. Read the committed values
             // on the next main-actor turn and rearm the one-shot observation once.
@@ -96,7 +130,11 @@ final class LyricsPreparationLifecycle {
         if input.sessionFinished { finishPlaybackSession() } else { resumePlaybackSession() }
         coordinator.update(current: input.current, upcoming: input.upcoming, sources: input.sources,
             customSources: input.customSources, automaticEnabled: input.automaticEnabled,
-            showsTranslation: input.showsTranslation, isForeground: input.foreground)
+            showsTranslation: input.showsTranslation, isForeground: input.foreground, mode: input.mode,
+            prefetchLimit: input.prefetchLimit, allowed: input.permitsForegroundLookup && input.online,
+            hasHeadroom: input.headroom, constrained: input.constrained, buffering: input.buffering)
+        coordinator.setCacheCapacity(megabytes: input.cacheMegabytes)
+        coordinator.adjustPolish(allowed: input.foreground && input.headroom && !input.buffering)
         updateBackgroundTask(isBackground: input.background, hasWork: coordinator.hasCurrentWork)
     }
 
@@ -158,5 +196,13 @@ final class LyricsPreparationLifecycle {
         let background: Bool
         let hasCurrentWork: Bool
         let sessionFinished: Bool
+        let mode: LyricsTranslationMode
+        let prefetchLimit: Int
+        let cacheMegabytes: Int
+        let online: Bool
+        let headroom: Bool
+        let constrained: Bool
+        let buffering: Bool
+        let permitsForegroundLookup: Bool
     }
 }

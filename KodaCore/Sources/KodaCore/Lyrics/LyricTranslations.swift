@@ -277,7 +277,7 @@ public struct LyricTranslationPresentation: Equatable, Sendable {
     }
 }
 
-/// Local-only, bounded import cache. The disk work runs on this actor, never the rendering path.
+/// Legacy song-keyed imports. The app only reads these when a listener explicitly attaches one to a version.
 public actor LyricTranslationStore {
     public static let shared = LyricTranslationStore()
     private struct Saved: Codable { var songID: String; var document: LyricTranslationDocument }
@@ -285,7 +285,7 @@ public actor LyricTranslationStore {
     private let maximumDocuments: Int
     private let maximumBytes: Int
 
-    public init(directory: URL? = nil, maximumDocuments: Int = 100, maximumBytes: Int = 10_000_000) {
+    public init(directory: URL? = nil, maximumDocuments: Int = .max, maximumBytes: Int = .max) {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Koda/LyricTranslations", isDirectory: true)
         self.maximumDocuments = max(1, maximumDocuments)
@@ -313,8 +313,13 @@ public actor LyricTranslationStore {
         let data = try JSONEncoder().encode(Saved(songID: songID, document: clean))
         guard data.count <= 1_000_000 else { throw LyricTranslationDocument.ImportError.tooLarge }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try data.write(to: url(for: songID), options: .atomic)
-        try trim()
+        let destination = url(for: songID)
+        let keys: Set<URLResourceKey> = [.fileSizeKey]
+        let others = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
+            .filter { $0.pathExtension == "json" && $0 != destination }
+        let bytes = try others.reduce(data.count) { try $0 + ($1.resourceValues(forKeys: keys).fileSize ?? 0) }
+        guard others.count < maximumDocuments, bytes <= maximumBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+        try data.write(to: destination, options: .atomic)
     }
 
     public func remove(for songID: String) throws {
@@ -322,18 +327,4 @@ public actor LyricTranslationStore {
         if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
     }
 
-    private func trim() throws {
-        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
-            .filter { $0.pathExtension == "json" }
-            .compactMap { url -> (URL, Date, Int)? in
-                guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-                return (url, values.contentModificationDate ?? .distantPast, values.fileSize ?? 0)
-            }.sorted { $0.1 > $1.1 }
-        var bytes = 0
-        for (index, file) in files.enumerated() {
-            bytes += file.2
-            if index >= maximumDocuments || bytes > maximumBytes { try FileManager.default.removeItem(at: file.0) }
-        }
-    }
 }

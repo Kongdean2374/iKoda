@@ -243,6 +243,7 @@ final class AppModel {
             MusicCatcher.cancelActiveRecognition()
             self.videos.pause()
             self.lyricsPreparation.resumePlaybackSession()
+            self.lyricsTranslation.playbackRequested()
             self.setArtworkSessionFinished(false)
         }
         player.onPlaybackSessionFinished = { [weak self] in
@@ -267,10 +268,16 @@ final class AppModel {
             return !player.ownsAudioSession && !videos.ownsAudioSession && !VoiceSearch.ownsAudioSession
         }
         setArtworkSessionFinished(player.isPlaybackSessionFinished)
+        lyricsTranslation.setProfile(roster.folder(for: roster.activeID))
         lyricsPreparation.start()
+        player.onPlaybackQueueEnded = { [weak self] in
+            self?.lyricsTranslation.queueDidEnd()
+            #if !targetEnvironment(macCatalyst)
+            self?.carPlay.stop()
+            #endif
+        }
         #if !targetEnvironment(macCatalyst)
         carPlay.discardOrphanedActivities()
-        player.onPlaybackQueueEnded = { [weak self] in self?.carPlay.stop() }
         if let file = CarPlayPlayerSnapshot.file {
             carPlayPlayerPublisher = CarPlayPlayerPublisher(app: self, file: file)
             carPlayPlayerPublisher?.observe()
@@ -320,6 +327,7 @@ final class AppModel {
         library.open(directory: roster.folder(for: id))
         home = HomeModel(profile: id)
         roster.setActive(id)
+        lyricsTranslation.setProfile(roster.folder(for: id))
         moveSession(from: leaving, to: profile)
     }
 
@@ -346,7 +354,10 @@ final class AppModel {
         forgetVideoState()
         Snapshot.remove("home-\(id.uuidString)")
         forgetAccount(of: id)
-        if let next { moveSession(from: profile, to: next) }
+        if let next {
+            lyricsTranslation.setProfile(roster.folder(for: next.id))
+            moveSession(from: profile, to: next)
+        }
     }
 
     /// A video feed, made once per profile and kept.
