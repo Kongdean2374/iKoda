@@ -173,7 +173,8 @@ final class LyricsVersions {
                 self.autoSelect(finished: false)
                 self.assessCandidates(allowFallback: cached.isFresh)
                 let returned = Set(cached.results.map(\.source))
-                if cached.isFresh && self.configuredSources.allSatisfy({ returned.contains($0.id) }) {
+                if cached.isFresh && cached.results.contains(where: { !$0.candidates.isEmpty })
+                    && self.configuredSources.allSatisfy({ returned.contains($0.id) }) {
                     self.finishLookup(token)
                     return
                 }

@@ -232,16 +232,15 @@ struct ImmersivePreferences: Codable, Equatable {
     var customBrightness = false
     var brightness = 0.5
     var performance = ImmersivePerformance.balanced
-    private var profiles: [String: Data] = [:]
+    private var profiles: [String: ImmersiveProfile] = [:]
 
     subscript(_ layout: ImmersiveLayout) -> ImmersiveProfile {
-        get {
-            var value = profiles[layout.rawValue].flatMap { try? JSONDecoder().decode(ImmersiveProfile.self, from: $0) }
-                ?? .initial(for: layout)
-            value.normalize()
-            return value
+        get { profiles[layout.rawValue] ?? .initial(for: layout) }
+        set {
+            var normalized = newValue
+            normalized.normalize()
+            profiles[layout.rawValue] = normalized
         }
-        set { profiles[layout.rawValue] = try? JSONEncoder().encode(newValue) }
     }
 
     mutating func resetCurrent() { profiles[last.rawValue] = nil }
@@ -250,6 +249,10 @@ struct ImmersivePreferences: Codable, Equatable {
         guard let data, var preferences = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
         if !preferences.brightness.isFinite { preferences.brightness = 0.5 }
         preferences.brightness = min(1, max(0.1, preferences.brightness))
+        for layout in ImmersiveLayout.allCases where preferences.profiles[layout.rawValue] != nil {
+            let profile = preferences[layout]
+            preferences[layout] = profile
+        }
         return preferences
     }
 }

@@ -42,6 +42,12 @@ public final class AudioVisualizationInput: @unchecked Sendable {
 
     private let mailbox = OSAllocatedUnfairLock(initialState: Mailbox())
 
+    // The synchronous try-lock body borrows this buffer only for the duration
+    // of the render callback. It is never stored in the mailbox or sent elsewhere.
+    private struct RenderBuffer: @unchecked Sendable {
+        let samples: UnsafePointer<Float>
+    }
+
     public func samples(after serial: UInt64? = nil, near itemTime: TimeInterval) -> AudioVisualizationSamples? {
         let now = ProcessInfo.processInfo.systemUptime
         return mailbox.withLock { state in
@@ -72,9 +78,11 @@ public final class AudioVisualizationInput: @unchecked Sendable {
         guard stride > 0 else { return }
         let available = min(frames, Int(first.mDataByteSize) / MemoryLayout<Float>.size / stride)
         guard available > 0 else { return }
-        let now = ProcessInfo.processInfo.systemUptime
+        let source = RenderBuffer(samples: UnsafePointer(data))
         _ = mailbox.withLockIfAvailable { state in
-            guard state.lease > now else { return }
+            guard state.lease > 0 else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            guard state.lease > now else { state.lease = 0; return }
             if state.sampleRate != rate || now - state.updated > 0.4 || abs(state.itemTime - end) > 0.6 {
                 state.count = 0
                 state.cursor = 0
@@ -82,7 +90,7 @@ public final class AudioVisualizationInput: @unchecked Sendable {
             // The first decoded channel avoids cancellation of opposite-phase
             // stereo. This measures the current item, before output-route mixing.
             for index in max(0, available - Self.capacity)..<available {
-                state.values[state.cursor] = data[index * stride]
+                state.values[state.cursor] = source.samples[index * stride]
                 state.cursor = (state.cursor + 1) & (Self.capacity - 1)
             }
             state.count = min(Self.capacity, state.count + available)

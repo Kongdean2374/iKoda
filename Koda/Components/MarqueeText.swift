@@ -6,6 +6,7 @@ import SwiftUI
 struct MarqueeText: View {
     let text: String
     var font: Font
+    var isVisible = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -21,7 +22,7 @@ struct MarqueeText: View {
     private static let rest: Duration = .seconds(2.5)
     private static let fade: CGFloat = 14
 
-    private var overflows: Bool { !reduceMotion && scenePhase == .active && textWidth > boxWidth + 1 }
+    private var overflows: Bool { isVisible && !reduceMotion && scenePhase == .active && boxWidth > 24 && textWidth > boxWidth + 1 }
 
     var body: some View {
         // The truncated line sets the height and takes the width offered; it is what shows
@@ -66,12 +67,12 @@ struct MarqueeText: View {
     private var edgeFade: some View {
         HStack(spacing: 0) {
             LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                .frame(width: Self.fade)
+                .frame(width: min(Self.fade, boxWidth / 5))
                 .opacity(isScrolling ? 1 : 0)
                 .background(Color.black.opacity(isScrolling ? 0 : 1))
             Color.black
             LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(width: Self.fade)
+                .frame(width: min(Self.fade, boxWidth / 5))
         }
     }
 

@@ -24,7 +24,6 @@ struct NowPlayingView: View {
     @State private var utility: PlayerUtility?
     @State private var lyricControlsExpanded = false
     @State private var immersive: ImmersiveEntry?
-    @State private var hasEnteredLayout = false
 
     private enum ImmersiveEntry: String, Identifiable {
         case manual, landscape
@@ -46,7 +45,7 @@ struct NowPlayingView: View {
 
     private enum PlayerUtility: Hashable, Identifiable {
         case sound, audio, sleep(custom: Bool)
-        case airPlayLyrics, lyricsSources
+        case airPlayLyrics, lyricsSources, immersiveSettings
         var id: Self { self }
         var isSleepTimer: Bool { if case .sleep = self { return true }; return false }
     }
@@ -90,9 +89,8 @@ struct NowPlayingView: View {
         .onGeometryChange(for: Bool.self) { $0.size.width >= 900 && $0.size.height >= 560 } action: { isWide = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onChange(of: landscape) { _, wide in
-            defer { hasEnteredLayout = true }
             #if !targetEnvironment(macCatalyst)
-            guard hasEnteredLayout || wide, wide,
+            guard wide,
                   UIDevice.current.userInterfaceIdiom == .phone,
                   app.settings.immersive.automaticLandscape, player.current != nil, player.wantsToPlay,
                   immersive == nil, utility == nil, app.playlistTarget == nil, !app.isProfilePresented else { return }
@@ -121,13 +119,16 @@ struct NowPlayingView: View {
                     case .audio: AudioInformationView()
                     case .airPlayLyrics: AirPlayLyricsDelayView()
                     case .lyricsSources: LyricsVersionsView()
+                    case .immersiveSettings: ImmersiveSettingsView { utility = nil }
                     case .sleep(let custom): SleepTimerSettingsView(startsWithCustomDuration: custom)
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { utility = nil }
-                            .accessibilityIdentifier(destination.isSleepTimer ? "sleep.timer.done" : "player.utility.done")
+                    if destination != .immersiveSettings {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { utility = nil }
+                                .accessibilityIdentifier(destination.isSleepTimer ? "sleep.timer.done" : "player.utility.done")
+                        }
                     }
                 }
             }
@@ -290,6 +291,7 @@ struct NowPlayingView: View {
                     }
                     Menu("Playback Tools", systemImage: "slider.horizontal.3") {
                         SleepTimerMenu { utility = .sleep(custom: $0) }
+                        Button("Immersive Settings", systemImage: "rectangle.inset.filled") { utility = .immersiveSettings }
                         Button("Sound Center", systemImage: "slider.vertical.3") { utility = .sound }
                     }
                 } label: {
@@ -353,7 +355,7 @@ struct NowPlayingView: View {
     /// The byline: one artist opens at a tap, several offer a choice.
     private func artistButton(font: Font) -> some View {
         ArtistLinks(line: player.current?.artistLine ?? "", artists: player.current?.artists ?? [], open: { app.open(.artist($0)) }) {
-            MarqueeText(text: player.current?.artistLine ?? "", font: font)
+            MarqueeText(text: player.current?.artistLine ?? "", font: font, isVisible: immersive == nil)
                 .foregroundStyle(.white.opacity(0.7))
         }
     }
@@ -364,7 +366,7 @@ struct NowPlayingView: View {
         ZStack {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    MarqueeText(text: player.current?.title ?? "", font: title)
+                    MarqueeText(text: player.current?.title ?? "", font: title, isVisible: immersive == nil)
                     artistButton(font: byline)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

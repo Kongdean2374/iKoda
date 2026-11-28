@@ -11,6 +11,8 @@ final class ImmersiveScreenController {
     private var applied: CGFloat?
     private var lastRequest: CGFloat?
     private var systemOverride = false
+    private weak var previousScreen: UIScreen?
+    private var restoredValue: CGFloat?
 
     func update(screen: UIScreen?, active: Bool, keepAwake: Bool, brightness: CGFloat?) {
         let shouldHold = active && keepAwake
@@ -21,10 +23,20 @@ final class ImmersiveScreenController {
             UIApplication.shared.isIdleTimerDisabled = Self.previousIdleValue
         }
         #if !targetEnvironment(macCatalyst)
-        if self.screen !== screen || !active || brightness == nil {
+        if brightness == nil {
             restoreBrightness()
+            previousScreen = nil
+            restoredValue = nil
+            lastRequest = nil
+            systemOverride = false
+            return
         }
+        if !active || self.screen !== screen { restoreBrightness() }
         guard active, let brightness, let screen else { return }
+        if self.screen == nil, previousScreen === screen, let restoredValue,
+           abs(screen.brightness - restoredValue) > 0.015, lastRequest == brightness {
+            systemOverride = true
+        }
         self.screen = screen
         if let applied, abs(screen.brightness - applied) > 0.015 {
             // Control Center or a hardware/system change wins until the user moves
@@ -45,15 +57,21 @@ final class ImmersiveScreenController {
 
     private func restoreBrightness() {
         #if !targetEnvironment(macCatalyst)
-        if let screen, let baseline, let applied, abs(screen.brightness - applied) <= 0.015 {
-            screen.brightness = baseline
+        if let screen {
+            if let baseline, let applied {
+                if abs(screen.brightness - applied) <= 0.015 {
+                    screen.brightness = baseline
+                } else {
+                    systemOverride = true
+                }
+            }
+            previousScreen = screen
+            restoredValue = screen.brightness
         }
         #endif
         screen = nil
         baseline = nil
         applied = nil
-        lastRequest = nil
-        systemOverride = false
     }
 }
 

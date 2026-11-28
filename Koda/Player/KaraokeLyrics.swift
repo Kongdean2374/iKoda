@@ -473,6 +473,7 @@ private struct KaraokeWord: View {
     let font: Font
     var lift: CGFloat
     var swells: Bool
+    @Environment(\.immersiveLyricColor) private var immersiveLyricColor
     @Environment(\.colorScheme) private var colorScheme
 
     /// How long a word takes to rise, in seconds; it keeps rising after the next word starts, so a line moves as a ripple.
@@ -490,12 +491,12 @@ private struct KaraokeWord: View {
 
         Text(word.text)
             .font(font)
-            .foregroundStyle(Color.primary.opacity(0.38))
+            .foregroundStyle((immersiveLyricColor ?? Color.primary).opacity(0.38))
             .fixedSize()
             .overlay {
                 Text(word.text)
                     .font(font)
-                    .foregroundStyle(Color.primary)
+                    .foregroundStyle(immersiveLyricColor ?? Color.primary)
                     .fixedSize()
                     .mask { FillMask(progress: fill) }
             }

@@ -373,7 +373,7 @@ final class LyricsTranslationCoordinator {
         playbackSessionFinished = finished
         pipeline.setPlaybackSessionFinished(finished)
         if finished {
-                backgroundContinuationKey = nil
+            backgroundContinuationKey = nil
             currentRetryKey = nil
             languageCheckTask?.cancel()
             languageCheckTask = nil
