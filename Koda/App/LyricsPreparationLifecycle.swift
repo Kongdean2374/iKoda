@@ -140,7 +140,7 @@ final class LyricsPreparationLifecycle {
             prefetchLimit: input.prefetchLimit, allowed: input.permitsForegroundLookup && input.online,
             hasHeadroom: input.headroom, constrained: input.constrained, buffering: input.buffering)
         coordinator.setCacheCapacity(megabytes: input.cacheMegabytes)
-        coordinator.adjustPolish(limits: input.limits)
+        coordinator.adjustPolish(limits: input.limits, at: player.position())
         updateBackgroundTask(isBackground: input.background, hasWork: coordinator.hasCurrentWork)
     }
 

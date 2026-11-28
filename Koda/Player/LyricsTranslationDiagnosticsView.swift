@@ -300,6 +300,7 @@ struct LyricsTranslationDiagnosticsView: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @State private var copies = 0
+    @State private var retention: String?
 
     private struct Field: Identifiable {
         let title: String
@@ -330,6 +331,24 @@ struct LyricsTranslationDiagnosticsView: View {
             }
         }
         .navigationTitle("Translation Diagnostics")
+        .task(id: [player.current?.id ?? "", app.lyricsTranslation.versions.current?.id.cacheNamespace ?? "",
+                   app.lyricsTranslation.versions.profileScope.uuidString,
+                   app.lyricsTranslation.currentAIMode.rawValue]) {
+            retention = nil
+            let coordinator = app.lyricsTranslation
+            let scope = coordinator.versions.profileScope
+            guard let candidate = coordinator.versions.current else { return }
+            do {
+                let stored = try await coordinator.retainedAI(candidate, mode: coordinator.currentAIMode)
+                guard !Task.isCancelled, scope == coordinator.versions.profileScope,
+                      coordinator.versions.current?.id == candidate.id else { return }
+                retention = stored == nil ? String(localized: "None") : String(localized: "AI Translation Saved")
+            } catch {
+                if !Task.isCancelled, scope == coordinator.versions.profileScope {
+                    retention = String(localized: "Could Not Read Kept AI Translations")
+                }
+            }
+        }
     }
 
     private func diagnostics(_ result: AutomaticLyricsResult) -> [Field] {
@@ -422,6 +441,7 @@ struct LyricsTranslationDiagnosticsView: View {
         let cacheAndTiming: [Field] = [
             .init(title: String(localized: "Original Lyrics Cache"), value: result.originalCacheUse.label),
             .init(title: String(localized: "Base Translation Cache"), value: base.cacheUse.label),
+            .init(title: String(localized: "Preserved AI Translation"), value: retention ?? unavailable),
             .init(title: String(localized: "AI Translation Cache"), value: ai.cache.label + " (" + count(ai.cachedRows) + ")"),
             .init(title: String(localized: "Original Lyrics Preparation Time"), value: time(result.originalLookupSeconds)),
             .init(title: String(localized: "Base Preparation Time"), value: time(base.planningSeconds)),

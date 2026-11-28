@@ -72,6 +72,13 @@ public enum LyricContextPassages {
         return groups
     }
 
+    /// Process the currently audible passage and its successors first. Keep
+    /// source order within every passage so cross-line phrasing stays intact.
+    public static func priorityOrder(_ groups: [[Int]], around row: Int?) -> [[Int]] {
+        guard let row, let next = groups.firstIndex(where: { ($0.last ?? -1) >= row }), next > 0 else { return groups }
+        return Array(groups[next...]) + Array(groups[..<next])
+    }
+
     /// Entire short lyrics fit in the passage prompt. Longer lyrics can request a
     /// single overview, using evenly spaced passages when the entire text cannot fit.
     public static func overview(_ rows: [LyricContextRow], byteLimit: Int = 5200) -> (rows: [LyricContextRow], excerpted: Bool) {

@@ -69,6 +69,7 @@ struct LyricsTranslationSettingsView: View {
                     .accessibilityIdentifier("lyrics.translation.retry")
                 if settings.lyricsTranslationMode.usesContextModel {
                     Button("Resume Unfinished AI Lines") { app.lyricsTranslation.resumeFailedContext() }
+                        .disabled(versions.current == nil || app.lyricsTranslation.isAIWorking)
                     Button("Polish This Version Again") { Task { await app.lyricsTranslation.regenerate(clear: false, polishOnly: true) } }
                         .disabled(versions.current == nil)
                 }

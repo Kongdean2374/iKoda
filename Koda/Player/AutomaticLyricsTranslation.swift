@@ -195,8 +195,15 @@ nonisolated enum NativeLyricsTranslationEngine {
     }
 
     @concurrent
-    static func isInstalled(source: String, target: String) async -> Bool {
-        let availability = LanguageAvailability()
+    static func isInstalled(source: String, target: String, strategy: AppleLyricDiagnostics.Strategy?) async -> Bool {
+        let availability: LanguageAvailability
+        #if compiler(>=6.3)
+        if #available(iOS 26.4, macCatalyst 26.4, *), let strategy, strategy != .standard {
+            availability = LanguageAvailability(preferredStrategy: strategy == .highFidelity ? .highFidelity : .lowLatency)
+        } else { availability = LanguageAvailability() }
+        #else
+        availability = LanguageAvailability()
+        #endif
         let status = await availability.status(from: Locale.Language(identifier: source), to: Locale.Language(identifier: target))
         if case .installed = status { return true }
         return false
@@ -225,9 +232,19 @@ private struct NativeLyricsLanguageDownload: View {
     let coordinator: LyricsTranslationCoordinator
 
     var body: some View {
-        Color.clear.translationTask(TranslationSession.Configuration(
-            source: Locale.Language(identifier: request.source), target: Locale.Language(identifier: request.target)),
-            action: Self.prepare(request: request, coordinator: coordinator))
+        Color.clear.translationTask(configuration, action: Self.prepare(request: request, coordinator: coordinator))
+    }
+
+    private var configuration: TranslationSession.Configuration {
+        let source = Locale.Language(identifier: request.source)
+        let target = Locale.Language(identifier: request.target)
+        #if compiler(>=6.3)
+        if #available(iOS 26.4, macCatalyst 26.4, *), let strategy = request.strategy, strategy != .standard {
+            return .init(source: source, target: target,
+                         preferredStrategy: strategy == .highFidelity ? .highFidelity : .lowLatency)
+        }
+        #endif
+        return .init(source: source, target: target)
     }
 
     nonisolated private static func prepare(request: LyricsTranslationCoordinator.DownloadRequest,
@@ -240,7 +257,7 @@ private struct NativeLyricsLanguageDownload: View {
                 try Task.checkCancellation()
                 // Preparation may return while a model is downloading. Do not assume an
                 // installed session is usable until the actual language pair says so.
-                let installed = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
+                let installed = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target, strategy: request.strategy)
                 try Task.checkCancellation()
                 await coordinator.finishLanguageDownload(request, installed: installed)
             } catch {

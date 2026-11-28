@@ -134,6 +134,13 @@ import Testing
         #expect(service.snapshot(for: pure).phase == .idle)
     }
 
+    @Test func prioritizesTheAudiblePassageAndKeepsItsLineOrder() {
+        let passages = [[0, 1], [2, 3, 4], [7, 8]]
+        #expect(LyricContextPassages.priorityOrder(passages, around: 3) == [[2, 3, 4], [7, 8], [0, 1]])
+        #expect(LyricContextPassages.priorityOrder(passages, around: 6) == [[7, 8], [0, 1], [2, 3, 4]])
+        #expect(LyricContextPassages.priorityOrder(passages, around: nil) == passages)
+    }
+
     @Test func onlyCompatibleRefrainsShareAContextKey() {
         let rows = [
             LyricContextRow(id: 0, text: "Carry the lantern", voice: .lead),
@@ -185,6 +192,35 @@ import Testing
         #expect(await events.cancelled)
     }
 
+    @Test(.timeLimit(.minutes(1))) func deadlineKeepsTheWorkerSlotUntilAnUncooperativeInvocationExits() async throws {
+        let events = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
+        let held = HeldModel()
+        var received = events.stream.makeAsyncIterator()
+        let invocation = Task {
+            defer { events.continuation.yield("finished"); events.continuation.finish() }
+            return try await LyricModelDeadline.run(for: .milliseconds(15), onTimeout: {
+                events.continuation.yield("timeout")
+            }) {
+                await withTaskCancellationHandler {
+                    await held.wait()
+                } onCancel: {
+                    events.continuation.yield("cancellation")
+                }
+            }
+        }
+        #expect(await received.next() == "timeout")
+        #expect(await received.next() == "cancellation")
+        #expect(await held.wasReleased == false)
+        await held.release()
+        do {
+            _ = try await invocation.value
+            Issue.record("A reply arriving after the deadline must be ignored")
+        } catch {
+            #expect((error as? URLError)?.code == .timedOut)
+        }
+        #expect(await received.next() == "finished")
+    }
+
     @Test func preservedTranslationsSurviveClearingTheLRUAndRemainProfileScoped() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -218,4 +254,21 @@ private actor DeadlineEvents {
     private(set) var cancelled = false
     func markTimeout() { timedOut = true }
     func markCancellation() { cancelled = true }
+}
+
+
+private actor HeldModel {
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private(set) var wasReleased = false
+
+    func wait() async -> Bool {
+        if wasReleased { return true }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        wasReleased = true
+        continuation?.resume(returning: true)
+        continuation = nil
+    }
 }

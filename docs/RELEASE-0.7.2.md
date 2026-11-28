@@ -23,7 +23,8 @@
   smaller batches for recoverable errors. Two consecutive generation deadlines
   end that run. If a model call does not immediately honor cancellation, Koda
   reports the timeout while keeping the invocation slot occupied until it exits.
-  Apple Translation also has a progress-sensitive deadline.
+  Apple Translation also has a progress-sensitive deadline. Dynamic lyrics
+  prioritize the audible passage and ensuing passages when work starts.
 - The player shows the current stage and completed rows. Diagnostics distinguish
   validated, copied from a matching refrain, reused from cache, unnecessary,
   unsupported and failed results. Valid output remains visible during retries.

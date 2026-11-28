@@ -112,9 +112,11 @@ final class LyricsPolishing {
         let required: Set<Int>
         let plan: ChineseLyricTranslationPlan
         let mode: LyricsTranslationMode
+        let preferredRow: Int?
 
         init(song: Song, candidate: LyricsCandidate, rows: [LyricsTranslationText],
-             plan: ChineseLyricTranslationPlan, mode: LyricsTranslationMode, base: [Int: String]) {
+             plan: ChineseLyricTranslationPlan, mode: LyricsTranslationMode, base: [Int: String],
+             preferredTime: TimeInterval? = nil) {
             self.song = song
             self.candidate = candidate
             self.plan = plan
@@ -122,9 +124,12 @@ final class LyricsPolishing {
             self.base = mode.usesAppleTranslation ? base : [:]
             required = plan.semanticRows
             var voices: [Int: LyricVoice] = [:]
+            var preferred: Int?
             if case .synced(let synced) = candidate.lyrics {
                 voices = Dictionary(synced.map { ($0.id, $0.voice) }, uniquingKeysWith: { first, _ in first })
+                if let preferredTime, let index = Lyrics.index(of: preferredTime, in: synced) { preferred = synced[index].id }
             }
+            preferredRow = preferred
             self.rows = rows.map { .init(id: $0.id, text: String($0.text.prefix(550)), voice: voices[$0.id]) }
         }
 
@@ -266,6 +271,7 @@ final class LyricsPolishing {
     }
 
     func resumeFailed() {
+        guard worker == nil else { return }
         let retry = Set(diagnostics.rows.compactMap { LyricAIRetry.resume($0.value) ? $0.key : nil })
         guard !retry.isEmpty else { return }
         attempted.subtract(retry)
@@ -296,7 +302,7 @@ final class LyricsPolishing {
             throw CocoaError(.fileWriteUnknown)
         }
         let record = PreservedLyricTranslationStore.Record(candidate: candidate, mode: mode,
-            target: diagnostics.target ?? "zh-Hant-TW", languages: diagnostics.sources.filter { $0.value }.keys.sorted(),
+            target: diagnostics.target ?? "zh-Hant-TW", languages: diagnostics.submittedLanguages.sorted(),
             lines: verified, edits: edits, isComplete: diagnostics.validated == diagnostics.total)
         try await kept.save(record, for: candidate, profile: profile)
     }
@@ -418,14 +424,30 @@ final class LyricsPolishing {
         let key = work.diskKey(target: report.target ?? "zh-Hant-TW")
         if !presenting || !loaded {
             let started = ContinuousClock.now
-            let saved = await cache.entry(for: key)
-            let retained: PreservedLyricTranslationStore.Record? = if let profile { try? await kept.read(work.candidate, mode: work.mode, profile: profile) } else { nil }
+            var saved = await cache.entry(for: key)
+            let retained: PreservedLyricTranslationStore.Record? = if let profile {
+                try? await kept.read(work.candidate, mode: work.mode, profile: profile)
+            } else { nil }
+            if supportedTarget == nil, saved == nil {
+                // A model temporarily disabled by the system must leave previously
+                // validated local output available for the same mode and original.
+                for locale in LyricChineseTarget.preferred where locale != report.target {
+                    if let entry = await cache.entry(for: work.diskKey(target: locale)) {
+                        saved = entry
+                        report.target = locale
+                        break
+                    }
+                }
+                if saved == nil, let retained { report.target = retained.target }
+            }
             guard accepts(token) else { return }
             let compatible = retained?.promptVersion == LyricContextPassages.promptVersion
                 && retained?.languageVersion == LyricLanguageProfile.version && retained?.target == report.target
             output = (compatible ? retained?.lines ?? [:] : [:]).merging(Self.decoded(saved)) { _, newer in newer }
                 .filter { work.required.contains($0.key) }
             for id in output.keys { report.rows[id] = .cached }
+            if compatible { report.submittedLanguages.formUnion(retained?.languages ?? []) }
+            report.submittedLanguages.formUnion(saved?.modelLanguages ?? [])
             report.cachedRows = output.count
             report.cache = output.isEmpty ? .miss : LyricAICompletion.reached(work.required, in: output) ? .hit : .partial
             report.cacheSeconds = started.duration(to: .now).lyricSeconds
@@ -503,7 +525,8 @@ final class LyricsPolishing {
             if let value = output[work.rows[index].id], let signature = signature(index) { repeated[signature] = value }
         }
 
-        let groups = LyricContextPassages.groups(work.rows, translating: requested)
+        let groups = LyricContextPassages.priorityOrder(LyricContextPassages.groups(work.rows, translating: requested),
+            around: work.preferredRow.flatMap { id in work.rows.firstIndex { $0.id == id } })
         let validContextIDs = Set(usableContext.map(\.id))
         for group in groups {
             guard accepts(token) else { return }
@@ -540,6 +563,7 @@ final class LyricsPolishing {
                 let expected = ids.compactMap { id in byID[id].map { LyricsPolishValidation.Line(id: id, text: $0.text) } }
                 submittedIDs.formUnion(ids)
                 hintedIDs.formUnion(hinted.keys)
+                for id in ids { report.submittedLanguages.formUnion(languages[id, default: []]) }
                 report.currentBatch += 1
                 if !initial { report.retryBatches += 1 }
                 for id in ids { report.rows[id] = .processing }
@@ -608,7 +632,8 @@ final class LyricsPolishing {
             guard accepts(token) else { return }
             if !output.isEmpty {
                 let checkpoint = Dictionary(uniqueKeysWithValues: output.map { (String($0.key), $0.value) })
-                await cache.store(.init(fragments: checkpoint, isComplete: LyricAICompletion.reached(work.required, in: output)), for: key)
+                await cache.store(.init(fragments: checkpoint, isComplete: LyricAICompletion.reached(work.required, in: output),
+                                        modelLanguages: report.submittedLanguages.sorted()), for: key)
             }
         }
         guard accepts(token), presenting else { return }

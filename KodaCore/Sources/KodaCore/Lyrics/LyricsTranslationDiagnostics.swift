@@ -87,6 +87,7 @@ public struct LyricPolishDiagnostics: Equatable, Sendable {
     public var historicalError: LyricWorkError?
     public var availability: LyricModelAvailability = .unchecked
     public var sources: [String: Bool] = [:]
+    public var submittedLanguages: Set<String> = []
     public var target: String?
     public var targetSupported: Bool?
     public var total = 0

@@ -29095,6 +29095,23 @@
           }
         }
       }
+    },
+    "Preserved AI Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preserved AI Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留的 AI 譯文"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

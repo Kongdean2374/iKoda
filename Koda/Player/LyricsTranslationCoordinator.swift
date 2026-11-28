@@ -13,6 +13,7 @@ final class LyricsTranslationCoordinator {
         let songID: String
         let source: String
         let target: String
+        let strategy: AppleLyricDiagnostics.Strategy?
     }
 
     nonisolated private struct LookupKey: Hashable, Sendable {
@@ -282,8 +283,10 @@ final class LyricsTranslationCoordinator {
     }
 
     private var polishLimits: Set<LyricWorkLimit> = []
+    @ObservationIgnored private var polishPosition: TimeInterval?
 
-    func adjustPolish(limits: Set<LyricWorkLimit>) {
+    func adjustPolish(limits: Set<LyricWorkLimit>, at position: TimeInterval? = nil) {
+        if let position, position.isFinite { polishPosition = position }
         polishLimits = expirationSuspended ? limits.union([.background]) : limits
         let wantsAI = mode.usesContextModel || versions.translationSelection == .foundationModels
         var work: LyricsPolishing.Work?
@@ -292,7 +295,8 @@ final class LyricsTranslationCoordinator {
         if wantsAI, let song = currentSong, let version = versions.current, let prepared = inputs[song.id],
            let plan = prepared.input.plan {
             work = .init(song: song, candidate: version, rows: prepared.lines, plan: plan, mode: aiMode,
-                         base: preparedBase(song.id).map { pipeline.snapshot(for: $0).lines } ?? [:])
+                         base: preparedBase(song.id).map { pipeline.snapshot(for: $0).lines } ?? [:],
+                         preferredTime: polishPosition)
             if mode.usesContextModel, hasHeadroom, !constrained, !buffered,
                let next = upcomingSongs.first, let nextVersion = versionBySong[next.id], let nextInput = inputs[next.id],
                let plan = nextInput.input.plan {
@@ -551,9 +555,10 @@ final class LyricsTranslationCoordinator {
               let prepared = inputs[songID] else { return nil }
         let snapshot = pipeline.snapshot(for: prepared.input)
         guard snapshot.phase == .needsLanguage, let pair = snapshot.languagePair else { return nil }
-        let id = "\(songID)|\(pair.source)|\(pair.target)|\(downloadAttempt)"
+        let strategy = prepared.input.routes?.first { $0.source == pair.source && $0.target == pair.target }?.strategy
+        let id = "\(songID)|\(pair.source)|\(pair.target)|\(strategy?.rawValue ?? "")|\(downloadAttempt)"
         guard downloadPolicy.allows(.init(source: pair.source, target: pair.target), requestID: id) else { return nil }
-        return DownloadRequest(id: id, songID: songID, source: pair.source, target: pair.target)
+        return DownloadRequest(id: id, songID: songID, source: pair.source, target: pair.target, strategy: strategy)
     }
 
     func beginLanguageDownload(_ request: DownloadRequest) -> Bool {
@@ -580,7 +585,7 @@ final class LyricsTranslationCoordinator {
                     do { try await Task.sleep(for: .seconds(3)) } catch { return }
                     guard let self, !Task.isCancelled, !self.playbackSessionFinished, self.foreground, self.automaticEnabled,
                           self.showsTranslation, self.downloadAttempt == attempt else { return }
-                    let ready = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
+                    let ready = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target, strategy: request.strategy)
                     guard !Task.isCancelled, !self.playbackSessionFinished, self.foreground, self.downloadAttempt == attempt else { return }
                     if ready {
                         self.retryCurrentLanguage(pair)
