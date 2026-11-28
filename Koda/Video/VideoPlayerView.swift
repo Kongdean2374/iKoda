@@ -895,10 +895,43 @@ struct FullScreenVideoView: View {
     }
 }
 
-/// The iPhone is portrait everywhere but a full-screen video; the app delegate answers with this.
+/// Video retains its existing rotation policy. Music players request their own window-scoped allowance.
 @MainActor
 enum Orientation {
-    static var allowed: UIInterfaceOrientationMask = .portrait
+    private static var allowed: UIInterfaceOrientationMask = .portrait
+    private static var musicOwners: [ObjectIdentifier: Set<UUID>] = [:]
+
+    static func supported(in window: UIWindow?) -> UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        if allowed != .portrait { return allowed }
+        let hasMusicOwner = window.map { musicOwners[ObjectIdentifier($0)]?.isEmpty == false } ?? !musicOwners.isEmpty
+        return hasMusicOwner ? .allButUpsideDown : .portrait
+    }
+
+    static func setMusicRotation(_ enabled: Bool, owner: UUID, in window: UIWindow) {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        let windowID = ObjectIdentifier(window)
+        var holders = musicOwners[windowID] ?? []
+        let wasEnabled = !holders.isEmpty
+        if enabled { holders.insert(owner) }
+        else { holders.remove(owner) }
+        musicOwners[windowID] = holders.isEmpty ? nil : holders
+        guard wasEnabled != !holders.isEmpty else { return }
+        var controller = window.rootViewController
+        while let presented = controller {
+            presented.setNeedsUpdateOfSupportedInterfaceOrientations()
+            controller = presented.presentedViewController
+        }
+        if holders.isEmpty, supported(in: window) == .portrait {
+            // The immersive cover may acquire its own allowance during the
+            // same presentation transition. Leave that active scene alone.
+            Task { @MainActor [weak window] in
+                await Task.yield()
+                guard let window, supported(in: window) == .portrait else { return }
+                window.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in }
+            }
+        }
+    }
 
     static func allow(_ mask: UIInterfaceOrientationMask, prefer: UIInterfaceOrientationMask) {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
@@ -911,7 +944,7 @@ enum Orientation {
 
 final class KodaAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        UIDevice.current.userInterfaceIdiom == .phone ? Orientation.allowed : .all
+        Orientation.supported(in: window)
     }
 }
 

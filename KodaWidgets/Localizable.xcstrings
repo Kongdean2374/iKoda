@@ -290,38 +290,6 @@
         }
       }
     },
-    "Koda Player": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koda Player"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koda 播放器"
-          }
-        }
-      }
-    },
-    "A vinyl player with controls for Koda and CarPlay.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A vinyl player with controls for Koda and CarPlay."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可在 iPhone 或 CarPlay 顯示黑膠唱片和 Koda 播放控制。"
-          }
-        }
-      }
-    },
     "Playback Controls": {
       "localizations": {
         "en": {
@@ -462,38 +430,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "下一首"
-          }
-        }
-      }
-    },
-    "Show Lyrics": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Lyrics"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示歌詞"
-          }
-        }
-      }
-    },
-    "Koda Lyrics": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koda Lyrics"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koda 歌詞"
           }
         }
       }

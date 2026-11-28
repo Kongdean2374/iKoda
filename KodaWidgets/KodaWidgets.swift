@@ -10,8 +10,6 @@ struct KodaWidgets: WidgetBundle {
     var body: some Widget {
         QuickPlayWidget()
         #if !targetEnvironment(macCatalyst)
-        CarPlayPlayerWidget()
-        CarPlayLyricsLiveActivity()
         LikedSongsControl()
         PlayPauseControl()
         #endif

@@ -86,13 +86,14 @@ jobs:
           zip -qry "${{ steps.version.outputs.ipa_name }}" Payload
           ls -lh "${{ steps.version.outputs.ipa_name }}"
 
-      - name: Verify IPA versions, executables, CarPlay and Traditional Chinese resources
+      - name: Verify IPA, English and Traditional Chinese resources, and retired integrations
         run: |
           python3 scripts/verify-ipa.py "${{ steps.version.outputs.ipa_name }}" \
             --version "${{ steps.version.outputs.version }}" \
             --build "${{ steps.version.outputs.build_number }}" \
-            --output localization-check --apple-tools --require-carplay
+            --output localization-check --apple-tools --immersive-release
           bash scripts/verify-localization.sh localization-check/Payload/Koda.app
+          shasum -a 256 "${{ steps.version.outputs.ipa_name }}"
 
       - name: Upload build log
         if: always()

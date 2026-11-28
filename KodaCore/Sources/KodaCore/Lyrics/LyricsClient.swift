@@ -13,6 +13,8 @@ public struct LyricsClient: Sendable {
     private let transport: Transport?
     private let cache: LyricsCache
     private let deadline: Duration
+    private let gate: LyricsRequestGate
+    private static let sharedGate = LyricsRequestGate()
     private static let sharedCache = LyricsCache()
 
     private static let youLyPlusMirrors = [
@@ -34,6 +36,7 @@ public struct LyricsClient: Sendable {
         transport = nil
         cache = Self.sharedCache
         deadline = .seconds(12)
+        gate = Self.sharedGate
     }
 
     /// A local transport seam keeps provider, cancellation and cache tests independent
@@ -43,6 +46,7 @@ public struct LyricsClient: Sendable {
         self.transport = transport
         cache = LyricsCache()
         self.deadline = deadline
+        gate = LyricsRequestGate()
     }
 
     typealias Query = LyricsQuery
@@ -482,7 +486,7 @@ extension LyricsClient {
     }
 
     private enum CandidateFetchError: Error {
-        case empty, invalid, rateLimited, failed
+        case empty, invalid, failed
     }
 
     private func candidateResult(for song: Song, lookup: LyricsSearch, provider: CandidateProvider,
@@ -492,11 +496,12 @@ extension LyricsClient {
         let initial = Self.youLyParameters(query)
         var answers: [LyricsCandidate] = []
         var status: LyricsSourceResult.State = .empty
+        var retryAt: Date?
         func read(_ base: String, _ parameters: [String: String] = [:], upstream: String? = nil,
                   decode: (Data) throws -> [CandidatePayload]) async {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, retryAt == nil else { return }
             do {
-                let raw = try await fetchCandidate(base, parameters)
+                let raw = try await fetchCandidate(base, parameters, source: provider.id)
                 let payloads = try decode(raw)
                 let usable = payloads.filter { LyricsCandidate.areUsable($0.lyrics) }
                 guard payloads.isEmpty || !usable.isEmpty else { throw CandidateFetchError.invalid }
@@ -516,8 +521,12 @@ extension LyricsClient {
                 // A definitive empty result does not hide another endpoint's failure.
             } catch CandidateFetchError.invalid {
                 status = .invalid
-            } catch CandidateFetchError.rateLimited {
+            } catch LyricsRequestGate.Rejection.cooled(let until) {
                 status = .rateLimited
+                retryAt = until
+            } catch LyricsRequestGate.Rejection.unavailableUntil(let until) {
+                status = .failed
+                retryAt = until
             } catch let error as URLError where error.code == .timedOut {
                 status = .timedOut
             } catch {
@@ -588,7 +597,8 @@ extension LyricsClient {
             } else { status = .invalid }
         }
         if Task.isCancelled { return provider.result(.cancelled) }
-        return provider.result(answers.isEmpty ? status : .found, candidates: answers)
+        return .init(source: provider.id, name: provider.name,
+                     state: answers.isEmpty || retryAt != nil ? status : .found, candidates: answers, retryAt: retryAt)
     }
 
     private struct CandidatePayload {
@@ -679,23 +689,26 @@ extension LyricsClient {
         }
     }
 
-    private func fetchCandidate(_ base: String, _ parameters: [String: String]) async throws -> Data {
+    private func fetchCandidate(_ base: String, _ parameters: [String: String], source: String) async throws -> Data {
         try Task.checkCancellation()
         guard var components = URLComponents(string: base) else { throw CandidateFetchError.invalid }
         if !parameters.isEmpty {
             components.queryItems = parameters.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         guard let url = components.url else { throw CandidateFetchError.invalid }
-        let result = try await requestLyrics(url, timeout: 4)
-        try Task.checkCancellation()
-        guard let status = (result.1 as? HTTPURLResponse)?.statusCode else { throw CandidateFetchError.failed }
-        switch status {
-        case 204, 404: throw CandidateFetchError.empty
-        case 429: throw CandidateFetchError.rateLimited
-        case 200..<300: break
-        default: throw CandidateFetchError.failed
+        return try await gate.fetch(source: source, url: url) {
+            let result = try await requestLyrics(url, timeout: 4)
+            try Task.checkCancellation()
+            guard let response = result.1 as? HTTPURLResponse else { throw CandidateFetchError.failed }
+            switch response.statusCode {
+            case 204, 404: throw CandidateFetchError.empty
+            case 429: throw LyricsRequestGate.Rejection.limited(response.value(forHTTPHeaderField: "Retry-After"))
+            case 502...504: throw LyricsRequestGate.Rejection.serverBusy(response.value(forHTTPHeaderField: "Retry-After"))
+            case 200..<300: break
+            default: throw CandidateFetchError.failed
+            }
+            guard !result.0.isEmpty, result.0.count <= 2_000_000 else { throw CandidateFetchError.invalid }
+            return result.0
         }
-        guard !result.0.isEmpty, result.0.count <= 2_000_000 else { throw CandidateFetchError.invalid }
-        return result.0
     }
 }

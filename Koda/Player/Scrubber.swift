@@ -10,6 +10,7 @@ import SwiftUI
 /// only this bar redraws as the song plays, never the screen around it.
 struct Scrubber: View {
     var compact = false
+    var onScrubbing: ((Bool) -> Void)?
     @Environment(Player.self) private var player
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -48,6 +49,7 @@ struct Scrubber: View {
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
+                                if dragStart == nil { onScrubbing?(true) }
                                 let start = dragStart ?? (Platform.isMac
                                     ? min(1, max(0, value.startLocation.x / width))
                                     : min(1, player.position() / duration))
@@ -60,6 +62,7 @@ struct Scrubber: View {
                                 }
                                 dragFraction = nil
                                 dragStart = nil
+                                onScrubbing?(false)
                             })
                 }
                 .frame(height: 24)
@@ -94,6 +97,9 @@ struct Scrubber: View {
         }
         .sensoryFeedback(.selection, trigger: dragFraction == nil)
         .disabled(player.phase != .ready)
+        .onDisappear {
+            if dragStart != nil { onScrubbing?(false) }
+        }
     }
 
     private func format(_ seconds: TimeInterval) -> String {

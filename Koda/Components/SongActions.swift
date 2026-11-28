@@ -3,35 +3,43 @@ import SwiftUI
 
 /// What can be done with a song, shared by its long-press menu and its ellipsis button.
 struct SongMenuItems: View {
+    enum Scope { case playback, collection, information }
     let song: Song
+    var scope: Scope? = nil
     @Environment(AppModel.self) private var model
     @Environment(Player.self) private var player
     @Environment(Library.self) private var library
 
     var body: some View {
-        Section {
-            Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
-            Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue([song]) }
-            Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { player.startRadio(from: song) }
+        if scope == nil || scope == .playback {
+            Section {
+                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext([song]) }
+                Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue([song]) }
+                Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") { player.startRadio(from: song) }
+            }
         }
-        Section {
-            let liked = library.isLiked(song)
-            Button(liked ? String(localized: "Remove from Liked") : String(localized: "Like"), systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(song) }
-            AddToPlaylistMenu(songs: [song])
-            DownloadMenuItem(song: song)
-            PinMenuItem(pin: .song(song))
-            if let album = song.album {
-                Button("Go to Album", systemImage: "square.stack") {
-                    model.open(.album(AlbumSummary(id: album.id, title: album.title, artistLine: song.artistLine, artists: song.artists, artwork: song.artwork)))
+        if scope == nil || scope == .collection {
+            Section {
+                let liked = library.isLiked(song)
+                Button(liked ? String(localized: "Remove from Liked") : String(localized: "Like"), systemImage: liked ? "heart.slash" : "heart") { library.toggleLike(song) }
+                AddToPlaylistMenu(songs: [song])
+                DownloadMenuItem(song: song)
+                PinMenuItem(pin: .song(song))
+                NotInterestedMenu(song: song)
+            }
+        }
+        if scope == nil || scope == .information {
+            Section {
+                if let album = song.album {
+                    Button("Go to Album", systemImage: "square.stack") {
+                        model.open(.album(AlbumSummary(id: album.id, title: album.title, artistLine: song.artistLine, artists: song.artists, artwork: song.artwork)))
+                    }
+                }
+                GoToArtistItems(song: song) { model.open(.artist($0)) }
+                ShareLink(item: URL(string: "https://music.youtube.com/watch?v=\(song.id)")!) {
+                    Label("Share", systemImage: "square.and.arrow.up")
                 }
             }
-            GoToArtistItems(song: song) { model.open(.artist($0)) }
-            ShareLink(item: URL(string: "https://music.youtube.com/watch?v=\(song.id)")!) {
-                Label("Share", systemImage: "square.and.arrow.up")
-            }
-        }
-        Section {
-            NotInterestedMenu(song: song)
         }
     }
 }

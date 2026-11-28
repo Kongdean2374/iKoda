@@ -43,11 +43,42 @@ public struct LyricEmbeddedTranslation: Codable, Equatable, Sendable, Identifiab
 }
 
 public enum LyricTranslationSelection: Codable, Equatable, Hashable, Sendable {
-    case automatic, provider(String), imported, appleTranslation, foundationModels, quickApple, qualityApple, immersiveAI, pureAI
+    case automatic, provider(String), imported, appleTranslation
+
+    private enum LegacyKey: String, CodingKey {
+        case automatic, provider, imported, appleTranslation, quickApple, qualityApple
+        case foundationModels, immersiveAI, pureAI
+    }
+
+    private enum Payload: String, CodingKey { case value = "_0" }
+
+    public init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: LegacyKey.self)
+        switch root.allKeys.first {
+        case .provider:
+            let value = try root.nestedContainer(keyedBy: Payload.self, forKey: .provider)
+            self = .provider(try value.decode(String.self, forKey: .value))
+        case .imported: self = .imported
+        case .automatic, nil: self = .automatic
+        default: self = .appleTranslation
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var root = encoder.container(keyedBy: LegacyKey.self)
+        switch self {
+        case .automatic: _ = root.nestedContainer(keyedBy: Payload.self, forKey: .automatic)
+        case .imported: _ = root.nestedContainer(keyedBy: Payload.self, forKey: .imported)
+        case .appleTranslation: _ = root.nestedContainer(keyedBy: Payload.self, forKey: .appleTranslation)
+        case .provider(let id):
+            var content = root.nestedContainer(keyedBy: Payload.self, forKey: .provider)
+            try content.encode(id, forKey: .value)
+        }
+    }
 }
 
 public enum LyricTranslationOrigin: Equatable, Hashable, Sendable {
-    case provider(String), imported, appleTranslation, foundationModels, pureAI, edited, quickApple, qualityApple
+    case provider(String), imported, appleTranslation, edited
 }
 
 public struct ResolvedLyricTranslations: Equatable, Sendable {
@@ -55,9 +86,7 @@ public struct ResolvedLyricTranslations: Equatable, Sendable {
     public private(set) var origins: [Int: LyricTranslationOrigin] = [:]
 
     public init(selection: LyricTranslationSelection, embedded: [LyricEmbeddedTranslation], prefersProvider: Bool,
-                imported: [Int: String], base: [Int: String], contextual: [Int: String],
-                contextualOrigin: LyricTranslationOrigin = .foundationModels, edits: [Int: String],
-                selectedLines: [Int: String] = [:]) {
+                imported: [Int: String], base: [Int: String], edits: [Int: String]) {
         let provider = embedded.filter(\.isChinese).sorted {
             if $0.convertedToTraditional != $1.convertedToTraditional { return !$0.convertedToTraditional }
             return $0.lines.count > $1.lines.count
@@ -68,28 +97,15 @@ public struct ResolvedLyricTranslations: Equatable, Sendable {
                 origins[id] = origin
             }
         }
-        if contextualOrigin != .pureAI { add(base, from: .appleTranslation) }
+        add(base, from: .appleTranslation)
         switch selection {
         case .automatic:
-            add(contextual, from: contextualOrigin)
-            // The experimental mode is a direct model comparison. Other
-            // sources remain available through explicit choices.
-            if contextualOrigin != .pureAI {
-                if prefersProvider, let provider { add(provider.lines, from: .provider(provider.id)) }
-                add(imported, from: .imported)
-            }
+            if prefersProvider, let provider { add(provider.lines, from: .provider(provider.id)) }
+            add(imported, from: .imported)
         case .provider(let id):
             if let provider = embedded.first(where: { $0.id == id }) { add(provider.lines, from: .provider(id)) }
-        case .imported:
-            add(imported, from: .imported)
-        case .appleTranslation:
-            break
-        case .foundationModels:
-            add(contextual, from: contextualOrigin)
-        case .quickApple: add(selectedLines, from: .quickApple)
-        case .qualityApple: add(selectedLines, from: .qualityApple)
-        case .immersiveAI: add(selectedLines, from: .foundationModels)
-        case .pureAI: add(selectedLines, from: .pureAI)
+        case .imported: add(imported, from: .imported)
+        case .appleTranslation: break
         }
         add(edits, from: .edited)
     }

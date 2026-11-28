@@ -7,6 +7,7 @@ struct LyricsOrbGlyph: View {
 
     var body: some View {
         Image(systemName: symbol)
+            .symbolRenderingMode(.monochrome)
             .font(.system(size: 18, weight: .semibold))
             .frame(width: ControlMetrics.touchTarget, height: ControlMetrics.touchTarget)
     }
@@ -20,9 +21,9 @@ struct LyricsOrbAppearance: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(selected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
+            .foregroundStyle(selected ? AnyShapeStyle(Color.black) : AnyShapeStyle(Color.primary))
             .background {
-                if selected { Circle().fill(Color.primary.opacity(pressed ? 0.8 : 1)) }
+                if selected { Circle().fill(Color.white.opacity(pressed ? 0.8 : 1)) }
                 else if pressed { Circle().fill(Color.primary.opacity(0.14)) }
             }
             .kodaGlassSurface(in: Circle())
@@ -215,6 +216,8 @@ private enum LyricsTranslationStatus {
     static func label(shown: Bool, automatic: Bool, importsEnabled: Bool, importedCount: Int,
                       originalCount: Int, result: AutomaticLyricsResult) -> LocalizedStringKey {
         guard shown else { return "Off" }
+        if result.instrumental { return "Instrumental" }
+        guard result.originalReady else { return result.originalSearching ? "Searching Lyrics…" : "No Lyrics" }
         let origins = Set(result.origins.values)
         if !origins.isEmpty && origins.allSatisfy({ if case .provider = $0 { return true }; return false }) {
             return "Lyrics Provider Translation"
@@ -225,43 +228,16 @@ private enum LyricsTranslationStatus {
             guard importsEnabled, importedCount > 0 else { return "No Translation" }
             return importedCount >= originalCount ? "Translated" : "Partially Translated"
         }
-        let showingBase = origins.contains(.appleTranslation)
-        let showingContext = origins.contains(.foundationModels) || origins.contains(.pureAI)
-        switch result.selectedSource {
-        case .appleTranslation where showingBase && result.phase == .ready:
-            return "Apple Translation"
-        case .provider, .imported:
-            if showingBase && !showingContext { return "Showing Base Translation" }
-        default:
-            break
-        }
-        if result.selectedSource == .automatic || result.selectedSource == .foundationModels,
-           let immersive = result.immersiveStatus {
-            let ai = result.polishDiagnostics
-            switch ai.phase {
-            case .identifying: return "Identifying Lyric Languages…"
-            case .preparing: return "Preparing Lyric Context…"
-            case .summarizing: return "Summarizing Lyrics…"
-            case .retrying: return "Retrying Unfinished Lines…"
-            case .awaitingCancellation: return "AI Timed Out"
-            case .generating, .validating:
-                if ai.total > 0 { return "AI Translation \(ai.validated)/\(ai.total)" }
-            default: break
-            }
-            if immersive == .completed && !showingContext {
-                if showingBase { return "Showing Base Translation" }
-                if !origins.isEmpty { return "Available Translations" }
-            }
-            return immersive.title
-        }
+        if result.unnecessary { return "No Translation Needed" }
         switch result.phase {
-        case .idle, .preparing: return "Preparing…"
+        case .idle: return "Waiting to Translate"
+        case .preparing: return "Preparing…"
         case .translating:
             if result.baseDiagnostics.sourceRows > 0 {
                 return "Base Translation \(result.baseDiagnostics.completedRows)/\(result.baseDiagnostics.sourceRows)"
             }
             return "Translating…"
-        case .ready: return "Translated"
+        case .ready: return result.unnecessary ? "No Translation Needed" : "Translated"
         case .needsLanguage: return "Language Needed"
         case .paused: return "Translation Paused"
         case .unavailable: return result.lines.isEmpty ? "Unavailable" : "Partially Translated"
@@ -271,7 +247,7 @@ private enum LyricsTranslationStatus {
 }
 
 /// Read the shared coordinator here, rather than saving a snapshot when the sheet opens:
-/// progress and model readiness continue updating for as long as the details are visible.
+/// progress and language availability continue updating for as long as the details are visible.
 private struct LyricsTranslationDetails: View {
     let lines: [LyricsTranslationText]
     let importedCount: Int
@@ -317,7 +293,7 @@ private struct LyricsTranslationDetails: View {
                 if let information { Text(information).font(.footnote).foregroundStyle(.secondary) }
             }
             if app.lyricsTranslation.versions.current?.songID == player.current?.id, !lines.isEmpty {
-                LyricsTranslationSourceSection(lines: lines, imported: importedLines, result: result)
+                LyricsTranslationSourceSection(imported: importedLines)
             }
             Section {
                 NavigationLink {

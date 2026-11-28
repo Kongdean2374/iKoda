@@ -23,18 +23,50 @@ struct NowPlayingView: View {
     @State private var size: CGSize = .zero
     @State private var utility: PlayerUtility?
     @State private var lyricControlsExpanded = false
+    @State private var immersive: ImmersiveEntry?
+    @State private var rotationWindow: UIWindow?
+    @State private var rotationOwner = UUID()
+    @State private var attached = false
+
+    private enum ImmersiveEntry: String, Identifiable {
+        case manual, landscape
+        var id: Self { self }
+    }
+
+    private var landscape: Bool { size.width > size.height }
+    private var canRotateForImmersive: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
+        return attached && (immersive != nil
+            || (app.settings.immersive.automaticLandscape && player.current != nil && player.wantsToPlay
+                && utility == nil && app.playlistTarget == nil && !app.isProfilePresented))
+        #endif
+    }
+
+    private func updateRotationWindow(_ window: UIWindow?) {
+        if let old = rotationWindow, old !== window {
+            Orientation.setMusicRotation(false, owner: rotationOwner, in: old)
+        }
+        rotationWindow = window
+        if let window { Orientation.setMusicRotation(canRotateForImmersive, owner: rotationOwner, in: window) }
+    }
+
+    private var usesBilingualLayout: Bool {
+        app.settings.showsLyricsTranslation && (player.current.map {
+            app.lyricsTranslation.benefitsFromBilingualLayout(songID: $0.id)
+        } ?? false)
+    }
 
     private var lyricsChrome: LyricsPlayerChrome {
         LyricsPlayerChrome.resolve(isPortraitPhone: !isWide && UIDevice.current.userInterfaceIdiom == .phone && size.width < size.height,
-            lyricsVisible: panel == .lyrics, translationVisible: app.settings.showsLyricsTranslation,
+            lyricsVisible: panel == .lyrics, translationVisible: usesBilingualLayout,
             enabled: app.settings.compactBilingualPlayer, controlsExpanded: lyricControlsExpanded)
     }
 
     private enum PlayerUtility: Hashable, Identifiable {
         case sound, audio, sleep(custom: Bool)
-        #if !targetEnvironment(macCatalyst)
-        case carPlayLyrics(Song)
-        #endif
+        case airPlayLyrics, lyricsSources, immersiveSettings
         var id: Self { self }
         var isSleepTimer: Bool { if case .sleep = self { return true }; return false }
     }
@@ -49,16 +81,16 @@ struct NowPlayingView: View {
 
     var body: some View {
         ZStack {
-            MeshBackground(palette: app.nowPlayingPalette.palette, isAnimating: player.wantsToPlay && app.settings.animatesPlayerBackground)
+            MeshBackground(palette: app.nowPlayingPalette.palette, isAnimating: immersive == nil && player.wantsToPlay && app.settings.animatesPlayerBackground)
             if isWide, player.current != nil {
-                SideMotionArt(song: player.current, isPlaying: player.wantsToPlay, beside: panel != .artwork) { hasTallArt = $0 }
+                SideMotionArt(song: player.current, isPlaying: immersive == nil && player.wantsToPlay, beside: panel != .artwork) { hasTallArt = $0 }
                     .opacity(showsMotionArt ? 1 : 0)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: showsMotionArt)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: panel)
             }
             if !isWide, player.current != nil {
                 // Kept while lyrics or the queue are open, paused, so coming back doesn't load it again.
-                FullScreenMotionArt(song: player.current, isPlaying: player.wantsToPlay && panel == .artwork) { hasTallArt = $0 }
+                FullScreenMotionArt(song: player.current, isPlaying: immersive == nil && player.wantsToPlay && panel == .artwork) { hasTallArt = $0 }
                     .opacity(showsMotionArt ? 1 : 0)
                     .animation(reduceMotion ? nil : .smooth(duration: 0.6), value: showsMotionArt)
             }
@@ -71,12 +103,35 @@ struct NowPlayingView: View {
                 .hidden()
         }
         .background {
-            if app.isNowPlayingPresented {
+            if app.isNowPlayingPresented && immersive == nil {
                 LyricsTranslationDownloadHost(coordinator: app.lyricsTranslation)
             }
         }
+        .background { ImmersiveWindowProbe(onChange: updateRotationWindow).accessibilityHidden(true) }
+        .onAppear {
+            attached = true
+            updateRotationWindow(rotationWindow)
+        }
+        .onDisappear {
+            attached = false
+            if let rotationWindow { Orientation.setMusicRotation(false, owner: rotationOwner, in: rotationWindow) }
+        }
+        .onChange(of: canRotateForImmersive) { _, _ in updateRotationWindow(rotationWindow) }
         .onGeometryChange(for: Bool.self) { $0.size.width >= 900 && $0.size.height >= 560 } action: { isWide = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onChange(of: landscape) { _, wide in
+            #if !targetEnvironment(macCatalyst)
+            guard wide,
+                  UIDevice.current.userInterfaceIdiom == .phone,
+                  app.settings.immersive.automaticLandscape, player.current != nil, player.wantsToPlay,
+                  immersive == nil, utility == nil, app.playlistTarget == nil, !app.isProfilePresented else { return }
+            immersive = .landscape
+            #endif
+        }
+        .fullScreenCover(item: $immersive) { entry in
+            ImmersiveListeningView(automaticallyOpened: entry == .landscape) { immersive = nil }
+                .appEnvironment(app)
+        }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
         .onChange(of: lyricsChrome == .full) { _, full in if full { lyricControlsExpanded = false } }
@@ -93,16 +148,18 @@ struct NowPlayingView: View {
                     switch destination {
                     case .sound: AudioCenterView()
                     case .audio: AudioInformationView()
-                    #if !targetEnvironment(macCatalyst)
-                    case .carPlayLyrics(let song): CarPlayLyricsDelayView(song: song)
-                    #endif
+                    case .airPlayLyrics: AirPlayLyricsDelayView()
+                    case .lyricsSources: LyricsVersionsView()
+                    case .immersiveSettings: ImmersiveSettingsView { utility = nil }
                     case .sleep(let custom): SleepTimerSettingsView(startsWithCustomDuration: custom)
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { utility = nil }
-                            .accessibilityIdentifier(destination.isSleepTimer ? "sleep.timer.done" : "player.utility.done")
+                    if destination != .immersiveSettings {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { utility = nil }
+                                .accessibilityIdentifier(destination.isSleepTimer ? "sleep.timer.done" : "player.utility.done")
+                        }
                     }
                 }
             }
@@ -246,18 +303,26 @@ struct NowPlayingView: View {
             Spacer()
             if let song = player.current {
                 Menu {
-                    Section {
+                    Button("Immersive Listening", systemImage: "rectangle.inset.filled") { immersive = .manual }
+                    Menu("Playback Options", systemImage: "play.circle") {
+                        SongMenuItems(song: song, scope: .playback)
+                    }
+                    Menu("Collection and Management", systemImage: "heart") {
+                        SongMenuItems(song: song, scope: .collection)
+                    }
+                    Menu("Song Information", systemImage: "info.circle") {
                         Button("Audio Information", systemImage: "waveform.path") { utility = .audio }
-                        #if !targetEnvironment(macCatalyst)
-                        Button("CarPlay Lyrics Delay", systemImage: "quote.bubble") { utility = .carPlayLyrics(song) }
-                        #endif
+                        SongMenuItems(song: song, scope: .information)
                     }
-                    SongMenuItems(song: song)
-                    Section {
+                    Menu("Lyrics Tools", systemImage: "quote.bubble") {
+                        Button("Lyrics Sources", systemImage: "square.stack") { utility = .lyricsSources }
+                        LyricsTimingMenu(songId: song.id)
+                        Button("AirPlay Lyrics Delay", systemImage: "airplay.audio") { utility = .airPlayLyrics }
+                        InstrumentalTrackButton(song: song)
+                    }
+                    Menu("Playback Tools", systemImage: "slider.horizontal.3") {
                         SleepTimerMenu { utility = .sleep(custom: $0) }
-                        if panel == .lyrics { LyricsTimingMenu(songId: song.id) }
-                    }
-                    Section {
+                        Button("Immersive Settings", systemImage: "rectangle.inset.filled") { utility = .immersiveSettings }
                         Button("Sound Center", systemImage: "slider.vertical.3") { utility = .sound }
                     }
                 } label: {
@@ -268,6 +333,7 @@ struct NowPlayingView: View {
                 .buttonStyle(TransportButtonStyle(diameter: 44))
                 .menuIndicator(.hidden)
                 .accessibilityLabel("More")
+                .accessibilityIdentifier("player.more")
             } else {
                 Color.clear.frame(width: 44, height: 44)
             }
@@ -320,7 +386,7 @@ struct NowPlayingView: View {
     /// The byline: one artist opens at a tap, several offer a choice.
     private func artistButton(font: Font) -> some View {
         ArtistLinks(line: player.current?.artistLine ?? "", artists: player.current?.artists ?? [], open: { app.open(.artist($0)) }) {
-            MarqueeText(text: player.current?.artistLine ?? "", font: font)
+            MarqueeText(text: player.current?.artistLine ?? "", font: font, isVisible: immersive == nil)
                 .foregroundStyle(.white.opacity(0.7))
         }
     }
@@ -331,7 +397,7 @@ struct NowPlayingView: View {
         ZStack {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    MarqueeText(text: player.current?.title ?? "", font: title)
+                    MarqueeText(text: player.current?.title ?? "", font: title, isVisible: immersive == nil)
                     artistButton(font: byline)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
