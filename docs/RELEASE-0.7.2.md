@@ -13,7 +13,10 @@
   Simplified-to-Traditional conversion changes script. It does not translate
   regional grammar or guarantee Taiwan vocabulary.
 - Pure AI uses Foundation Models with original lyric context and no Apple
-  Translation session, hint fields or language download. Immersive mode may use
+  Translation session, hint fields or language download. Its automatic view
+  shows validated model results and the original for gaps. User edits still
+  take priority, and users can explicitly choose an available other source.
+  Immersive mode may use
   Apple results already available when a passage is generated. Original-language
   context can prepare and generate while Apple Translation is still working.
 - A secondary unsupported language no longer prevents the song overview.

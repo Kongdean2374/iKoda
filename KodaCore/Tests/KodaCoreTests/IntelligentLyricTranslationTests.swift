@@ -121,6 +121,21 @@ import Testing
         #expect(ImmersiveLyricStatus.resolve(base: .unavailable, polish: .completed) == .completed)
     }
 
+    @Test func pureAutomaticDisplayKeepsOriginalWhereTheModelHasNoResult() throws {
+        let provider = try #require(LyricEmbeddedTranslation.collect([
+            (0, "zh-Hant", "來源譯文"), (1, "zh-Hant", "另一行來源譯文")
+        ]).first)
+        let automatic = ResolvedLyricTranslations(selection: .automatic, embedded: [provider],
+            prefersProvider: true, imported: [1: "匯入"], base: [1: "基礎"],
+            contextual: [0: "模型譯文"], contextualOrigin: .pureAI, edits: [2: "手動編輯"])
+        #expect(automatic.lines == [0: "模型譯文", 2: "手動編輯"])
+        #expect(automatic.origins == [0: .pureAI, 2: .edited])
+        let explicit = ResolvedLyricTranslations(selection: .provider(provider.id), embedded: [provider],
+            prefersProvider: true, imported: [1: "匯入"], base: [1: "基礎"],
+            contextual: [:], contextualOrigin: .pureAI, edits: [0: "手動編輯"])
+        #expect(explicit.origins == [0: .edited, 1: .provider(provider.id)])
+    }
+
     @MainActor @Test func pureWorkDoesNotAdmitAnyAppleTranslationJob() async {
         let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }

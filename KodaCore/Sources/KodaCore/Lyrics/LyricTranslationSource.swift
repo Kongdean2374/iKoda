@@ -68,12 +68,16 @@ public struct ResolvedLyricTranslations: Equatable, Sendable {
                 origins[id] = origin
             }
         }
-        add(base, from: .appleTranslation)
+        if contextualOrigin != .pureAI { add(base, from: .appleTranslation) }
         switch selection {
         case .automatic:
             add(contextual, from: contextualOrigin)
-            if prefersProvider, let provider { add(provider.lines, from: .provider(provider.id)) }
-            add(imported, from: .imported)
+            // The experimental mode is a direct model comparison. Other
+            // sources remain available through explicit choices.
+            if contextualOrigin != .pureAI {
+                if prefersProvider, let provider { add(provider.lines, from: .provider(provider.id)) }
+                add(imported, from: .imported)
+            }
         case .provider(let id):
             if let provider = embedded.first(where: { $0.id == id }) { add(provider.lines, from: .provider(id)) }
         case .imported:
