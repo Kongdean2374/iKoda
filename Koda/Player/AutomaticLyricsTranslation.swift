@@ -33,45 +33,33 @@ nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
 /// Installed language sessions belong to the work task, not to any lyrics view.
 /// SwiftUI sessions below are used only for the system's foreground download prompt.
 nonisolated enum NativeLyricsTranslationEngine {
-    private struct LanguageChoice: Sendable {
-        let source: Locale.Language
-        let target: Locale.Language
-        let installed: Bool
-        var highFidelity = false
-    }
-
     @concurrent
     static func translate(_ input: AutomaticLyricTranslationPipeline.Input, _ fragments: [ChineseLyricTranslationPlan.Fragment],
                           publish: @escaping AutomaticLyricTranslationPipeline.Publish,
                           report: @escaping AutomaticLyricTranslationPipeline.Report) async throws -> AutomaticLyricTranslationPipeline.Outcome {
+        guard input.mode.usesAppleTranslation else { return .unavailable }
+        let selected: [AppleLyricDiagnostics.LanguageRoute]
+        if let routes = input.routes { selected = routes }
+        else { selected = await routes(for: fragments, mode: input.mode) }
+        let choices = Dictionary(selected.map { ($0.source, $0) }, uniquingKeysWith: { first, _ in first })
         var languages: [String] = []
         for fragment in fragments where !languages.contains(fragment.language) { languages.append(fragment.language) }
-        let compatibleChoices = await languageChoices(for: languages)
-        var choices = compatibleChoices
-        #if compiler(>=6.3)
-        if #available(iOS 26.4, macCatalyst 26.4, *), input.mode != .quick {
-            let high = await languageChoices(for: languages, highFidelity: true)
-            for (id, choice) in high where choice.installed { choices[id] = choice }
-        }
-        #endif
         try Task.checkCancellation()
         var unavailable = false
         var usedCompatibility = false
         var diagnostics = AppleLyricDiagnostics()
-        diagnostics.languages = languages.map { source in
-            let choice = choices[source]
-            return .init(source: source, target: choice?.target.minimalIdentifier,
-                         support: choice.map { $0.installed ? .available : .download } ?? .unsupported)
-        }
+        diagnostics.languages = selected
         await report(diagnostics)
         var missingLanguage: AutomaticLyricTranslationPipeline.LanguagePair?
         var translated: [String: String] = [:]
         for language in languages {
             try Task.checkCancellation()
-            guard let choice = choices[language] else { unavailable = true; continue }
-            guard choice.installed else {
+            guard let choice = choices[language], let targetID = choice.target else { unavailable = true; continue }
+            let source = Locale.Language(identifier: language)
+            let target = Locale.Language(identifier: targetID)
+            guard choice.support == .available else {
                 if missingLanguage == nil {
-                    missingLanguage = .init(source: choice.source.minimalIdentifier, target: choice.target.minimalIdentifier)
+                    missingLanguage = .init(source: language, target: targetID)
                 }
                 continue
             }
@@ -86,56 +74,43 @@ nonisolated enum NativeLyricsTranslationEngine {
                 byText[key, default: []].append(fragment)
             }
             let responsesByID = Dictionary(uniqueKeysWithValues: unique.map { ($0.id, byText[input.mode == .quick ? $0.text : $0.id] ?? []) })
-            var routes = [choice]
-            if choice.highFidelity, let fallback = compatibleChoices[language], fallback.installed {
-                routes.append(fallback)
+            let strategy = choice.strategy ?? .standard
+            usedCompatibility = usedCompatibility || (input.mode != .quick && strategy != .highFidelity)
+            let requests = unique.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
+            let session: TranslationSession
+            #if compiler(>=6.3)
+            if #available(iOS 26.4, macCatalyst 26.4, *) {
+                session = TranslationSession(installedSource: source, target: target,
+                                             preferredStrategy: strategy == .highFidelity ? .highFidelity : .lowLatency)
+            } else {
+                session = TranslationSession(installedSource: source, target: target)
             }
-            for route in routes {
-                let missing = unique.filter { translated[$0.id] == nil }
-                guard !missing.isEmpty else { break }
-                usedCompatibility = usedCompatibility || (input.mode != .quick && !route.highFidelity)
-                let requests = missing.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
-                let session: TranslationSession
-                let strategy: AppleLyricDiagnostics.Strategy
-                #if compiler(>=6.3)
-                if #available(iOS 26.4, macCatalyst 26.4, *) {
-                    strategy = route.highFidelity ? .highFidelity : .lowLatency
-                    session = TranslationSession(installedSource: route.source, target: route.target,
-                                                 preferredStrategy: route.highFidelity ? .highFidelity : .lowLatency)
-                } else {
-                    strategy = .standard
-                    session = TranslationSession(installedSource: route.source, target: route.target)
-                }
-                #else
-                strategy = .standard
-                session = TranslationSession(installedSource: route.source, target: route.target)
-                #endif
-                diagnostics.strategies.insert(strategy)
-                diagnostics.usedCompatibility = usedCompatibility
-                diagnostics.languages.removeAll { $0.source == language }
-                diagnostics.languages.append(.init(source: language, target: route.target.minimalIdentifier, support: .available))
-                await report(diagnostics)
-                defer { session.cancel() }
-                var lastPublished = ContinuousClock.now
-                do {
-                    for try await response in session.translate(batch: requests) {
-                        try Task.checkCancellation()
-                        guard let id = response.clientIdentifier, let matching = responsesByID[id],
-                              !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                        let text = TraditionalChineseLyrics.convert(response.targetText)
-                        for fragment in matching { translated[fragment.id] = text }
-                        let now = ContinuousClock.now
-                        if lastPublished.duration(to: now) >= .milliseconds(100) {
-                            await publish(translated)
-                            lastPublished = now
-                        }
-                    }
-                } catch {
+            #else
+            session = TranslationSession(installedSource: source, target: target)
+            #endif
+            diagnostics.strategies.insert(strategy)
+            diagnostics.usedCompatibility = usedCompatibility
+            await report(diagnostics)
+            defer { session.cancel() }
+            var lastPublished = ContinuousClock.now
+            do {
+                for try await response in session.translate(batch: requests) {
                     try Task.checkCancellation()
-                    diagnostics.lastError = (error as? URLError)?.code == .timedOut ? .timeout : .translation
-                    await report(diagnostics)
-                    guard route.highFidelity, routes.count > 1 else { throw error }
+                    guard let id = response.clientIdentifier, let matching = responsesByID[id],
+                          !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                    let text = TraditionalChineseLyrics.convert(response.targetText)
+                    for fragment in matching { translated[fragment.id] = text }
+                    let now = ContinuousClock.now
+                    if lastPublished.duration(to: now) >= .milliseconds(100) {
+                        await publish(translated)
+                        lastPublished = now
+                    }
                 }
+            } catch {
+                try Task.checkCancellation()
+                diagnostics.lastError = (error as? URLError)?.code == .timedOut ? .timeout : .translation
+                unavailable = true
+                await report(diagnostics)
             }
             try Task.checkCancellation()
             await publish(translated)
@@ -147,44 +122,64 @@ nonisolated enum NativeLyricsTranslationEngine {
         return usedCompatibility ? .compatible : .complete
     }
 
-    /// Keep the non-Sendable availability object entirely on the generic executor.
-    /// An installed Chinese variant is preferred over a supported-but-uninstalled one.
     @concurrent
-    private static func languageChoices(for sourceLanguages: [String], highFidelity: Bool = false) async -> [String: LanguageChoice] {
+    static func routes(for fragments: [ChineseLyricTranslationPlan.Fragment], mode: LyricsTranslationMode) async
+        -> [AppleLyricDiagnostics.LanguageRoute] {
+        guard mode.usesAppleTranslation else { return [] }
+        let sources = Set(fragments.map(\.language)).sorted()
+        guard !sources.isEmpty else { return [] }
+        var compatible: AppleLyricDiagnostics.Strategy = .standard
+        #if compiler(>=6.3)
+        if #available(iOS 26.4, macCatalyst 26.4, *) { compatible = .lowLatency }
+        #endif
+        let ordinary = await supportedRoutes(sources, strategy: compatible)
+        var candidates = ordinary
+        #if compiler(>=6.3)
+        if #available(iOS 26.4, macCatalyst 26.4, *), mode != .quick, !Task.isCancelled {
+            candidates += await supportedRoutes(sources, strategy: .highFidelity)
+        }
+        #endif
+        return sources.map { source in
+            let options = candidates.filter { $0.source == source }
+            let taiwan = Set(options.compactMap(\.target).filter { LyricChineseTarget.tier($0) <= 2 }).sorted()
+            guard let selected = LyricChineseTarget.choose(options, prefersQuality: mode != .quick) else {
+                return .init(source: source, target: nil, support: .unsupported, supportedTaiwanTargets: taiwan)
+            }
+            return .init(source: source, target: selected.target, support: selected.support, strategy: selected.strategy,
+                         supportedTaiwanTargets: taiwan)
+        }
+    }
+
+    /// Checks actual support per pair. A Locale existing does not imply a
+    /// compatible model or installed language pack.
+    @concurrent
+    private static func supportedRoutes(_ sources: [String], strategy: AppleLyricDiagnostics.Strategy) async
+        -> [AppleLyricDiagnostics.LanguageRoute] {
         let availability: LanguageAvailability
         #if compiler(>=6.3)
         if #available(iOS 26.4, macCatalyst 26.4, *) {
-            availability = LanguageAvailability(preferredStrategy: highFidelity ? .highFidelity : .lowLatency)
+            availability = LanguageAvailability(preferredStrategy: strategy == .highFidelity ? .highFidelity : .lowLatency)
         } else { availability = LanguageAvailability() }
         #else
         availability = LanguageAvailability()
         #endif
         let supported = await availability.supportedLanguages
-        guard !Task.isCancelled else { return [:] }
-        let chinese = supported.filter { $0.languageCode?.identifier == "zh" }
-        let targets = chinese.filter { $0.script?.identifier == "Hant" } + chinese.filter { $0.script?.identifier != "Hant" }
-        var result: [String: LanguageChoice] = [:]
-        for sourceID in sourceLanguages {
-            let source = Locale.Language(identifier: sourceID)
-            var downloadable: Locale.Language?
+        let chinese = supported.filter { ["zh", "yue"].contains($0.languageCode?.identifier ?? "") }
+        let targets = LyricChineseTarget.ordered(chinese.map(\.minimalIdentifier))
+        var results: [AppleLyricDiagnostics.LanguageRoute] = []
+        for source in sources {
             for target in targets {
-                let status = await availability.status(from: source, to: target)
-                guard !Task.isCancelled else { return [:] }
+                guard !Task.isCancelled else { return [] }
+                let status = await availability.status(from: Locale.Language(identifier: source), to: Locale.Language(identifier: target))
                 switch status {
-                case .installed:
-                    result[sourceID] = LanguageChoice(source: source, target: target, installed: true, highFidelity: highFidelity)
-                case .supported:
-                    if downloadable == nil { downloadable = target }
+                case .installed: results.append(.init(source: source, target: target, support: .available, strategy: strategy))
+                case .supported: results.append(.init(source: source, target: target, support: .download, strategy: strategy))
                 case .unsupported: break
                 @unknown default: break
                 }
-                if result[sourceID] != nil { break }
-            }
-            if result[sourceID] == nil, let target = downloadable {
-                result[sourceID] = LanguageChoice(source: source, target: target, installed: false)
             }
         }
-        return result
+        return results
     }
 
     @concurrent

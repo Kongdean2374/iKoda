@@ -12,12 +12,17 @@ public final class AutomaticLyricTranslationPipeline {
         public let rows: [ChineseLyricTranslationPlan.Row]
         public let namespace: String?
         public let mode: LyricsTranslationMode
+        public let plan: ChineseLyricTranslationPlan?
+        public let routes: [AppleLyricDiagnostics.LanguageRoute]?
         public init(songID: String, rows: [ChineseLyricTranslationPlan.Row],
-                    namespace: String? = nil, mode: LyricsTranslationMode = .quick) {
+                    namespace: String? = nil, mode: LyricsTranslationMode = .quick,
+                    plan: ChineseLyricTranslationPlan? = nil, routes: [AppleLyricDiagnostics.LanguageRoute]? = nil) {
             self.songID = songID
             self.rows = rows
             self.namespace = namespace
             self.mode = mode
+            self.plan = plan
+            self.routes = routes
         }
     }
 
@@ -160,11 +165,11 @@ public final class AutomaticLyricTranslationPipeline {
         self.enabled = enabled
         foreground = isForeground
         if isForeground && !playbackSessionFinished { suspended = false }
-        currentKey = current.map(ensureRecord)
+        currentKey = current.flatMap { $0.mode.usesAppleTranslation ? ensureRecord($0) : nil }
         backgroundCurrentKey = allowsBackgroundCurrent ? currentKey : nil
         var seen = Set<Key>()
         if let currentKey { seen.insert(currentKey) }
-        upcomingKeys = upcoming.prefix(maximumUpcoming).compactMap { input in
+        upcomingKeys = upcoming.filter { $0.mode.usesAppleTranslation }.prefix(maximumUpcoming).compactMap { input in
             let key = ensureRecord(input)
             return seen.insert(key).inserted ? key : nil
         }
@@ -249,7 +254,10 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     public nonisolated static func cacheKey(_ input: Input) -> AutomaticLyricTranslationCache.Key {
-        let namespace = input.namespace.map { $0 + "|" + input.mode.rawValue + "|apple-translation-v2" }
+        let namespace = input.namespace.map {
+            $0 + "|" + input.mode.rawValue + "|apple-translation-v3|" + LyricLanguageProfile.version + "|"
+                + (input.routes.map(LyricChineseTarget.namespace) ?? "")
+        }
         return .init(songID: input.songID, rows: input.rows, namespace: namespace)
     }
 
@@ -336,8 +344,9 @@ public final class AutomaticLyricTranslationPipeline {
             let planningStarted = ContinuousClock.now
             let rows = record.input.rows
             let detector = detectLanguage
+            let recordInputPlan = record.input.plan
             let plan = await Task.detached(priority: .utility) {
-                ChineseLyricTranslationPlan(rows: rows, detectLanguage: detector)
+                recordInputPlan ?? ChineseLyricTranslationPlan(rows: rows, detectLanguage: detector)
             }.value
             guard accepts(key: key, token: token) else { return }
             record.plan = plan

@@ -34,6 +34,20 @@ final class LyricsTranslationCoordinator {
     private let polish: LyricsPolishing
     @ObservationIgnored private let translationCache: AutomaticLyricTranslationCache
     private var mode: LyricsTranslationMode = .quality
+    private var alternate: AlternateTranslation?
+    private struct AlternateTranslation {
+        let original: LyricsCandidate.Identity
+        let songID: String
+        let choice: LyricTranslationSelection
+        let lines: [Int: String]
+    }
+
+    var currentAIMode: LyricsTranslationMode { mode == .pureAI ? .pureAI : .immersive }
+    var isAIWorking: Bool {
+        [.identifying, .preparing, .summarizing, .generating, .validating, .retrying, .awaitingCancellation]
+            .contains(polish.diagnostics.phase)
+    }
+
     private var queueEnded = false
     private var prefetchLimit = 5
     @ObservationIgnored private var cacheCapacityUpdate: Task<Void, Never>?
@@ -45,6 +59,8 @@ final class LyricsTranslationCoordinator {
     private var versionBySong: [String: LyricsCandidate] = [:]
     private let pipeline: AutomaticLyricTranslationPipeline
     private var inputs: [String: PreparedInput] = [:]
+    @ObservationIgnored private var preparation: [String: (id: UUID, task: Task<Void, Never>)] = [:]
+    private var baseMode: LyricsTranslationMode { mode == .immersive ? .quality : mode }
     private var currentSong: Song?
     private var upcomingSongs: [Song] = []
     private var automaticEnabled = true
@@ -91,7 +107,7 @@ final class LyricsTranslationCoordinator {
                 mode: LyricsTranslationMode, prefetchLimit: Int, allowed: Bool, hasHeadroom: Bool,
                 constrained: Bool, buffering: Bool) {
         let newMode = self.mode != mode
-        if newMode { invalidateLanguageWork() }
+        if newMode { invalidateLanguageWork(); alternate = nil }
         let budgetChanged = self.prefetchLimit != prefetchLimit || self.hasHeadroom != hasHeadroom
             || self.buffered != buffering || self.constrained != constrained || originalReadsAllowed != allowed
         self.mode = mode
@@ -127,6 +143,7 @@ final class LyricsTranslationCoordinator {
             desiredLookups = Dictionary(uniqueKeysWithValues: context.map { ($0.song.id, $0) })
             for (id, old) in oldDesired where desiredLookups[id] != old {
                 inputs.removeValue(forKey: id)
+                preparation.removeValue(forKey: id)?.task.cancel()
                 if desiredLookups[id] != nil { versionBySong.removeValue(forKey: id) }
             }
             attemptedPrefetch.formIntersection(Set(context))
@@ -162,13 +179,20 @@ final class LyricsTranslationCoordinator {
 
     private func selectedVersionChanged(_ candidate: LyricsCandidate?) {
         invalidateLanguageWork()
+        alternate = nil
         if let songID = currentSong?.id {
+            preparation.removeValue(forKey: songID)?.task.cancel()
             inputs[songID] = nil
             versionBySong[songID] = nil
         }
         if let candidate { install(candidate) }
         lyricsRevision &+= 1
         refreshTranslationRequests()
+        if let candidate, let choice = alternateMode(versions.translationSelection) {
+            let scope = versions.profileScope
+            let selection = versions.translationSelection
+            Task { [weak self] in await self?.loadAlternate(candidate, mode: choice, choice: selection, scope: scope) }
+        }
         if foreground, hasHeadroom, !buffered, !constrained, prefetchTask == nil { startPrefetch(lookupContext) }
     }
 
@@ -178,20 +202,61 @@ final class LyricsTranslationCoordinator {
         case .synced(let rows): lines = rows.map { .init(id: $0.id, text: $0.text) }
         case .plain(let text): lines = LyricsCandidate.plainLines(text).enumerated().map { .init(id: $0.offset, text: $0.element) }
         }
+        let previousPlan = versionBySong[candidate.songID]?.id == candidate.id ? inputs[candidate.songID]?.input.plan : nil
         versionBySong[candidate.songID] = candidate
-        inputs[candidate.songID] = PreparedInput(lines: lines, input: .init(songID: candidate.songID,
-            rows: lines.map { .init(id: $0.id, text: $0.text) }, namespace: candidate.id.cacheNamespace, mode: mode))
+        let rows = lines.map { ChineseLyricTranslationPlan.Row(id: $0.id, text: $0.text) }
+        prepare(candidate, lines: lines, rows: rows, plan: previousPlan)
+    }
+
+    private func prepare(_ candidate: LyricsCandidate, lines: [LyricsTranslationText],
+                         rows: [ChineseLyricTranslationPlan.Row], plan: ChineseLyricTranslationPlan?) {
+        let id = candidate.songID
+        let token = UUID()
+        preparation[id]?.task.cancel()
+        let mode = baseMode
+        let namespace = candidate.id.cacheNamespace
+        inputs[id] = .init(lines: lines, input: .init(songID: id, rows: rows, namespace: namespace, mode: mode, plan: plan))
+        preparation[id] = (token, Task(priority: id == currentSong?.id ? .userInitiated : .utility) { [weak self] in
+            let plan = if let plan { plan } else { await Self.analyze(rows) }
+            guard let self, !Task.isCancelled, self.preparation[id]?.id == token else { return }
+            self.inputs[id] = .init(lines: lines, input: .init(songID: id, rows: rows, namespace: namespace, mode: mode, plan: plan))
+            if id == self.currentSong?.id { self.adjustPolish(limits: self.polishLimits) }
+            guard mode.usesAppleTranslation else { self.preparation[id] = nil; return }
+            let routes = await NativeLyricsTranslationEngine.routes(for: plan.fragments, mode: mode)
+            guard !Task.isCancelled, self.preparation[id]?.id == token else { return }
+            self.inputs[id] = .init(lines: lines, input: .init(songID: id, rows: rows, namespace: namespace,
+                                                              mode: mode, plan: plan, routes: routes))
+            self.preparation[id] = nil
+            self.refreshTranslationRequests()
+            self.retryPreparedCurrentIfNeeded()
+        })
+    }
+
+    @concurrent nonisolated private static func analyze(_ rows: [ChineseLyricTranslationPlan.Row]) async -> ChineseLyricTranslationPlan {
+        ChineseLyricTranslationPlan(rows: rows)
+    }
+
+    private func preparedBase(_ id: String) -> AutomaticLyricTranslationPipeline.Input? {
+        guard let input = inputs[id]?.input, input.routes != nil, input.mode.usesAppleTranslation else { return nil }
+        return input
+    }
+
+    private func resetPreparation() {
+        for work in preparation.values { work.task.cancel() }
+        preparation.removeAll()
     }
 
     func setProfile(_ directory: URL, replacingSession: Bool = false) {
         cancelPrefetch(keepingCurrent: false)
+        resetPreparation()
+        alternate = nil
         inputs.removeAll()
         versionBySong.removeAll()
         lookupContext = []
         attemptedPrefetch.removeAll()
         currentRetryKey = nil
         versions.setProfile(directory, replacingSession: replacingSession)
-        polish.stop()
+        polish.setProfile(directory)
         lyricsRevision &+= 1
         refreshTranslationRequests()
     }
@@ -220,15 +285,19 @@ final class LyricsTranslationCoordinator {
 
     func adjustPolish(limits: Set<LyricWorkLimit>) {
         polishLimits = expirationSuspended ? limits.union([.background]) : limits
-        let wantsAI = mode == .immersive || versions.translationSelection == .foundationModels
+        let wantsAI = mode.usesContextModel || versions.translationSelection == .foundationModels
         var work: LyricsPolishing.Work?
         var upcoming: LyricsPolishing.Work?
-        if wantsAI, let song = currentSong, let version = versions.current, let prepared = inputs[song.id] {
-            work = .init(song: song, candidate: version, rows: prepared.lines, snapshot: pipeline.snapshot(for: prepared.input))
-            if mode == .immersive, hasHeadroom, !constrained, !buffered,
-               let next = upcomingSongs.first, let nextVersion = versionBySong[next.id], let nextInput = inputs[next.id] {
-                upcoming = .init(song: next, candidate: nextVersion, rows: nextInput.lines,
-                                 snapshot: pipeline.snapshot(for: nextInput.input))
+        let aiMode: LyricsTranslationMode = mode == .pureAI ? .pureAI : .immersive
+        if wantsAI, let song = currentSong, let version = versions.current, let prepared = inputs[song.id],
+           let plan = prepared.input.plan {
+            work = .init(song: song, candidate: version, rows: prepared.lines, plan: plan, mode: aiMode,
+                         base: preparedBase(song.id).map { pipeline.snapshot(for: $0).lines } ?? [:])
+            if mode.usesContextModel, hasHeadroom, !constrained, !buffered,
+               let next = upcomingSongs.first, let nextVersion = versionBySong[next.id], let nextInput = inputs[next.id],
+               let plan = nextInput.input.plan {
+                upcoming = .init(song: next, candidate: nextVersion, rows: nextInput.lines, plan: plan, mode: aiMode,
+                                 base: preparedBase(next.id).map { pipeline.snapshot(for: $0).lines } ?? [:])
             }
         }
         polish.update(work, upcoming: upcoming, limits: polishLimits,
@@ -236,12 +305,14 @@ final class LyricsTranslationCoordinator {
     }
 
     func regenerate(clear: Bool, polishOnly: Bool = false) async {
-        guard !playbackSessionFinished, !queueEnded, let id = currentSong?.id, let input = inputs[id]?.input else { return }
+        guard !playbackSessionFinished, !queueEnded, let id = currentSong?.id, inputs[id] != nil else { return }
         let scope = versions.profileScope
         let version = versions.current?.id
         let requestMode = mode
-        if !polishOnly { await pipeline.regenerate(input, discardDisk: clear) }
-        guard (requestMode == .immersive || versions.translationSelection == .foundationModels),
+        if !polishOnly, let base = preparedBase(id) {
+            Task { await pipeline.regenerate(base, discardDisk: clear) }
+        }
+        guard (requestMode.usesContextModel || versions.translationSelection == .foundationModels),
               mode == requestMode, versions.profileScope == scope,
               versions.current?.id == version, currentSong?.id == id, !playbackSessionFinished, !queueEnded else { return }
         adjustPolish(limits: polishLimits)
@@ -249,17 +320,70 @@ final class LyricsTranslationCoordinator {
     }
 
     func cachedTranslation(for candidate: LyricsCandidate, mode: LyricsTranslationMode) async -> [Int: String] {
+        if mode.usesContextModel { return await polish.cached(candidate, mode: mode) }
         let rows = LyricsPreviewRow.make(candidate.lyrics).map { ChineseLyricTranslationPlan.Row(id: $0.id, text: $0.text) }
+        let plan = await Self.analyze(rows)
+        let routes = await NativeLyricsTranslationEngine.routes(for: plan.fragments, mode: mode)
+        guard !Task.isCancelled else { return [:] }
         let input = AutomaticLyricTranslationPipeline.Input(songID: candidate.songID, rows: rows,
-                  namespace: candidate.id.cacheNamespace, mode: mode)
-        let saved = await translationCache.entry(for: AutomaticLyricTranslationPipeline.cacheKey(input))
-        let polished = mode == .immersive ? await polish.cached(candidate) : [:]
-        guard let saved else { return polished }
-        let base = await Task.detached(priority: .utility) {
-            ChineseLyricTranslationPlan(rows: rows).renderedLines(translations: saved.fragments)
-        }.value
-        return base.merging(polished) { _, newer in newer }
+                  namespace: candidate.id.cacheNamespace, mode: mode, plan: plan, routes: routes)
+        guard let saved = await translationCache.entry(for: AutomaticLyricTranslationPipeline.cacheKey(input)) else { return [:] }
+        return plan.renderedLines(translations: saved.fragments)
     }
+
+    func selectTranslation(_ choice: LyricTranslationSelection) async {
+        guard let candidate = versions.current else { return }
+        let scope = versions.profileScope
+        await versions.selectTranslation(choice)
+        guard versions.profileScope == scope, versions.current?.id == candidate.id,
+              versions.translationSelection == choice else { return }
+        alternate = nil
+        if let mode = alternateMode(choice) { await loadAlternate(candidate, mode: mode, choice: choice, scope: scope) }
+    }
+
+    private func alternateMode(_ choice: LyricTranslationSelection) -> LyricsTranslationMode? {
+        switch choice {
+        case .quickApple: .quick
+        case .qualityApple: .quality
+        case .immersiveAI: .immersive
+        case .pureAI: .pureAI
+        default: nil
+        }
+    }
+
+    private func loadAlternate(_ candidate: LyricsCandidate, mode: LyricsTranslationMode, choice: LyricTranslationSelection,
+                               scope: UUID) async {
+        let lines = await cachedTranslation(for: candidate, mode: mode)
+        guard !Task.isCancelled, versions.profileScope == scope, versions.current?.id == candidate.id,
+              versions.translationSelection == choice else { return }
+        alternate = .init(original: candidate.id, songID: candidate.songID, choice: choice, lines: lines)
+    }
+
+    func resumeFailedContext() {
+        guard !playbackSessionFinished, !queueEnded else { return }
+        polish.resumeFailed()
+    }
+
+    func regenerateContext(_ rows: Set<Int>, for candidate: LyricsCandidate, scope: UUID) async {
+        guard !playbackSessionFinished, !queueEnded, scope == versions.profileScope,
+              versions.current?.id == candidate.id, polish.version == candidate.id, polish.songID == candidate.songID else { return }
+        await polish.regenerate(clear: false, rows: rows)
+    }
+
+    func retainAI(_ candidate: LyricsCandidate) async throws {
+        guard candidate.id == versions.current?.id, candidate.songID == versions.current?.songID else { throw CancellationError() }
+        try await polish.retain(candidate, mode: currentAIMode, edits: versions.edits(for: candidate))
+    }
+
+    func retainedAI(_ candidate: LyricsCandidate, mode: LyricsTranslationMode) async throws -> PreservedLyricTranslationStore.Record? {
+        try await polish.retained(candidate, mode: mode)
+    }
+
+    func forgetAI(_ candidate: LyricsCandidate, mode: LyricsTranslationMode) async throws {
+        try await polish.forget(candidate, mode: mode)
+    }
+
+    func retainedAIUsage() async throws -> Int { try await polish.retainedUsage() }
 
     func setCacheCapacity(megabytes: Int) {
         guard configuredMegabytes != megabytes else { return }
@@ -289,7 +413,7 @@ final class LyricsTranslationCoordinator {
         let current = versions.current
         let currentVersion = current?.songID == songID ? current : nil
         let selection = currentVersion == nil ? .automatic : versions.translationSelection
-        let isImmersive = mode == .immersive || selection == .foundationModels
+        let isImmersive = mode.usesContextModel || selection == .foundationModels
         guard let songID, let prepared = inputs[songID], prepared.lines == lines else {
             return .init(phase: playbackSessionFinished ? .paused : .idle, playbackSessionFinished: playbackSessionFinished,
                          immersiveStatus: isImmersive ? .preparing : nil,
@@ -309,18 +433,27 @@ final class LyricsTranslationCoordinator {
         case .paused: (phase, baseStage) = (.paused, .preparing)
         }
 
-        let workMatches = currentVersion != nil && polish.version == currentVersion?.id
+        let workMatches = currentVersion != nil && polish.version == currentVersion?.id && polish.mode == currentAIMode && polish.songID == songID
         let contextual = automaticEnabled && isImmersive && workMatches ? polish.lines : [:]
+        let pure = mode == .pureAI
         let preferred = currentVersion.map {
             $0.id.source == "local" || [.high, .medium].contains($0.match.confidence)
                 || versions.assessments[$0.id]?.content == .verified
         } ?? false
+        let selectedMode = alternateMode(selection)
+        let activeLines: [Int: String]
+        if selectedMode == baseMode, !pure { activeLines = snapshot.lines }
+        else if selectedMode == currentAIMode, workMatches { activeLines = contextual }
+        else if let alternate, alternate.songID == songID, alternate.original == currentVersion?.id, alternate.choice == selection {
+            activeLines = alternate.lines
+        } else { activeLines = [:] }
         let resolved = ResolvedLyricTranslations(selection: selection, embedded: currentVersion?.embeddedTranslations ?? [],
                         prefersProvider: preferred, imported: importsEnabled ? imported : [:],
-                        base: automaticEnabled ? snapshot.lines : [:], contextual: contextual,
-                        edits: currentVersion.map { versions.edits(for: $0) } ?? [:])
+                        base: automaticEnabled && !pure ? snapshot.lines : [:], contextual: contextual,
+                        contextualOrigin: pure ? .pureAI : .foundationModels,
+                        edits: currentVersion.map { versions.edits(for: $0) } ?? [:], selectedLines: activeLines)
         let polishStatus: ImmersiveLyricStatus.Polish = workMatches ? polish.status : .idle
-        let immersive = isImmersive ? ImmersiveLyricStatus.resolve(base: baseStage, polish: polishStatus) : nil
+        let immersive = isImmersive ? ImmersiveLyricStatus.resolve(base: pure ? .ready : baseStage, polish: polishStatus) : nil
         let status = snapshot.usedCompatibility ? String(localized: "Using Compatible Translation") : nil
         return AutomaticLyricsResult(phase: playbackSessionFinished && phase != .ready ? .paused : phase,
             lines: resolved.lines, completed: snapshot.completed, total: snapshot.total,
@@ -332,11 +465,11 @@ final class LyricsTranslationCoordinator {
     }
 
     func cachedContextualLines(for candidate: LyricsCandidate) async -> [Int: String] {
-        await polish.cached(candidate)
+        await polish.cached(candidate, mode: mode == .pureAI ? .pureAI : .immersive)
     }
 
     func contextualLines(for candidate: LyricsCandidate) -> [Int: String] {
-        polish.version == candidate.id ? polish.lines : [:]
+        polish.version == candidate.id && polish.songID == candidate.songID ? polish.lines : [:]
     }
 
     private func invalidateLanguageWork() {
@@ -408,7 +541,7 @@ final class LyricsTranslationCoordinator {
     }
 
     var downloadRequest: DownloadRequest? {
-        guard !playbackSessionFinished, foreground, automaticEnabled, showsTranslation, let songID = currentSong?.id,
+        guard mode.usesAppleTranslation, !playbackSessionFinished, foreground, automaticEnabled, showsTranslation, let songID = currentSong?.id,
               let prepared = inputs[songID] else { return nil }
         let snapshot = pipeline.snapshot(for: prepared.input)
         guard snapshot.phase == .needsLanguage, let pair = snapshot.languagePair else { return nil }
@@ -429,7 +562,6 @@ final class LyricsTranslationCoordinator {
         // A failed/cancelled foreground prompt is not remounted indefinitely. Retry is
         // explicit and belongs to the language pair, including after skipping a song.
         if installed {
-            pipeline.retry(songID: request.songID)
             retryCurrentLanguage(pair)
         } else {
             // Apple's preparation may finish while another download is still running.
@@ -445,7 +577,6 @@ final class LyricsTranslationCoordinator {
                     let ready = await NativeLyricsTranslationEngine.isInstalled(source: request.source, target: request.target)
                     guard !Task.isCancelled, !self.playbackSessionFinished, self.foreground, self.downloadAttempt == attempt else { return }
                     if ready {
-                        self.pipeline.retry(songID: request.songID)
                         self.retryCurrentLanguage(pair)
                         return
                     }
@@ -466,16 +597,16 @@ final class LyricsTranslationCoordinator {
         guard !playbackSessionFinished, let songID = currentSong?.id, let prepared = inputs[songID],
               let needed = pipeline.snapshot(for: prepared.input).languagePair,
               needed.source == pair.source, needed.target == pair.target else { return }
-        pipeline.retry(songID: songID)
+        if let candidate = versions.current, candidate.songID == songID { install(candidate) }
     }
 
     private func refreshTranslationRequests() {
         let currentLookupKey = currentSong.flatMap { desiredLookups[$0.id] }
         let mayContinueCurrent = !playbackSessionFinished && !foreground && backgroundExecutionAllowed && !expirationSuspended
             && backgroundContinuationKey != nil && currentLookupKey == backgroundContinuationKey
-        pipeline.setRequests(current: currentSong.flatMap { inputs[$0.id]?.input },
-                             upcoming: (hasHeadroom && !buffered && !constrained ? upcomingSongs : []).compactMap { inputs[$0.id]?.input },
-                             enabled: automaticEnabled && showsTranslation && !playbackSessionFinished && !queueEnded,
+        pipeline.setRequests(current: currentSong.flatMap { preparedBase($0.id) },
+                             upcoming: (hasHeadroom && !buffered && !constrained ? upcomingSongs : []).compactMap { preparedBase($0.id) },
+                             enabled: mode.usesAppleTranslation && automaticEnabled && showsTranslation && !playbackSessionFinished && !queueEnded,
                              isForeground: foreground && !expirationSuspended && !playbackSessionFinished,
                              allowsBackgroundCurrent: mayContinueCurrent)
     }

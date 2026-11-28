@@ -16,10 +16,15 @@ public struct AppleLyricDiagnostics: Codable, Equatable, Sendable {
         public let source: String
         public let target: String?
         public let support: Support
-        public init(source: String, target: String?, support: Support) {
+        public let strategy: Strategy?
+        public let supportedTaiwanTargets: [String]?
+        public init(source: String, target: String?, support: Support, strategy: Strategy? = nil,
+                    supportedTaiwanTargets: [String]? = nil) {
             self.source = source
             self.target = target
             self.support = support
+            self.strategy = strategy
+            self.supportedTaiwanTargets = supportedTaiwanTargets
         }
     }
 
@@ -46,10 +51,8 @@ public enum ImmersiveLyricStatus: Equatable, Sendable {
     case preparing, baseTranslation, polishing, completed, partial, modelUnavailable, languageUnsupported, paused, fallback, failed, unnecessary, unavailable
 
     public static func resolve(base: Base, polish: Polish) -> Self {
-        if base == .preparing { return .preparing }
-        if base == .translating { return .baseTranslation }
         switch polish {
-        case .idle, .checking: return .preparing
+        case .idle, .checking: return base == .translating ? .baseTranslation : .preparing
         case .working: return .polishing
         case .completed: return .completed
         case .partial: return .partial
@@ -58,12 +61,28 @@ public enum ImmersiveLyricStatus: Equatable, Sendable {
         case .paused: return .paused
         case .failed: return .failed
         case .unnecessary:
-            return base == .ready ? .unnecessary : base == .partial ? .fallback : .unavailable
+            return base == .ready ? .unnecessary : base == .partial ? .fallback : .unnecessary
         }
     }
 }
 
 public struct LyricPolishDiagnostics: Equatable, Sendable {
+    public var phase: LyricAIWorkPhase = .queued
+    public var summaryState: LyricAISummaryState = .waiting
+    public var rows: [Int: LyricAIRowState] = [:]
+    public var language: LyricLanguageProfile?
+    public var currentBatch = 0
+    public var successfulBatches = 0
+    public var retryBatches = 0
+    public var reusedRows = 0
+    public var noTranslation = 0
+    public var hinted = 0
+    public var unchangedRows = 0
+    public var pure = false
+    public var startedAt: Date?
+    public var lastProgress: Date?
+    public var elapsedSeconds: TimeInterval?
+    public var historicalError: LyricWorkError?
     public var availability: LyricModelAvailability = .unchecked
     public var sources: [String: Bool] = [:]
     public var target: String?
@@ -83,7 +102,7 @@ public struct LyricPolishDiagnostics: Equatable, Sendable {
     public var cacheSeconds: TimeInterval?
     public var lastError: LyricWorkError?
     public var limits: Set<LyricWorkLimit> = []
-    public var unchanged: Int { max(0, validated - changed - translatedWithoutBase) }
+    public var unchanged: Int { unchangedRows }
     public init() {}
 }
 

@@ -8,6 +8,7 @@ extension LyricsTranslationMode {
         case .quick: String(localized: "Quick Translation")
         case .quality: String(localized: "High Quality Translation")
         case .immersive: String(localized: "Immersive Translation")
+        case .pureAI: String(localized: "Pure AI Translation (Experimental)")
         }
     }
 }

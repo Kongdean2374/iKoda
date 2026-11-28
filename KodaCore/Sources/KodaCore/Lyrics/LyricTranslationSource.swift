@@ -43,11 +43,11 @@ public struct LyricEmbeddedTranslation: Codable, Equatable, Sendable, Identifiab
 }
 
 public enum LyricTranslationSelection: Codable, Equatable, Hashable, Sendable {
-    case automatic, provider(String), imported, appleTranslation, foundationModels
+    case automatic, provider(String), imported, appleTranslation, foundationModels, quickApple, qualityApple, immersiveAI, pureAI
 }
 
 public enum LyricTranslationOrigin: Equatable, Hashable, Sendable {
-    case provider(String), imported, appleTranslation, foundationModels, edited
+    case provider(String), imported, appleTranslation, foundationModels, pureAI, edited, quickApple, qualityApple
 }
 
 public struct ResolvedLyricTranslations: Equatable, Sendable {
@@ -55,7 +55,9 @@ public struct ResolvedLyricTranslations: Equatable, Sendable {
     public private(set) var origins: [Int: LyricTranslationOrigin] = [:]
 
     public init(selection: LyricTranslationSelection, embedded: [LyricEmbeddedTranslation], prefersProvider: Bool,
-                imported: [Int: String], base: [Int: String], contextual: [Int: String], edits: [Int: String]) {
+                imported: [Int: String], base: [Int: String], contextual: [Int: String],
+                contextualOrigin: LyricTranslationOrigin = .foundationModels, edits: [Int: String],
+                selectedLines: [Int: String] = [:]) {
         let provider = embedded.filter(\.isChinese).sorted {
             if $0.convertedToTraditional != $1.convertedToTraditional { return !$0.convertedToTraditional }
             return $0.lines.count > $1.lines.count
@@ -69,7 +71,7 @@ public struct ResolvedLyricTranslations: Equatable, Sendable {
         add(base, from: .appleTranslation)
         switch selection {
         case .automatic:
-            add(contextual, from: .foundationModels)
+            add(contextual, from: contextualOrigin)
             if prefersProvider, let provider { add(provider.lines, from: .provider(provider.id)) }
             add(imported, from: .imported)
         case .provider(let id):
@@ -79,7 +81,11 @@ public struct ResolvedLyricTranslations: Equatable, Sendable {
         case .appleTranslation:
             break
         case .foundationModels:
-            add(contextual, from: .foundationModels)
+            add(contextual, from: contextualOrigin)
+        case .quickApple: add(selectedLines, from: .quickApple)
+        case .qualityApple: add(selectedLines, from: .qualityApple)
+        case .immersiveAI: add(selectedLines, from: .foundationModels)
+        case .pureAI: add(selectedLines, from: .pureAI)
         }
         add(edits, from: .edited)
     }

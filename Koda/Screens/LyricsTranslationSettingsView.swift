@@ -40,6 +40,9 @@ struct LyricsTranslationSettingsView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Automatic translation uses Apple's on-device languages. The system may ask to download a language first; installed languages work offline. Chinese lyrics use local Simplified-to-Traditional conversion. Available imported lines take priority.")
+                    if settings.lyricsTranslationMode == .pureAI {
+                        Text("Pure AI translates directly from lyrics with Apple Intelligence and does not use Apple Translation. Missing results keep the original lyrics.")
+                    }
                     Text("Translated sentences follow the original lyric lines without word-by-word animation. Missing translations keep the original text. Changing this setting does not change playback.")
                 }
             }
@@ -64,7 +67,8 @@ struct LyricsTranslationSettingsView: View {
                 Button("Translate This Version Again") { Task { await app.lyricsTranslation.regenerate(clear: false) } }
                     .disabled(versions.current == nil || isWorking || !settings.automaticLyricsTranslation)
                     .accessibilityIdentifier("lyrics.translation.retry")
-                if settings.lyricsTranslationMode == .immersive {
+                if settings.lyricsTranslationMode.usesContextModel {
+                    Button("Resume Unfinished AI Lines") { app.lyricsTranslation.resumeFailedContext() }
                     Button("Polish This Version Again") { Task { await app.lyricsTranslation.regenerate(clear: false, polishOnly: true) } }
                         .disabled(versions.current == nil)
                 }

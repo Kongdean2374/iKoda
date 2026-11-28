@@ -18,6 +18,31 @@ public enum LyricContextPassages {
         .init(songID: songID, rows: [], namespace: originalNamespace + "|immersive|tw-lyric-context-v2")
     }
 
+    public static let promptVersion = "tw-lyric-context-v3"
+
+    public static func cacheKey(songID: String, originalNamespace: String, mode: LyricsTranslationMode,
+                                target: String = "zh-Hant-TW") -> AutomaticLyricTranslationCache.Key {
+        .init(songID: songID, rows: [], target: target,
+              namespace: [originalNamespace, mode.rawValue, "system-language-model", promptVersion, LyricLanguageProfile.version].joined(separator: "|"))
+    }
+
+    /// Repeat only an exact interior phrase with matching neighbors and voices.
+    /// Reusing an isolated line could change its meaning or its speaker.
+    public static func repeatContext(_ rows: [LyricContextRow], at index: Int, language: String?) -> RepeatContext? {
+        guard rows.indices.contains(index - 1), rows.indices.contains(index + 1),
+              let language, !rows[index - 1].text.trimmingCharacters(in: .whitespaces).isEmpty,
+              !rows[index + 1].text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        let context = rows[(index - 1)...(index + 1)]
+        let text = context.map { $0.text.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return RepeatContext(language: language, words: text, voices: context.map(\.voice))
+    }
+
+    public struct RepeatContext: Hashable, Sendable {
+        let language: String
+        let words: [String]
+        let voices: [LyricVoice?]
+    }
+
     private static let boundaries = CharacterSet(charactersIn: ".!?。！？…")
 
     public static func groups(_ rows: [LyricContextRow], translating ids: Set<Int>,

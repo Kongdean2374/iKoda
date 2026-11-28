@@ -226,7 +226,7 @@ private enum LyricsTranslationStatus {
             return importedCount >= originalCount ? "Translated" : "Partially Translated"
         }
         let showingBase = origins.contains(.appleTranslation)
-        let showingContext = origins.contains(.foundationModels)
+        let showingContext = origins.contains(.foundationModels) || origins.contains(.pureAI)
         switch result.selectedSource {
         case .appleTranslation where showingBase && result.phase == .ready:
             return "Apple Translation"
@@ -237,6 +237,17 @@ private enum LyricsTranslationStatus {
         }
         if result.selectedSource == .automatic || result.selectedSource == .foundationModels,
            let immersive = result.immersiveStatus {
+            let ai = result.polishDiagnostics
+            switch ai.phase {
+            case .identifying: return "Identifying Lyric Languages…"
+            case .preparing: return "Preparing Lyric Context…"
+            case .summarizing: return "Summarizing Lyrics…"
+            case .retrying: return "Retrying Unfinished Lines…"
+            case .awaitingCancellation: return "AI Timed Out"
+            case .generating, .validating:
+                if ai.total > 0 { return "AI Translation \(ai.validated)/\(ai.total)" }
+            default: break
+            }
             if immersive == .completed && !showingContext {
                 if showingBase { return "Showing Base Translation" }
                 if !origins.isEmpty { return "Available Translations" }
@@ -245,7 +256,11 @@ private enum LyricsTranslationStatus {
         }
         switch result.phase {
         case .idle, .preparing: return "Preparing…"
-        case .translating: return "Translating…"
+        case .translating:
+            if result.baseDiagnostics.sourceRows > 0 {
+                return "Base Translation \(result.baseDiagnostics.completedRows)/\(result.baseDiagnostics.sourceRows)"
+            }
+            return "Translating…"
         case .ready: return "Translated"
         case .needsLanguage: return "Language Needed"
         case .paused: return "Translation Paused"
