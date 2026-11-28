@@ -2,20 +2,31 @@ import KodaCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-extension LyricsTranslationMode {
-    var title: String {
-        switch self {
-        case .quick: String(localized: "Quick Translation")
-        case .quality: String(localized: "High Quality Translation")
-        case .immersive: String(localized: "Immersive Translation")
-        case .pureAI: String(localized: "Pure AI Translation (Experimental)")
-        }
-    }
-}
-
 struct LyricsVersionsView: View {
     @Environment(AppModel.self) private var app
     @State private var resetAll = false
+    @State private var filter = Filter.all
+    @State private var showOther = false
+
+    private enum Filter: CaseIterable, Hashable {
+        case all, word, line, plain
+        var title: LocalizedStringKey {
+            switch self {
+            case .all: "All"
+            case .word: "Word Synced"
+            case .line: "Line Synced"
+            case .plain: "Plain Text Lyrics"
+            }
+        }
+        func includes(_ candidate: LyricsCandidate) -> Bool {
+            switch self {
+            case .all: true
+            case .word: [.partialWords, .highCoverageWords, .completeWords].contains(candidate.timing.grade)
+            case .line: candidate.timing.grade == .line
+            case .plain: candidate.timing.grade == .plain
+            }
+        }
+    }
     @State private var importing = false
     @State private var importSong: Song?
     @State private var importScope = UUID()
@@ -23,8 +34,20 @@ struct LyricsVersionsView: View {
 
     var body: some View {
         List {
+            if let song = versions.song {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(song.title).font(.headline)
+                            Text(song.artistLine).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        ArtworkView(artwork: song.artwork, size: 42)
+                    }
+                }
+            }
             Section("Current Lyrics Version") {
-                if let current = versions.current { candidateLink(current, identifier: "lyrics.current.version") }
+                if let current = versions.current { candidateLink(current, identifier: "lyrics.current.version", selected: true) }
                 else { Text("No Lyrics") }
                 if let recommendation = versions.recommendation {
                     LabeledContent("Auto Recommendation", value: recommendation.sourceName)
@@ -37,27 +60,53 @@ struct LyricsVersionsView: View {
                         .accessibilityIdentifier("lyrics.sources.automatic")
                 }
             }
-            Section {
+            Section("Available Versions") {
+                Picker("Lyrics Format", selection: $filter) {
+                    ForEach(Filter.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 if versions.searching { ProgressView("Searching Lyrics…") }
                 if let error = versions.error { Text(error).foregroundStyle(.secondary) }
-                if !versions.searching && versions.candidates.isEmpty {
+                let all = versions.candidates + (versions.preference.localVersions ?? [])
+                    .filter { item in !versions.candidates.contains(where: { $0.id == item.id }) }
+                let matches = all.filter(filter.includes)
+                let trusted = matches.filter { !isFlagged($0) }
+                let other = matches.filter(isFlagged)
+                ForEach(trusted) { candidateRow($0) }
+                if !other.isEmpty {
+                    DisclosureGroup("Other Versions to Verify", isExpanded: $showOther) {
+                        ForEach(other) { candidateRow($0) }
+                    }
+                }
+                if !versions.searching && matches.isEmpty {
                     Text("No additional versions found.").foregroundStyle(.secondary)
                 }
-                ResultsList(results: versions.results, showsRetry: true)
-                ForEach(versions.preference.localVersions ?? []) { candidateLink($0) }
-            } header: {
-                Text("Available Versions")
+            }
+            Section("Lyrics Source Status") {
+                let results = Dictionary(uniqueKeysWithValues: versions.results.map { ($0.source, $0) })
+                ForEach(versions.configuredSources, id: \.id) { source in
+                    if let result = results[source.id] {
+                        SourceStatusRow(result: result)
+                    } else {
+                        HStack {
+                            Text(source.name)
+                            Spacer()
+                            Text(versions.searching ? "Searching Lyrics…" : "Not Searched").foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
             Section {
                 if let song = versions.song {
                     NavigationLink("Search Lyrics Manually") { LyricsManualSearchView(song: song, scope: versions.profileScope) }
                         .accessibilityIdentifier("lyrics.sources.manual")
                     Button("Import Original Lyrics…") { importSong = song; importScope = versions.profileScope; importing = true }
+                    InstrumentalTrackButton(song: song)
                 }
                 Button("Refresh Versions") { versions.search(force: true, userInitiated: true) }
                     .disabled(!versions.canSearch)
                     .accessibilityIdentifier("lyrics.sources.refresh")
                 NavigationLink("Manage Lyrics Sources") { LyricsSettingsView() }
+                NavigationLink("Instrumental Tracks") { InstrumentalTracksView() }
                 Button("Clear All Saved Version Choices", role: .destructive) { resetAll = true }
             }
         }
@@ -93,6 +142,41 @@ struct LyricsVersionsView: View {
                     }.value
                     await versions.select(candidate, expectedScope: scope)
                 } catch { versions.error = error.localizedDescription }
+            }
+        }
+    }
+    private func isFlagged(_ candidate: LyricsCandidate) -> Bool {
+        let assessment = versions.assessments[candidate.id]
+        return candidate.match.confidence == .conflict
+            || assessment?.content == .conflict || assessment?.content == .differentRecording
+            || (candidate.match.confidence == .low && assessment?.content != .verified)
+    }
+
+    private func candidateRow(_ candidate: LyricsCandidate) -> some View {
+        candidateLink(candidate, recommended: candidate.id == versions.recommendation?.id,
+                      selected: candidate.id == versions.current?.id, content: versions.assessments[candidate.id]?.content)
+    }
+
+}
+
+private struct SourceStatusRow: View {
+    let result: LyricsSourceResult
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(result.name)
+                Text(result.state.title).font(.caption).foregroundStyle(.secondary)
+                if let until = result.retryAt, until > Date() {
+                    Text(until, style: .time).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if result.state != .found && result.state != .empty {
+                Button("Retry") { app.lyricsTranslation.versions.search(source: result.source, userInitiated: true) }
+                    .buttonStyle(.borderless)
+                    .disabled(!app.lyricsTranslation.versions.canSearch)
             }
         }
     }
@@ -139,31 +223,30 @@ private extension LyricsSourceResult.State {
     }
 }
 
-@MainActor private func candidateLink(_ candidate: LyricsCandidate, identifier: String? = nil, recommended: Bool = false) -> some View {
+@MainActor private func candidateLink(_ candidate: LyricsCandidate, identifier: String? = nil, recommended: Bool = false,
+                                    selected: Bool = false, content: LyricsCandidateAssessment.Content? = nil) -> some View {
     NavigationLink {
         LyricsVersionPreview(candidate: candidate)
     } label: {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(candidate.metadata.title ?? candidate.sourceName).font(.headline)
-            Text([candidate.sourceName, candidate.id.upstream].compactMap { $0 }.joined(separator: " · "))
-                .foregroundStyle(.secondary)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 6) {
-                    Text(candidate.timing.grade.title)
-                    Text(candidate.match.confidence.title)
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(candidate.sourceName).font(.headline)
+                Text(candidate.timing.grade.title).font(.subheadline).foregroundStyle(.secondary)
+                if candidate.match.confidence == .conflict || content == .differentRecording {
+                    Text([candidate.metadata.title, candidate.metadata.artist].compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Label("Recording May Not Match", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                } else if let content, content != .unconfirmed {
+                    Text(content.title).font(.caption).foregroundStyle(.secondary)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(candidate.timing.grade.title)
-                    Text(candidate.match.confidence.title)
-                }
+                if recommended { Text("Auto Recommendation").font(.caption).foregroundStyle(Color.accentColor) }
             }
-            .font(.caption)
-            .foregroundStyle(candidate.match.confidence == .conflict ? Color.orange : Color.secondary)
-            if recommended {
-                Label("Auto Recommendation", systemImage: "checkmark.circle").font(.caption)
-            }
+            Spacer(minLength: 4)
+            if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
     }
+    .accessibilityAddTraits(selected ? .isSelected : [])
     .accessibilityIdentifier(identifier ?? "lyrics.candidate.\(candidate.id.source)")
 }
 
@@ -219,7 +302,7 @@ private extension LyricsMatch.Evidence {
     }
 }
 
-private struct LyricsManualSearchView: View {
+struct LyricsManualSearchView: View {
     let song: Song
     let scope: UUID
     @Environment(AppModel.self) private var app
@@ -291,8 +374,10 @@ struct LyricsPreviewRow: Identifiable, Sendable {
 private struct LyricsVersionPreview: View {
     let candidate: LyricsCandidate
     @Environment(AppModel.self) private var app
+    @Environment(Player.self) private var player
     @State private var filter = ""
     @State private var largeText = false
+    @State private var previewing = false
     @State private var cached: [Int: String] = [:]
     @State private var calibrating = false
     @State private var editing = false
@@ -314,7 +399,22 @@ private struct LyricsVersionPreview: View {
                         .accessibilityIdentifier("lyrics.candidate.calibrate")
                 } else { Text("Plain text lyrics have no timing to adjust.").foregroundStyle(.secondary) }
                 Toggle("Large Lyrics Text", isOn: $largeText)
+                if candidate.format != .plain, player.current?.id == candidate.songID {
+                    Toggle("Synced Preview", isOn: $previewing)
+                }
                 if let error = versions.error { Text(error).foregroundStyle(.secondary) }
+            }
+            if previewing, player.current?.id == candidate.songID, case .synced(let lines) = candidate.lyrics {
+                Section("Synced Preview") {
+                    TimelineView(.animation(minimumInterval: 0.125, paused: !player.wantsToPlay)) { context in
+                        let correction = app.effectiveLyricsOffset(candidate.songID, version: versions.preference.offset(for: candidate.id))
+                        let time = player.position(at: context.date) + SyncedLyrics.lead - correction
+                        if let index = Lyrics.index(of: time, in: lines) {
+                            LyricRow(line: lines[index], isCurrent: true, distance: 0, hasDuet: false,
+                                     offset: correction, style: LyricsStyle(app.settings), player: player)
+                        } else { Text("Waiting for the First Line").foregroundStyle(.secondary) }
+                    }
+                }
             }
             Section("Source Details") {
                 LabeledContent("Lyrics Sources", value: candidate.sourceName)
@@ -356,9 +456,8 @@ private struct LyricsVersionPreview: View {
         .navigationTitle("Lyrics Preview")
         .searchable(text: $filter, prompt: "Find in Lyrics")
         .onAppear { if scope == nil { scope = versions.profileScope } }
-        .task(id: app.settings.lyricsTranslationMode) {
-            let mode = app.settings.lyricsTranslationMode
-            let result = await app.lyricsTranslation.cachedTranslation(for: candidate, mode: mode)
+        .task(id: candidate.id) {
+            let result = await app.lyricsTranslation.cachedTranslation(for: candidate)
             if !Task.isCancelled, scope == versions.profileScope { cached = result }
         }
         .sheet(isPresented: $calibrating) {
@@ -449,11 +548,11 @@ private struct LyricsVersionCalibration: View {
                     }
                 }
                 Button("Reset Delay") { value = 0 }
-            } footer: { Text("Positive values show lyrics later on both displays. The phone and CarPlay delays are added separately.") }
+            } footer: { Text("Positive values show lyrics later. AirPlay delay is added only while AirPlay is connected.") }
             if player.current?.id == candidate.songID, case .synced(let lines) = candidate.lyrics {
                 Section("Timing Preview") {
                     TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                        let time = player.position(at: context.date) - value - library.lyricsOffset(for: candidate.songID)
+                        let time = player.position(at: context.date) + SyncedLyrics.lead - app.effectiveLyricsOffset(candidate.songID, version: value)
                         if let index = Lyrics.index(of: time, in: lines) { Text(lines[index].text) }
                         else { Text("Waiting for the next lyric…") }
                     }

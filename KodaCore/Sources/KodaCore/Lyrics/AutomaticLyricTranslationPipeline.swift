@@ -165,11 +165,11 @@ public final class AutomaticLyricTranslationPipeline {
         self.enabled = enabled
         foreground = isForeground
         if isForeground && !playbackSessionFinished { suspended = false }
-        currentKey = current.flatMap { $0.mode.usesAppleTranslation ? ensureRecord($0) : nil }
+        currentKey = current.map(ensureRecord)
         backgroundCurrentKey = allowsBackgroundCurrent ? currentKey : nil
         var seen = Set<Key>()
         if let currentKey { seen.insert(currentKey) }
-        upcomingKeys = upcoming.filter { $0.mode.usesAppleTranslation }.prefix(maximumUpcoming).compactMap { input in
+        upcomingKeys = upcoming.prefix(maximumUpcoming).compactMap { input in
             let key = ensureRecord(input)
             return seen.insert(key).inserted ? key : nil
         }

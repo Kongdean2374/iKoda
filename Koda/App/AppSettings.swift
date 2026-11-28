@@ -120,8 +120,8 @@ final class AppSettings {
     var automaticLyricsTranslation: Bool { didSet { defaults.set(automaticLyricsTranslation, forKey: "koda.lyrics.automatic.enabled") } }
     /// Imported translations are opt-in; the original lyric presentation stays the default.
     var importedLyricsEnabled: Bool { didSet { defaults.set(importedLyricsEnabled, forKey: "koda.lyrics.imported.enabled") } }
-    var lyricsTranslationMode: LyricsTranslationMode = .quality {
-        didSet { defaults.set(lyricsTranslationMode.rawValue, forKey: "koda.lyrics.translation.strategy") }
+    var prefetchTranslations = true {
+        didSet { defaults.set(prefetchTranslations, forKey: "koda.lyrics.translation.prefetch") }
     }
     var lyricsCacheMegabytes = 50 {
         didSet { defaults.set(lyricsCacheMegabytes, forKey: "koda.lyrics.cacheMegabytes") }
@@ -147,6 +147,13 @@ final class AppSettings {
     var translationSpacing: Double { didSet { defaults.set(translationSpacing, forKey: "koda.lyrics.imported.spacing") } }
     /// Invalidates only imported lyric display after a user import/removal; never playback.
     var lyricsTranslationRevision = 0
+
+    var immersive: ImmersivePreferences {
+        didSet {
+            if let data = try? JSONEncoder().encode(immersive) { defaults.set(data, forKey: "koda.immersive.v1") }
+        }
+    }
+    var immersiveTranslationsVisible = false
 
     var theme: Theme { didSet { defaults.set(theme.rawValue, forKey: Keys.theme) } }
     /// The cover's colours drift behind Now Playing; off, they hold still.
@@ -234,6 +241,7 @@ final class AppSettings {
 
     init() {
         let d = UserDefaults.standard
+        immersive = ImmersivePreferences.restore(d.data(forKey: "koda.immersive.v1"))
         let previousNativeTranslation = d.string(forKey: Keys.lyricsExtra) == LyricsExtra.translation.rawValue
         let savedAutomatic = d.object(forKey: "koda.lyrics.automatic.enabled") as? Bool
         automaticLyricsTranslation = savedAutomatic ?? true
@@ -242,10 +250,11 @@ final class AppSettings {
         if savedAutomatic == nil, previousNativeTranslation, restoredLyricsMode == .original { restoredLyricsMode = .bilingual }
         if restoredLyricsMode == .translation { restoredLyricsMode = .bilingual }
         lyricsDisplayMode = restoredLyricsMode
-        lyricsTranslationMode = defaults.string(forKey: "koda.lyrics.translation.strategy").flatMap(LyricsTranslationMode.init(rawValue:)) ?? .quality
-        lyricsCacheMegabytes = (defaults.object(forKey: "koda.lyrics.cacheMegabytes") as? Int).map { min(250, max(25, $0)) } ?? 50
-        compactBilingualPlayer = defaults.object(forKey: "koda.lyrics.compactBilingualPlayer") as? Bool ?? true
-        lyricsPrefetchLimit = (defaults.object(forKey: "koda.lyrics.prefetchLimit") as? Int).map { min(5, max(0, $0)) } ?? 5
+        prefetchTranslations = d.object(forKey: "koda.lyrics.translation.prefetch") as? Bool ?? true
+        d.removeObject(forKey: "koda.lyrics.translation.strategy")
+        lyricsCacheMegabytes = (d.object(forKey: "koda.lyrics.cacheMegabytes") as? Int).map { min(250, max(25, $0)) } ?? 50
+        compactBilingualPlayer = d.object(forKey: "koda.lyrics.compactBilingualPlayer") as? Bool ?? true
+        lyricsPrefetchLimit = (d.object(forKey: "koda.lyrics.prefetchLimit") as? Int).map { min(5, max(0, $0)) } ?? 5
         translationFontSize = min(32, max(12, d.object(forKey: "koda.lyrics.imported.fontSize") as? Double ?? 18))
         translationOpacity = min(1, max(0.3, d.object(forKey: "koda.lyrics.imported.opacity") as? Double ?? 0.75))
         translationSpacing = min(20, max(2, d.object(forKey: "koda.lyrics.imported.spacing") as? Double ?? 6))

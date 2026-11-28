@@ -30,6 +30,7 @@ final class TransitionDSP: @unchecked Sendable {
     }
 
     private let shared = OSAllocatedUnfairLock(initialState: Shared())
+    let visualization = AudioVisualizationInput()
     let label: String
 
     // Render-thread state, touched only by the tap's callbacks.
@@ -273,6 +274,7 @@ final class TransitionDSP: @unchecked Sendable {
                           gain: automation.gain(at: start), highPass: highPassOn ? lastHighPass : Automation.highPassOff,
                           lowPass: lowPassOn ? lastLowPass : 20_000)
         _ = shared.withLockIfAvailable { $0.meter = meter }
+        visualization.capture(buffers, frames: frames, rate: sampleRate, end: start + Double(frames) * step)
     }
 
     /// Runs the equalizer's sections over the block in place. The curve is redesigned only when

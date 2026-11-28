@@ -18,18 +18,13 @@ nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
     var total = 0
     var playbackSessionFinished = false
     var strategyStatus: String?
-    var immersiveStatus: ImmersiveLyricStatus?
     var baseDiagnostics = AutomaticLyricTranslationPipeline.Snapshot()
-    var polishDiagnostics = LyricPolishDiagnostics()
     var originalReady = false
+    var instrumental = false
+    var unnecessary = false
     var originalSearching = false
-    var originalLookupSeconds: TimeInterval?
-    var originalCacheUse: LyricCacheUse = .unchecked
     var origins: [Int: LyricTranslationOrigin] = [:]
-    var selectedSource: LyricTranslationSelection = .automatic
-    var limits: Set<LyricWorkLimit> = []
     var languageProfile: LyricLanguageProfile?
-    var skippedRows = 0
 }
 
 /// Installed language sessions belong to the work task, not to any lyrics view.
@@ -39,7 +34,6 @@ nonisolated enum NativeLyricsTranslationEngine {
     static func translate(_ input: AutomaticLyricTranslationPipeline.Input, _ fragments: [ChineseLyricTranslationPlan.Fragment],
                           publish: @escaping AutomaticLyricTranslationPipeline.Publish,
                           report: @escaping AutomaticLyricTranslationPipeline.Report) async throws -> AutomaticLyricTranslationPipeline.Outcome {
-        guard input.mode.usesAppleTranslation else { return .unavailable }
         let selected: [AppleLyricDiagnostics.LanguageRoute]
         if let routes = input.routes { selected = routes }
         else { selected = await routes(for: fragments, mode: input.mode) }
@@ -137,7 +131,6 @@ nonisolated enum NativeLyricsTranslationEngine {
     @concurrent
     static func routes(for fragments: [ChineseLyricTranslationPlan.Fragment], mode: LyricsTranslationMode) async
         -> [AppleLyricDiagnostics.LanguageRoute] {
-        guard mode.usesAppleTranslation else { return [] }
         let sources = Set(fragments.map(\.language)).sorted()
         guard !sources.isEmpty else { return [] }
         var compatible: AppleLyricDiagnostics.Strategy = .standard

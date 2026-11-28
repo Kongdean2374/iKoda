@@ -470,7 +470,24 @@ public final class Player {
     /// Crossfade or AutoMix: the next song waits on the standby player.
     private var usesStandby: Bool { crossfades || autoMix }
     /// Songs play through a mixer channel (`TransitionDSP`) for AutoMix's moves or the equalizer.
-    private var usesChannels: Bool { autoMix || soundSettings.requiresProcessing(preset: equalizer) }
+    @ObservationIgnored private var visualizesAudio = false
+    public private(set) var audioVisualizationSeek: UInt64 = 0
+
+    private var usesChannels: Bool { autoMix || visualizesAudio || soundSettings.requiresProcessing(preset: equalizer) }
+
+    /// Uses the EQ/AutoMix tap on the current AVPlayerItem, including when EQ is off.
+    /// The outgoing overlap is deliberately excluded.
+    public var audioVisualizationInput: AudioVisualizationInput? {
+        avPlayer.currentItem.flatMap { TransitionDSP.of($0)?.visualization }
+    }
+
+    public func setAudioVisualization(_ enabled: Bool) {
+        guard enabled != visualizesAudio else { return }
+        visualizesAudio = enabled
+        audioVisualizationInput?.reset()
+        if enabled { giveLoadedSongsChannels() }
+    }
+
 
     public init(music: YouTubeMusic, storageDirectory: URL? = nil, defaults: UserDefaults = .standard) {
         self.music = music
@@ -1218,6 +1235,8 @@ public final class Player {
     }
 
     private func seekCurrentPlayback(to seconds: TimeInterval) {
+        audioVisualizationInput?.reset()
+        audioVisualizationSeek &+= 1
         guard seconds.isFinite else { return }
         let wasRecovering = recovery.pending != nil || recovery.waitingForNetwork
         cancelRecovery()

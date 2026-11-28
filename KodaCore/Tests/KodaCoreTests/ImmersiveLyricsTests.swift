@@ -3,78 +3,6 @@ import Testing
 @testable import KodaCore
 
 @Suite struct ImmersiveLyricsTests {
-    @Test func baseCompletionDoesNotReportContextCompletion() {
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .checking) == .preparing)
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .working) == .polishing)
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .partial) == .partial)
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .completed) == .completed)
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .unavailable) == .modelUnavailable)
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .language) == .languageUnsupported)
-        #expect(ImmersiveLyricStatus.resolve(base: .partial, polish: .unnecessary) == .fallback)
-        #expect(ImmersiveLyricStatus.resolve(base: .ready, polish: .paused) == .paused)
-    }
-
-    @Test func individuallyValidRowsSurvivePartialResponseAndOnlyMissingRowsAreRetried() {
-        let expected = [0, 1, 2, 3].map { LyricsPolishValidation.Line(id: $0, text: "月光照在玻璃上") }
-        let response = [
-            LyricsPolishValidation.Line(id: 0, text: "月光照在玻璃上"),
-            .init(id: 1, text: "窗上的月光"),
-            .init(id: 2, text: "第一份"),
-            .init(id: 2, text: "重複識別碼"),
-            .init(id: 12, text: "未知的行")
-        ]
-        let result = LyricPolishBatch.assess(response, expected: expected)
-        #expect(result.translations.count == 2)
-        #expect(result.changed == 1)
-        #expect(result.unchanged == 1)
-        #expect(result.missing.map(\.id) == [2, 3])
-        #expect(LyricPolishBatch.retryGroups(result.missing).map { $0.map(\.id) } == [[2], [3]])
-        let resumed = LyricPolishBatch.assess([.init(id: 2, text: "重新找到路")], expected: Array(result.missing.prefix(1)))
-        #expect(resumed.translations[2] == "重新找到路")
-        #expect(resumed.missing.isEmpty)
-    }
-
-    @Test func contextKeepsUnfinishedSentencesAndVoicesTogether() {
-        let original = [
-            LyricContextRow(id: 0, text: "I never meant to let", voice: .lead),
-            .init(id: 1, text: "the cat out of the bag.", voice: .lead),
-            .init(id: 2, text: "What a lovely storm", voice: .duet),
-            .init(id: 3, text: "to soak our only map!", voice: .duet),
-            .init(id: 4, text: "まだ言わずに", voice: .lead),
-            .init(id: 5, text: "窓を閉めた。", voice: .lead),
-            .init(id: 6, text: "The bell is ringing.", voice: .together),
-            .init(id: 7, text: "The bell is ringing.", voice: .duet)
-        ]
-        let groups = LyricContextPassages.groups(original, translating: Set(original.map(\.id)))
-        #expect(groups.contains { $0.contains(0) && $0.contains(1) && $0.contains(2) && $0.contains(3) })
-        #expect(groups.flatMap { $0 }.map { original[$0].id } == Array(0...7))
-        #expect(LyricContextPassages.overview(original).rows == original)
-        #expect(LyricContextPassages.overview(Array(repeating: original, count: 150).flatMap { $0 }).excerpted)
-    }
-
-    @Test func localeAliasesKeepTraditionalScriptAndSupportPrimaryLanguageFallbacks() {
-        #expect(LyricTranslationLocale.variants(for: "zh_Hant_TW").contains("zh-Hant"))
-        #expect(LyricTranslationLocale.variants(for: "zh_Hant_TW").contains("zh-TW"))
-        #expect(!LyricTranslationLocale.variants(for: "zh-Hant-TW").contains("zh-Hans"))
-        #expect(LyricTranslationLocale.variants(for: "ja-JP").contains("ja"))
-        #expect(LyricTranslationLocale.variants(for: "ko_KR").contains("ko"))
-    }
-
-    @Test func newContextCacheKeyLeavesOldRawAndBaseCachesIntact() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: url) }
-        let cache = AutomaticLyricTranslationCache(directory: url)
-        let rows = [ChineseLyricTranslationPlan.Row(id: 0, text: "An original line")]
-        let base = AutomaticLyricTranslationPipeline.cacheKey(.init(songID: "test", rows: rows, namespace: "version", mode: .immersive))
-        let old = AutomaticLyricTranslationCache.Key(songID: "test", rows: rows, namespace: "version|immersive|tw-lyric-editor-v1")
-        let new = LyricContextPassages.cacheKey(songID: "test", originalNamespace: "version")
-        await cache.store(.init(fragments: ["0": "早期語境譯文"], isComplete: true), for: old)
-        await cache.store(.init(fragments: ["0:0": "基礎譯文"], isComplete: true), for: base)
-        #expect(await cache.entry(for: new) == nil)
-        #expect(await cache.entry(for: old)?.fragments["0"] != nil)
-        #expect(await cache.entry(for: base)?.fragments["0:0"] == "基礎譯文")
-    }
-
     @Test func compactLayoutIsControlledByPanelAndDisplayPreference() {
         func resolve(_ lyrics: Bool, _ translation: Bool, enabled: Bool = true, portrait: Bool = true, expanded: Bool = false) -> LyricsPlayerChrome {
             .resolve(isPortraitPhone: portrait, lyricsVisible: lyrics, translationVisible: translation,
@@ -92,10 +20,10 @@ import Testing
         let track = try #require(LyricEmbeddedTranslation.collect([(0, "zh-Hans", "窗帘后的微光")]).first)
         #expect(track.convertedToTraditional)
         let result = ResolvedLyricTranslations(selection: .automatic, embedded: [track], prefersProvider: true,
-                       imported: [1: "匯入"], base: [0: "系統", 2: "基礎"], contextual: [0: "語境", 2: "改寫"], edits: [2: "手改"])
+                       imported: [1: "匯入"], base: [0: "系統", 2: "基礎"], edits: [2: "手改"])
         #expect(result.origins == [0: .provider(track.id), 1: .imported, 2: .edited])
         let apple = ResolvedLyricTranslations(selection: .appleTranslation, embedded: [track], prefersProvider: true,
-                    imported: [0: "匯入"], base: [0: "基礎"], contextual: [0: "語境"], edits: [1: "手改"])
+                    imported: [0: "匯入"], base: [0: "基礎"], edits: [1: "手改"])
         #expect(apple.origins == [0: .appleTranslation, 1: .edited])
     }
 

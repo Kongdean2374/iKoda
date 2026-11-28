@@ -124,7 +124,7 @@ struct AutomaticLyricTranslationPipelineTests {
         let rows = input("same-track", count: 1).rows
         let a = Input(songID: "same-track", rows: rows, namespace: "provider-a", mode: .quick)
         let b = Input(songID: "same-track", rows: rows, namespace: "provider-b", mode: .quality)
-        let c = Input(songID: "same-track", rows: rows, namespace: "provider-c", mode: .immersive)
+        let c = Input(songID: "same-track", rows: rows, namespace: "provider-c", mode: .quality)
         service.setRequests(current: a, upcoming: [], enabled: true, isForeground: true)
         try await engine.waitForCalls(1)
         let started = await engine.fragments(at: 0)

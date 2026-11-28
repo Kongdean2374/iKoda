@@ -135,14 +135,6 @@ struct KodaUITestFixture: View {
                         .accessibilityIdentifier("fixture.playlist.\(playlist.title)")
                 }
                 #if !targetEnvironment(macCatalyst)
-                if ProcessInfo.processInfo.arguments.contains("-KodaUITestCarPlayDelay"), songs.count >= 2 {
-                    ForEach(Array(songs.prefix(2))) { song in
-                        NavigationLink { CarPlayLyricsDelayView(song: song) } label: {
-                            Text(verbatim: song.title)
-                        }
-                        .accessibilityIdentifier("fixture.carplay.delay.\(song.id)")
-                    }
-                }
                 #endif
                 Text(verbatim: reduceMotion ? "enabled" : "disabled")
                     .accessibilityIdentifier("fixture.accessibility.reduceMotion")
@@ -242,7 +234,6 @@ struct KodaUITestFixture: View {
             demoAudio = try? await Task.detached(priority: .utility) { try Self.makeUITestWave() }.value
         }
         if ProcessInfo.processInfo.arguments.contains("-KodaUITestAdvancedLyrics") {
-            app.settings.lyricsTranslationMode = .quality
             app.lyricsTranslation.versions.installUITestVersions(for: first)
         }
         for song in songs.reversed() { app.library.recordPlay(song) }

@@ -52,6 +52,12 @@ public actor LyricsVersionStore {
         public let fetchedAt: Date
         public var isFresh: Bool { abs(Date().timeIntervalSince(fetchedAt)) < 24 * 60 * 60 }
 
+        public func confirmsMissing(sources: Set<String>, now: Date = Date()) -> Bool {
+            let age = now.timeIntervalSince(fetchedAt)
+            return age >= 0 && age < 86_400 && !sources.isEmpty && Set(results.map(\.source)) == sources
+                && results.allSatisfy { $0.state == .empty && $0.candidates.isEmpty }
+        }
+
         public init(results: [LyricsSourceResult], fetchedAt: Date = Date()) {
             self.results = results
             self.fetchedAt = fetchedAt
@@ -81,15 +87,21 @@ public actor LyricsVersionStore {
         return Catalogue(results: results, fetchedAt: value.fetchedAt)
     }
 
-    public func cache(_ value: Catalogue, key: String, ticket: UUID? = nil) {
+    public func cache(_ value: Catalogue, key: String, ticket: UUID? = nil, expectedSources: Set<String> = []) {
         guard ticket == nil || ticket == cacheGeneration else { return }
         guard !Task.isCancelled else { return }
         let incoming = value.results.filter { $0.state == .found && !$0.candidates.isEmpty }
-        guard !incoming.isEmpty else { return }
         let file = location(cache, key)
         let existing: Catalogue? = load(file, limit: maximumRecordBytes)
         guard existing.map({ $0.fetchedAt <= value.fetchedAt }) ?? true else { return }
-        var results = existing?.results ?? []
+        if incoming.isEmpty {
+            guard value.confirmsMissing(sources: expectedSources),
+                  existing?.results.contains(where: { !$0.candidates.isEmpty }) != true else { return }
+            try? persist(value, to: file, limit: min(maximumBytes, maximumRecordBytes))
+            trimCache()
+            return
+        }
+        var results = existing?.results.filter { $0.state == .found } ?? []
         for result in incoming {
             guard let index = results.firstIndex(where: { $0.source == result.source }) else {
                 results.append(result)

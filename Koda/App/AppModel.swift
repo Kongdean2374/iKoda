@@ -13,10 +13,6 @@ final class AppModel {
     /// Translation and look-ahead preparation outlive the player and lyrics views.
     let lyricsTranslation: LyricsTranslationCoordinator
     let lyricsPreparation: LyricsPreparationLifecycle
-    #if !targetEnvironment(macCatalyst)
-    @ObservationIgnored lazy var carPlay = CarPlayLyricsActivity(app: self)
-    @ObservationIgnored private var carPlayPlayerPublisher: CarPlayPlayerPublisher?
-    #endif
     /// Animated album covers; the loops live in Caches, which the system may clear.
     let motionArtwork: MotionArtwork
     let sleepTimer: SleepTimer
@@ -135,7 +131,7 @@ final class AppModel {
         player = Player(music: music, storageDirectory: directory)
         lyricsTranslation = LyricsTranslationCoordinator(client: lyrics,
             directory: URL.cachesDirectory.appending(path: "KodaAutomaticLyrics", directoryHint: .isDirectory))
-        lyricsPreparation = LyricsPreparationLifecycle(player: player, settings: settings,
+        lyricsPreparation = LyricsPreparationLifecycle(player: player, library: library, settings: settings,
                                                        coordinator: lyricsTranslation)
         videos = VideoPlayback(music: music)
         // Before profiles the name lived in the defaults and the library at the top of the folder;
@@ -251,9 +247,6 @@ final class AppModel {
             MusicCatcher.cancelActiveRecognition()
             self.cancelPlaybackLookup()
             self.lyricsPreparation.finishPlaybackSession()
-            #if !targetEnvironment(macCatalyst)
-            self.carPlay.stop()
-            #endif
             self.setArtworkSessionFinished(true)
         }
         player.canDeactivateAudioSession = { [videos] in
@@ -272,17 +265,7 @@ final class AppModel {
         lyricsPreparation.start()
         player.onPlaybackQueueEnded = { [weak self] in
             self?.lyricsTranslation.queueDidEnd()
-            #if !targetEnvironment(macCatalyst)
-            self?.carPlay.stop()
-            #endif
         }
-        #if !targetEnvironment(macCatalyst)
-        carPlay.discardOrphanedActivities()
-        if let file = CarPlayPlayerSnapshot.file {
-            carPlayPlayerPublisher = CarPlayPlayerPublisher(app: self, file: file)
-            carPlayPlayerPublisher?.observe()
-        }
-        #endif
     }
 
     private func setArtworkSessionFinished(_ finished: Bool) {
@@ -313,9 +296,6 @@ final class AppModel {
     /// has one, signs requests from here on and its library is brought in step behind.
     func switchProfile(to id: UUID) {
         guard id != roster.activeID, let profile = roster.profile(id) else { return }
-        #if !targetEnvironment(macCatalyst)
-        carPlay.stop()
-        #endif
         cancelHomeLoading()
         player.cancelPlaylistLoading()
         cancelPlaybackLookup()

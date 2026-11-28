@@ -66,7 +66,7 @@ struct SyncedLyrics: View {
 
     /// The listener's correction for this song; positive shows each line later.
     private var offset: TimeInterval {
-        player.current.map { library.lyricsOffset(for: $0.id) + app.lyricsTranslation.versions.offset(for: $0.id) } ?? 0
+        app.effectiveLyricsOffset(player.current?.id)
     }
     private var hasDuet: Bool { lines.contains { $0.voice != .lead } }
 
@@ -331,6 +331,7 @@ struct LyricRow: View {
     /// A translation or pronunciation shown under the line.
     var extra: String? = nil
     var isTranslation = false
+    @Environment(\.immersiveLyricColor) private var immersiveLyricColor
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -339,7 +340,8 @@ struct LyricRow: View {
     private var voice: LyricVoice { style.duetSides && line.voice == .duet ? .duet : .lead }
 
     private var alignment: HorizontalAlignment {
-        switch voice {
+        if !style.duetSides, let alignment = style.immersiveAlignment { return alignment.horizontal }
+        return switch voice {
         case .lead: .leading
         case .duet: .trailing
         case .together: .center
@@ -347,7 +349,10 @@ struct LyricRow: View {
     }
 
     private var frameAlignment: Alignment {
-        switch voice {
+        if !style.duetSides, let alignment = style.immersiveAlignment {
+            return Alignment(horizontal: alignment.horizontal, vertical: .center)
+        }
+        return switch voice {
         case .lead: .leading
         case .duet: .trailing
         case .together: .center
@@ -356,7 +361,7 @@ struct LyricRow: View {
 
     var body: some View {
         VStack(alignment: alignment, spacing: isTranslation ? style.translationSpacing : 6) {
-            if line.isWordTimed {
+            if line.isWordTimed && style.wordHighlight {
                 // The resting words and the sung line swap at once, never crossfading: the resting
                 // copy is fully inked (the row's own fade dims it), so a crossfade under the row's
                 // spring lit the whole line for a moment before it filled from its first word.
@@ -384,13 +389,18 @@ struct LyricRow: View {
             } else {
                 Text(line.text.isEmpty ? "♪" : line.text)
                     .font(style.font)
-                    .multilineTextAlignment(voice == .duet ? .trailing : voice == .together ? .center : .leading)
+                    .multilineTextAlignment(style.duetSides ? (voice == .duet ? .trailing : voice == .together ? .center : .leading) : style.immersiveAlignment?.text ?? .leading)
                     // Line-timed lyrics light as a whole line; no word fill is invented for them.
                     .shadow(color: .white.opacity(isCurrent && colorScheme == .dark ? 0.35 : 0), radius: isCurrent ? 14 : 0)
+                if style.showsBackingVocals && !line.background.isEmpty {
+                    Text(line.background.map { $0.text + ($0.spaceAfter ? " " : "") }.joined())
+                        .font(style.backgroundFont)
+                        .opacity(0.7)
+                }
             }
             if let extra { translatedText(extra) }
         }
-        .foregroundStyle(Color.primary)
+        .foregroundStyle(immersiveLyricColor ?? Color.primary)
         .frame(maxWidth: .infinity, alignment: frameAlignment)
         // A duet's sides stop short of each other, so a wrapped line still reads as its singer's.
         .padding(voice == .duet ? .leading : .trailing, style.duetSides && hasDuet && voice != .together ? 44 : 0)
@@ -398,8 +408,8 @@ struct LyricRow: View {
         // behind it, and line by line that blend ignored the fade, so the lines either side of the
         // sung one (the only ones without a blur, which flattens them too) stayed fully lit.
         .compositingGroup()
-        .opacity(isCurrent ? 1 : distance <= 1 ? 0.42 : 0.3)
-        .blur(radius: isCurrent ? 0 : min(Double(max(distance - 1, 0)) * 0.7, 2.4))
+        .opacity(isCurrent || !style.fadeNeighbors ? 1 : distance <= 1 ? 0.42 : 0.3)
+        .blur(radius: isCurrent || !style.fadeNeighbors ? 0 : min(Double(max(distance - 1, 0)) * 0.7, 2.4))
         .scaleEffect(isCurrent || reduceMotion ? 1 : 0.97, anchor: UnitPoint(x: voice == .duet ? 1 : voice == .together ? 0.5 : 0, y: 0.5))
         .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.85), value: isCurrent)
         .accessibilityElement(children: .ignore)
@@ -410,8 +420,8 @@ struct LyricRow: View {
     private func translatedText(_ text: String) -> some View {
         Text(text)
             .font(isTranslation ? style.translationFont : style.extraFont)
-            .foregroundStyle(Color.primary.opacity(isTranslation ? style.translationOpacity : 0.7))
-            .multilineTextAlignment(voice == .duet ? .trailing : voice == .together ? .center : .leading)
+            .foregroundStyle((immersiveLyricColor ?? Color.primary).opacity(isTranslation ? style.translationOpacity : 0.7))
+            .multilineTextAlignment(style.duetSides ? (voice == .duet ? .trailing : voice == .together ? .center : .leading) : style.immersiveAlignment?.text ?? .leading)
             .transition(.opacity)
     }
 }
@@ -619,6 +629,9 @@ struct LyricsStyle {
     var translationFontSize: CGFloat
     var translationOpacity: Double
     var translationSpacing: CGFloat
+    var immersiveAlignment: ImmersiveAlignment?
+    var wordHighlight = true
+    var fadeNeighbors = true
 
     @MainActor
     init(_ settings: AppSettings) {

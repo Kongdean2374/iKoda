@@ -21,6 +21,7 @@ struct LyricsTranslationSettingsView: View {
     @State private var legacyRemovalScope: UUID?
     @State private var storageBytes = 0
     @State private var confirmsClear = false
+    @State private var confirmsRetiredClear = false
     private var versions: LyricsVersions { app.lyricsTranslation.versions }
 
     var body: some View {
@@ -32,17 +33,16 @@ struct LyricsTranslationSettingsView: View {
                 }
                 Toggle("Automatically Translate to Traditional Chinese", isOn: $settings.automaticLyricsTranslation)
                 Toggle("Use Imported Translations", isOn: $settings.importedLyricsEnabled)
-                Picker("Translation Mode", selection: $settings.lyricsTranslationMode) {
-                    ForEach(LyricsTranslationMode.allCases) { mode in Text(mode.title).tag(mode) }
+                Toggle("Prefetch Translations", isOn: $settings.prefetchTranslations)
+                Toggle("Compact Player for Bilingual Lyrics", isOn: $settings.compactBilingualPlayer)
+                NavigationLink("Translation Diagnostics") {
+                    LyricsTranslationDiagnosticsView(lines: versions.current.map { value in
+                        LyricsPreviewRow.make(value.lyrics).map { LyricsTranslationText(id: $0.id, text: $0.text) }
+                    } ?? [], imported: [:])
                 }
-                .accessibilityValue(settings.lyricsTranslationMode.title)
-                .accessibilityIdentifier("lyrics.translation.mode")
             } footer: {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Automatic translation uses Apple's on-device languages. The system may ask to download a language first; installed languages work offline. Chinese lyrics use local Simplified-to-Traditional conversion. Available imported lines take priority.")
-                    if settings.lyricsTranslationMode == .pureAI {
-                        Text("Pure AI translates directly from lyrics with Apple Intelligence and does not use Apple Translation. Missing results keep the original lyrics.")
-                    }
                     Text("Translated sentences follow the original lyric lines without word-by-word animation. Missing translations keep the original text. Changing this setting does not change playback.")
                 }
             }
@@ -67,14 +67,9 @@ struct LyricsTranslationSettingsView: View {
                 Button("Translate This Version Again") { Task { await app.lyricsTranslation.regenerate(clear: false) } }
                     .disabled(versions.current == nil || isWorking || !settings.automaticLyricsTranslation)
                     .accessibilityIdentifier("lyrics.translation.retry")
-                if settings.lyricsTranslationMode.usesContextModel {
-                    Button("Resume Unfinished AI Lines") { app.lyricsTranslation.resumeFailedContext() }
-                        .disabled(versions.current == nil || app.lyricsTranslation.isAIWorking)
-                    Button("Polish This Version Again") { Task { await app.lyricsTranslation.regenerate(clear: false, polishOnly: true) } }
-                        .disabled(versions.current == nil)
-                }
-                Button("Clear This Mode’s Cached Translation", role: .destructive) { confirmsClear = true }
+                Button("Clear Cached Translation", role: .destructive) { confirmsClear = true }
                     .disabled(versions.current == nil)
+                Button("Remove Retired Translation Data", role: .destructive) { confirmsRetiredClear = true }
             }
             Section("Translation Appearance") {
                 valueSlider("Translation Text Size", value: $settings.translationFontSize, range: 12...32, step: 1,
@@ -142,6 +137,15 @@ struct LyricsTranslationSettingsView: View {
                     .textSelection(.enabled)
             }
         }
+        .confirmationDialog("Remove Retired Translation Data?", isPresented: $confirmsRetiredClear) {
+            Button("Remove Retired Translation Data", role: .destructive) {
+                let directory = app.roster.folder(for: app.roster.activeID)
+                Task {
+                    do { try await app.lyricsTranslation.clearRetiredTranslationData(profile: directory) }
+                    catch { versions.error = String(localized: "Could Not Remove Retired Translation Data") }
+                }
+            }
+        }
         .navigationTitle("Chinese Lyrics")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: versions.current?.id) {
@@ -181,7 +185,7 @@ struct LyricsTranslationSettingsView: View {
                 }
             }
         } message: { Text("This removes the older file. Copies attached to a specific version stay available.") }
-        .confirmationDialog("Clear This Mode’s Cached Translation", isPresented: $confirmsClear, titleVisibility: .visible) {
+        .confirmationDialog("Clear Cached Translation", isPresented: $confirmsClear, titleVisibility: .visible) {
             Button("Clear Cache", role: .destructive) {
                 Task {
                     await app.lyricsTranslation.regenerate(clear: true)

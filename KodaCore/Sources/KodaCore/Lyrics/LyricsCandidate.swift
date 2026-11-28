@@ -261,11 +261,13 @@ public struct LyricsSourceResult: Codable, Equatable, Sendable {
     public var name: String
     public var state: State
     public var candidates: [LyricsCandidate]
+    public var retryAt: Date?
 
-    public init(source: String, name: String, state: State, candidates: [LyricsCandidate] = []) {
+    public init(source: String, name: String, state: State, candidates: [LyricsCandidate] = [], retryAt: Date? = nil) {
         self.source = source
         self.name = name
         self.state = state
+        self.retryAt = retryAt
         var indices: [LyricsCandidate.Identity: Int] = [:]
         var unique: [LyricsCandidate] = []
         for candidate in candidates {

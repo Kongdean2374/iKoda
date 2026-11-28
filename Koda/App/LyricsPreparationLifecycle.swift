@@ -9,6 +9,7 @@ import UIKit
 @Observable
 final class LyricsPreparationLifecycle {
     @ObservationIgnored private let player: Player
+    @ObservationIgnored private let library: Library
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let coordinator: LyricsTranslationCoordinator
     @ObservationIgnored private var started = false
@@ -18,8 +19,6 @@ final class LyricsPreparationLifecycle {
     @ObservationIgnored private var finishingCache = false
     @ObservationIgnored private var finishGeneration = UUID()
     @ObservationIgnored private var finishTask: Task<Void, Never>?
-    /// The activity opts into preparing translations independently of the phone view.
-    var preparesCarPlayLyrics = false
     private var foreground = false
     private var network = NetworkPath.shared.snapshot
     private var resourceRevision = 0
@@ -27,8 +26,9 @@ final class LyricsPreparationLifecycle {
     @ObservationIgnored private var resourceObservers: [Task<Void, Never>] = []
     private var background = false
 
-    init(player: Player, settings: AppSettings, coordinator: LyricsTranslationCoordinator) {
+    init(player: Player, library: Library, settings: AppSettings, coordinator: LyricsTranslationCoordinator) {
         self.player = player
+        self.library = library
         self.settings = settings
         self.coordinator = coordinator
     }
@@ -98,17 +98,14 @@ final class LyricsPreparationLifecycle {
         let input = withObservationTracking {
             let current = player.current
             _ = resourceRevision
-            _ = coordinator.polishTrigger
+            _ = coordinator.translationSnapshot
             _ = coordinator.lyricsRevision
             _ = coordinator.versions.editRevision
             let constrained = network.isConstrained || network.isExpensive
-            var limits = Set<LyricWorkLimit>()
-            if ProcessInfo.processInfo.isLowPowerModeEnabled { limits.insert(.lowPower) }
-            if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue { limits.insert(.thermal) }
-            if memoryPressure { limits.insert(.memory) }
-            let headroom = limits.isEmpty
-            if !foreground { limits.insert(.background) }
-            if player.isBuffering { limits.insert(.buffering) }
+            var limited = memoryPressure
+            if ProcessInfo.processInfo.isLowPowerModeEnabled { limited = true }
+            if ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue { limited = true }
+            let headroom = !limited
             // The queue itself intentionally is not observable; these projections are.
             _ = player.upcoming
             _ = player.repeatMode
@@ -120,27 +117,27 @@ final class LyricsPreparationLifecycle {
                 if seen.insert(next.song.id).inserted { upcoming.append(next.song) }
                 if upcoming.count == 5 { break }
             }
-            return Input(current: current, upcoming: upcoming, sources: settings.lyricsSources,
+            return Input(current: current, instrumentals: Set(library.instrumentalSongs.keys), upcoming: upcoming, sources: settings.lyricsSources,
                 customSources: settings.customLyricsSources, automaticEnabled: settings.automaticLyricsTranslation,
-                showsTranslation: settings.showsLyricsTranslation || preparesCarPlayLyrics, foreground: foreground,
+                showsTranslation: settings.showsLyricsTranslation || settings.immersiveTranslationsVisible, foreground: foreground,
                 background: background, hasCurrentWork: coordinator.hasCurrentWork,
-                sessionFinished: player.isPlaybackSessionFinished, mode: settings.lyricsTranslationMode,
+                sessionFinished: player.isPlaybackSessionFinished, prefetchTranslation: settings.prefetchTranslations,
                 prefetchLimit: settings.lyricsPrefetchLimit, cacheMegabytes: settings.lyricsCacheMegabytes, online: network.status != .offline,
-                headroom: headroom, constrained: constrained, buffering: player.isBuffering, limits: limits,
-                permitsForegroundLookup: foreground || (player.wantsToPlay && preparesCarPlayLyrics))
+                headroom: headroom, constrained: constrained, buffering: player.isBuffering,
+                permitsForegroundLookup: foreground)
         } onChange: { [weak self] in
             // Observation fires before the property mutation. Read the committed values
             // on the next main-actor turn and rearm the one-shot observation once.
             Task { @MainActor [weak self] in self?.observe() }
         }
         if input.sessionFinished { finishPlaybackSession() } else { resumePlaybackSession() }
+        coordinator.versions.setInstrumentals(input.instrumentals)
         coordinator.update(current: input.current, upcoming: input.upcoming, sources: input.sources,
             customSources: input.customSources, automaticEnabled: input.automaticEnabled,
-            showsTranslation: input.showsTranslation, isForeground: input.foreground, mode: input.mode,
+            showsTranslation: input.showsTranslation, isForeground: input.foreground, prefetchTranslation: input.prefetchTranslation,
             prefetchLimit: input.prefetchLimit, allowed: input.permitsForegroundLookup && input.online,
             hasHeadroom: input.headroom, constrained: input.constrained, buffering: input.buffering)
         coordinator.setCacheCapacity(megabytes: input.cacheMegabytes)
-        coordinator.adjustPolish(limits: input.limits, at: player.position())
         updateBackgroundTask(isBackground: input.background, hasWork: coordinator.hasCurrentWork)
     }
 
@@ -193,6 +190,7 @@ final class LyricsPreparationLifecycle {
 
     private struct Input {
         let current: Song?
+        let instrumentals: Set<String>
         let upcoming: [Song]
         let sources: [LyricsSource]
         let customSources: [CustomLyricsSource]
@@ -202,14 +200,13 @@ final class LyricsPreparationLifecycle {
         let background: Bool
         let hasCurrentWork: Bool
         let sessionFinished: Bool
-        let mode: LyricsTranslationMode
+        let prefetchTranslation: Bool
         let prefetchLimit: Int
         let cacheMegabytes: Int
         let online: Bool
         let headroom: Bool
         let constrained: Bool
         let buffering: Bool
-        let limits: Set<LyricWorkLimit>
         let permitsForegroundLookup: Bool
     }
 }

@@ -59,6 +59,21 @@ final class LyricsVersions {
         store = LyricsVersionStore(cache: cache)
     }
 
+    private var instrumentals: Set<String> = []
+    var isInstrumental: Bool { song.map { isInstrumental($0.id) } ?? false }
+    func isInstrumental(_ id: String) -> Bool { instrumentals.contains(id) }
+
+    func setInstrumentals(_ ids: Set<String>) {
+        guard instrumentals != ids else { return }
+        let wasMarked = isInstrumental
+        instrumentals = ids
+        if wasMarked != isInstrumental {
+            let active = context
+            resetContext(active)
+            if !isInstrumental { search() }
+        }
+    }
+
     var song: Song? { context?.song }
     struct SourceOption: Identifiable {
         let id: String
@@ -94,7 +109,7 @@ final class LyricsVersions {
         let changed = context != next
         if changed { resetContext(next) }
         if stopped { suspend() }
-        if lookup == nil, !attempted || resumed { search() }
+        if !isInstrumental, lookup == nil, !attempted || resumed { search() }
     }
 
     func suspend() {
@@ -123,6 +138,8 @@ final class LyricsVersions {
     }
 
     func search(force: Bool = false, source: String? = nil, userInitiated: Bool = false) {
+        guard !isInstrumental else { return }
+        if lookup != nil, !force, source == nil { return }
         #if DEBUG
         if let fixtureResults {
             results = source.map { selected in fixtureResults.filter { $0.source == selected } } ?? fixtureResults
@@ -160,6 +177,10 @@ final class LyricsVersions {
                     self.finishLookup(token)
                     return
                 }
+                if cached.confirmsMissing(sources: Set(self.configuredSources.map(\.id))) {
+                    self.finishLookup(token)
+                    return
+                }
             }
 
             guard self.allowed else {
@@ -190,13 +211,13 @@ final class LyricsVersions {
             if userInitiated, !received.contains(where: { $0.state == .found }), self.current != nil {
                 self.error = String(localized: "Refresh found no usable lyrics. The current version is still available.")
             }
-            await store.cache(.init(results: received, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
+            await store.cache(.init(results: received, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket, expectedSources: Set(self.configuredSources.map(\.id)))
             self.finishLookup(token)
         }
     }
 
     func manualSearch(_ search: LyricsSearch, source: String?, songID: String, scope: UUID) {
-        guard song?.id == songID, scope == profileScope else { return }
+        guard !isInstrumental, song?.id == songID, scope == profileScope else { return }
         #if DEBUG
         if let fixtureResults {
             manualResults = source.map { selected in fixtureResults.filter { $0.source == selected } } ?? fixtureResults
@@ -361,7 +382,7 @@ final class LyricsVersions {
 
     /// Upcoming work reads the same saved selection and candidate cache as Now Playing.
     func preparedVersion(_ context: Context) async -> LyricsCandidate? {
-        guard let profile else { return nil }
+        guard !isInstrumental(context.song.id), let profile else { return nil }
         let cacheTicket = await store.ticket()
         let startedAt = Date()
         let pref = await store.preference(profile: profile, songID: context.song.id)
@@ -371,17 +392,19 @@ final class LyricsVersions {
               assessments: await evaluator.evaluate(cached.results.flatMap(\.candidates))) {
             return winner
         }
+        let expectedSources = Set(context.sources.map(\.rawValue) + context.custom.filter(\.isEnabled).map { $0.id.uuidString })
+        if let cached = await store.catalogue(key: context.cacheKey), cached.confirmsMissing(sources: expectedSources) { return nil }
         var results: [LyricsSourceResult] = []
         for await result in client.candidateResults(for: context.song, sources: context.sources, customSources: context.custom) {
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled, !isInstrumental(context.song.id) else { return nil }
             Self.merge(result, into: &results)
             if let winner = LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: false, assessments: [:]) {
                 await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
                 return winner
             }
         }
-        guard !Task.isCancelled else { return nil }
-        await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
+        guard !Task.isCancelled, !isInstrumental(context.song.id) else { return nil }
+        await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket, expectedSources: expectedSources)
         let candidates = results.flatMap(\.candidates)
         let assessed = await evaluator.evaluate(candidates)
         return Task.isCancelled ? nil : LyricsVersionSelection.recommended(candidates, allowLowConfidence: true, assessments: assessed)
@@ -439,9 +462,10 @@ final class LyricsVersions {
         if let index = results.firstIndex(where: { $0.source == result.source }) {
             if result.candidates.isEmpty, !results[index].candidates.isEmpty {
                 results[index].state = result.state
+                results[index].retryAt = result.retryAt
             } else {
                 results[index] = .init(source: result.source, name: result.name, state: result.state,
-                                       candidates: result.candidates + results[index].candidates)
+                                       candidates: result.candidates + results[index].candidates, retryAt: result.retryAt)
             }
         } else { results.append(result) }
     }

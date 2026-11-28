@@ -81,7 +81,10 @@ class IPATests(unittest.TestCase):
             info.update((app_info if name == "Koda" else widget_info) or {})
             files[f"{root}/Info.plist"] = (plistlib.dumps(info, fmt=plistlib.FMT_BINARY), 0o644)
             files[f"{root}/{name}"] = ((b"NOPE" if bad_binary else b"\xcf\xfa\xed\xfe") + bytes(60), 0o755)
-            files[f"{root}/zh-Hant.lproj/Localizable.strings"] = (b"compiled table", 0o644)
+            localized = {"Immersive Listening": "沉浸式聽歌", "Unlock Touch Controls": "解除觸控鎖定"}
+            files[f"{root}/zh-Hant.lproj/Localizable.strings"] = (plistlib.dumps(localized), 0o644)
+            files[f"{root}/en.lproj/Localizable.strings"] = (b"compiled English", 0o644)
+        files["Payload/Koda.app/Metadata.appintents/extract.actionsdata"] = (b"general metadata", 0o644)
         files["Payload/Koda.app/zh-Hant.lproj/InfoPlist.strings"] = (b"compiled purposes", 0o644)
         files["Payload/Koda.app/KodaCore_KodaCore.bundle/zh-Hant.lproj/Localizable.strings"] = (b"compiled core table", 0o644)
         files["Payload/Koda.app/KodaCore_KodaCore.bundle/en.lproj/Localizable.strings"] = (b"compiled English", 0o644)
@@ -107,33 +110,15 @@ class IPATests(unittest.TestCase):
         self.assertTrue((app / "Koda").is_file())
         self.assertTrue((app / "PlugIns/KodaWidgets.appex/KodaWidgets").stat().st_mode & stat.S_IXUSR)
 
-    def test_checks_compiled_carplay_configuration(self):
-        group = {"KodaCarPlayAppGroup": "group.ivors.Koda.carplay"}
-        app_info = group | {
-            "NSSupportsLiveActivities": True,
-            "UIApplicationSceneManifest": {
-                "UIApplicationSupportsMultipleScenes": True,
-                "UISceneConfigurations": {
-                    "CPTemplateApplicationSceneSessionRoleApplication": [{
-                        "UISceneClassName": "CPTemplateApplicationScene",
-                        "UISceneDelegateClassName": "Koda.CarPlaySceneDelegate",
-                    }]
-                },
-            },
-        }
-        self.verify(self.fixture(app_info=app_info, widget_info=group), require_carplay=True)
+    def test_checks_retired_carplay_is_not_compiled(self):
+        self.verify(self.fixture(), immersive_release=True)
 
-    def test_rejects_carplay_scene_overwritten_by_xcode(self):
-        group = {"KodaCarPlayAppGroup": "group.ivors.Koda.carplay"}
-        app_info = group | {
-            "NSSupportsLiveActivities": True,
-            "UIApplicationSceneManifest": {
-                "UIApplicationSupportsMultipleScenes": True,
-                "UISceneConfigurations": {},
-            },
-        }
-        with self.assertRaisesRegex(ValueError, "CarPlay audio scene is missing"):
-            self.verify(self.fixture(app_info=app_info, widget_info=group), require_carplay=True)
+    def test_rejects_retired_carplay_scene_in_compiled_app(self):
+        app_info = {"UIApplicationSceneManifest": {"UISceneConfigurations": {
+            "CPTemplateApplicationSceneSessionRoleApplication": [{"UISceneClassName": "CPTemplateApplicationScene"}],
+        }}}
+        with self.assertRaisesRegex(ValueError, "Retired CarPlay scene"):
+            self.verify(self.fixture(app_info=app_info), immersive_release=True)
 
     def test_rejects_widget_version_mismatch(self):
         with self.assertRaisesRegex(ValueError, "Wrong build"):

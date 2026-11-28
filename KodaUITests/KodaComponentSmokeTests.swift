@@ -293,37 +293,6 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testCarPlayDelayRemainsIndependentForEachSong() {
-        let app = launch(extraArguments: ["-KodaUITestCarPlayDelay"])
-        let first = app.buttons["fixture.carplay.delay.ui-smoke-a"]
-        let second = app.buttons["fixture.carplay.delay.ui-smoke-b"]
-        reveal(first, in: app)
-        first.tap()
-        let reset = app.buttons["Reset Delay"]
-        XCTAssertTrue(reset.waitForExistence(timeout: 10))
-        XCTAssertFalse(reset.isEnabled)
-        app.buttons["carplay.lyrics.delay.0.5"].tap()
-        app.buttons["carplay.lyrics.delay.-0.1"].tap()
-        let delay = control("carplay.lyrics.delay.value", in: app)
-        expectState(delay, matching: NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "+0.4", "+0.4"))
-        capture(app, "carplay-delay")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-
-        reveal(second, in: app)
-        second.tap()
-        XCTAssertTrue(reset.waitForExistence(timeout: 10))
-        XCTAssertFalse(reset.isEnabled, "The other track must keep its default")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-
-        reveal(first, in: app, towardTop: true)
-        first.tap()
-        XCTAssertTrue(reset.waitForExistence(timeout: 10))
-        XCTAssertTrue(reset.isEnabled)
-        reset.tap()
-        expectState(reset, matching: NSPredicate(format: "enabled == false"))
-    }
-
-    @MainActor
     func testAccountSwitchAwayAndBackRejectsTheOldRefreshResponse() {
         let app = launch(extraArguments: ["-KodaUITestAccountSync"])
         reveal(app.buttons["fixture.library"], in: app)
@@ -784,25 +753,6 @@ final class KodaComponentSmokeTests: XCTestCase {
     }
 
     @MainActor
-    func testAdvancedLyricsModePickerIsLocalizedAtLargeTextSize() {
-        let app = launch(chinese: true, dark: true, largeText: true, extraArguments: ["-KodaUITestAdvancedLyrics"])
-        let entry = app.buttons["fixture.lyrics.modes"]
-        reveal(entry, in: app)
-        entry.tap()
-        let mode = app.buttons["lyrics.translation.mode"]
-        reveal(mode, in: app)
-        mode.tap()
-        app.buttons["快速翻譯"].tap()
-        expectState(mode, matching: NSPredicate(format: "value CONTAINS %@", "快速翻譯"))
-        reveal(mode, in: app, towardTop: true)
-        mode.tap()
-        let pureAI = app.buttons["純 AI 翻譯（實驗性）"]
-        XCTAssertTrue(pureAI.waitForExistence(timeout: 10))
-        pureAI.tap()
-        expectState(mode, matching: NSPredicate(format: "value CONTAINS %@", "純 AI 翻譯（實驗性）"))
-    }
-
-    @MainActor
     func testCompactBilingualPlayerKeepsPlaybackAndOffersDiagnostics() throws {
         let app = launch(largeText: true, extraArguments: ["-KodaUITestCompactLyrics"])
         let demo = app.buttons["fixture.lyrics.player"]
@@ -852,9 +802,10 @@ final class KodaComponentSmokeTests: XCTestCase {
         let origin = app.descendants(matching: .any).matching(NSPredicate(
             format: "label CONTAINS %@ OR value CONTAINS %@", "Lyrics Provider Translation (1)", "Lyrics Provider Translation (1)")).firstMatch
         XCTAssertTrue(origin.waitForExistence(timeout: 10))
-        let modelAvailability = app.descendants(matching: .any).matching(NSPredicate(
-            format: "label CONTAINS %@", "Foundation Models Availability")).firstMatch
-        reveal(modelAvailability, in: app)
+        let appleLanguagePairs = app.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "Apple Translation Language Pairs")).firstMatch
+        reveal(appleLanguagePairs, in: app)
+        XCTAssertTrue(appleLanguagePairs.exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["lyrics.translation.done"].tap()
         XCTAssertTrue(controls.waitForExistence(timeout: 10))
@@ -868,6 +819,46 @@ final class KodaComponentSmokeTests: XCTestCase {
         XCTAssertTrue(volume.waitForExistence(timeout: 10))
         XCTAssertFalse(controls.exists)
         XCTAssertTrue(app.buttons["Pause"].exists)
+    }
+
+    @MainActor
+    func testImmersiveTouchLockInLandscapeKeepsPlaybackAndRequiresVisibleUnlock() throws {
+        let app = launch(extraArguments: ["-KodaUITestCompactLyrics"])
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let demo = app.buttons["fixture.lyrics.player"]
+        reveal(demo, in: app)
+        XCTAssertTrue(demo.exists)
+        demo.tap()
+
+        let more = app.buttons["player.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        more.tap()
+        let entry = app.buttons["Immersive Listening"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let lock = app.buttons["immersive.lock.lock"]
+        let unlock = app.buttons["immersive.lock.unlock"]
+        let transport = app.buttons["immersive.transport"]
+        if !lock.exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap() }
+        XCTAssertTrue(lock.waitForExistence(timeout: 10))
+        XCTAssertTrue(transport.exists)
+        XCTAssertEqual(transport.label, "Pause")
+        lock.tap()
+        XCTAssertTrue(unlock.waitForExistence(timeout: 4))
+        XCTAssertFalse(transport.exists)
+        XCTAssertFalse(app.buttons["immersive.settings"].exists)
+        XCTAssertTrue(unlock.waitForNonExistence(timeout: 8))
+        // This is the former lock's position. The first touch may reveal the
+        // button but must not unlock, pause, or activate another control.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertTrue(unlock.waitForExistence(timeout: 4))
+        XCTAssertFalse(transport.exists)
+        unlock.tap()
+        XCTAssertTrue(transport.waitForExistence(timeout: 4))
+        XCTAssertEqual(transport.label, "Pause")
+        app.buttons["Close"].firstMatch.tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
     }
 
     @MainActor

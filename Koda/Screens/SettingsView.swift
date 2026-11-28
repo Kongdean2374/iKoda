@@ -281,6 +281,11 @@ struct LyricsSettingsView: View {
                 } label: {
                     Label("Custom Lyrics Sources", systemImage: "link")
                 }
+                NavigationLink {
+                    InstrumentalTracksView()
+                } label: {
+                    Label("Instrumental Tracks", systemImage: "music.note")
+                }
             }
             Section {
                 ForEach(settings.lyricsSourceOrder) { source in
@@ -296,7 +301,7 @@ struct LyricsSettingsView: View {
             } header: {
                 Text("Sources")
             } footer: {
-                Text("Koda asks every source at once. Word-by-word lyrics win; among equals, the higher source wins. Drag to reorder. At least one source stays on.")
+                Text("Koda checks song identity, text agreement, and timing across sources. Drag to change source priority. At least one source stays on.")
             }
 
             Section {
@@ -318,7 +323,7 @@ struct LyricsSettingsView: View {
                     Task { await app.lyricsTranslation.clearLyricsCache() }
                 }
             } footer: {
-                Text("Lyrics found earlier are kept until Koda closes. This forgets them, so the next song you open asks the sources again.")
+                Text("Clear the automatic lyrics cache to search again the next time you open a song. Imported lyrics and saved marks are kept.")
             }
         }
         .navigationTitle("Lyrics")
