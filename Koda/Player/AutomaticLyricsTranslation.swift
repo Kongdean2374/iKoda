@@ -28,6 +28,8 @@ nonisolated struct AutomaticLyricsResult: Equatable, Sendable {
     var origins: [Int: LyricTranslationOrigin] = [:]
     var selectedSource: LyricTranslationSelection = .automatic
     var limits: Set<LyricWorkLimit> = []
+    var languageProfile: LyricLanguageProfile?
+    var skippedRows = 0
 }
 
 /// Installed language sessions belong to the work task, not to any lyrics view.
@@ -93,11 +95,21 @@ nonisolated enum NativeLyricsTranslationEngine {
             await report(diagnostics)
             defer { session.cancel() }
             var lastPublished = ContinuousClock.now
+            var reportedTarget: String?
             do {
                 for try await response in session.translate(batch: requests) {
                     try Task.checkCancellation()
                     guard let id = response.clientIdentifier, let matching = responsesByID[id],
                           !response.targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                    let actual = response.targetLanguage.minimalIdentifier
+                    if reportedTarget != actual {
+                        reportedTarget = actual
+                        if let index = diagnostics.languages.firstIndex(where: { $0.source == language }) {
+                            diagnostics.languages[index] = .init(source: language, target: targetID, support: .available,
+                                strategy: strategy, supportedTaiwanTargets: choice.supportedTaiwanTargets, reportedTarget: actual)
+                            await report(diagnostics)
+                        }
+                    }
                     let text = TraditionalChineseLyrics.convert(response.targetText)
                     for fragment in matching { translated[fragment.id] = text }
                     let now = ContinuousClock.now

@@ -127,13 +127,14 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
     }
 
     func rowProgress(translations: [String: String]) -> (completed: Int, total: Int) {
+        let requested = semanticRows
         let completed = rows.count { row in
-            !row.unrecognized && row.pieces.allSatisfy {
+            requested.contains(row.id) && !row.unrecognized && row.pieces.allSatisfy {
                 if case .fragment(let fragment) = $0 { return translations[fragment.id] != nil }
                 return true
             }
         }
-        return (completed, rows.count)
+        return (completed, requested.count)
     }
 
     private static func appendFragment(_ text: String, language: String, to row: inout PreparedRow, next: inout Int) {

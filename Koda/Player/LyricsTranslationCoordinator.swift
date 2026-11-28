@@ -310,7 +310,11 @@ final class LyricsTranslationCoordinator {
         let version = versions.current?.id
         let requestMode = mode
         if !polishOnly, let base = preparedBase(id) {
-            Task { await pipeline.regenerate(base, discardDisk: clear) }
+            Task {
+                guard versions.profileScope == scope, mode == requestMode,
+                      versions.current?.id == version, currentSong?.id == id else { return }
+                await pipeline.regenerate(base, discardDisk: clear)
+            }
         }
         guard (requestMode.usesContextModel || versions.translationSelection == .foundationModels),
               mode == requestMode, versions.profileScope == scope,
@@ -461,11 +465,13 @@ final class LyricsTranslationCoordinator {
             immersiveStatus: immersive, baseDiagnostics: snapshot, polishDiagnostics: workMatches ? polish.diagnostics : .init(),
             originalReady: currentVersion != nil, originalSearching: versions.searching,
             originalLookupSeconds: versions.originalLookupSeconds, originalCacheUse: versions.originalCacheUse,
-            origins: resolved.origins, selectedSource: selection, limits: polishLimits)
+            origins: resolved.origins, selectedSource: selection, limits: polishLimits,
+            languageProfile: prepared.input.plan?.languageProfile,
+            skippedRows: prepared.input.plan.map { lines.count - $0.semanticRows.count } ?? 0)
     }
 
-    func cachedContextualLines(for candidate: LyricsCandidate) async -> [Int: String] {
-        await polish.cached(candidate, mode: mode == .pureAI ? .pureAI : .immersive)
+    func legacyContextualLines(for candidate: LyricsCandidate) async -> [Int: String] {
+        await polish.legacy(candidate)
     }
 
     func contextualLines(for candidate: LyricsCandidate) -> [Int: String] {

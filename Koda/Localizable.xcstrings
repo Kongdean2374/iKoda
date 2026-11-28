@@ -29078,6 +29078,23 @@
           }
         }
       }
+    },
+    "Earlier Immersive Translation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier Immersive Translation"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前版沉浸式譯文"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

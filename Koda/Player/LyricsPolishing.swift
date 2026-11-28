@@ -94,6 +94,7 @@ final class LyricsPolishing {
     @ObservationIgnored private var verified: [Int: String] = [:]
     @ObservationIgnored private var attempted: Set<Int> = []
     @ObservationIgnored private var submitted: Set<Int> = []
+    @ObservationIgnored private var hintedRows: Set<Int> = []
     @ObservationIgnored private var selectedRows: Set<Int>?
     @ObservationIgnored private var consecutiveTimeouts = 0
     @ObservationIgnored private var profile: URL?
@@ -152,6 +153,7 @@ final class LyricsPolishing {
             verified = [:]
             attempted = []
             submitted = []
+            hintedRows = []
             selectedRows = nil
             consecutiveTimeouts = 0
             lines = [:]
@@ -205,6 +207,7 @@ final class LyricsPolishing {
         verified = [:]
         attempted = []
         submitted = []
+        hintedRows = []
         selectedRows = nil
         consecutiveTimeouts = 0
         diagnostics = .init()
@@ -253,6 +256,7 @@ final class LyricsPolishing {
             diagnostics = .init()
         }
         submitted = []
+        hintedRows = []
         consecutiveTimeouts = 0
         diagnostics.limits = limits
         diagnostics.cache = .miss
@@ -279,11 +283,12 @@ final class LyricsPolishing {
                                                   mode: mode, target: locale)
             if let entry = await cache.entry(for: key) { return Self.decoded(entry) }
         }
-        if mode == .immersive {
-            return Self.decoded(await cache.entry(for: LyricContextPassages.cacheKey(
-                songID: candidate.songID, originalNamespace: candidate.id.cacheNamespace)))
-        }
         return [:]
+    }
+
+    func legacy(_ candidate: LyricsCandidate) async -> [Int: String] {
+        Self.decoded(await cache.entry(for: LyricContextPassages.cacheKey(
+            songID: candidate.songID, originalNamespace: candidate.id.cacheNamespace)))
     }
 
     func retain(_ candidate: LyricsCandidate, mode: LyricsTranslationMode, edits: [Int: String]) async throws {
@@ -321,7 +326,7 @@ final class LyricsPolishing {
             show(.unnecessary)
             return
         }
-        if loaded && target.required.isSubset(of: Set(verified.keys)) {
+        if loaded && LyricAICompletion.reached(target.required, in: verified) {
             show(.completed)
             if let upcoming, !upcoming.required.isEmpty, preparedUpcoming != upcoming.diskKey() {
                 preparedUpcoming = upcoming.diskKey()
@@ -371,6 +376,7 @@ final class LyricsPolishing {
         }
         var output = presenting ? verified : [:]
         var submittedIDs: Set<Int> = presenting ? submitted : []
+        var hintedIDs: Set<Int> = presenting ? hintedRows : []
         var consecutiveDeadlines = presenting ? consecutiveTimeouts : 0
         func publish(_ phase: LyricAIWorkPhase) {
             guard presenting else { return }
@@ -380,6 +386,8 @@ final class LyricsPolishing {
             report.lastProgress = Date()
             report.elapsedSeconds = report.startedAt.map { max(0, Date().timeIntervalSince($0)) }
             submitted = submittedIDs
+            report.hinted = hintedIDs.count
+            hintedRows = hintedIDs
             consecutiveTimeouts = consecutiveDeadlines
             verified = output
             lines.merge(output) { _, new in new }
@@ -419,7 +427,7 @@ final class LyricsPolishing {
                 .filter { work.required.contains($0.key) }
             for id in output.keys { report.rows[id] = .cached }
             report.cachedRows = output.count
-            report.cache = output.isEmpty ? .miss : output.count == work.required.count ? .hit : .partial
+            report.cache = output.isEmpty ? .miss : LyricAICompletion.reached(work.required, in: output) ? .hit : .partial
             report.cacheSeconds = started.duration(to: .now).lyricSeconds
             if presenting { loaded = true }
         }
@@ -431,7 +439,7 @@ final class LyricsPolishing {
         }
         guard !requested.isEmpty else {
             if presenting {
-                let complete = output.count == work.required.count
+                let complete = LyricAICompletion.reached(work.required, in: output)
                 show(complete ? .completed : .partial)
                 publish(complete ? .complete : .partial)
             }
@@ -453,10 +461,8 @@ final class LyricsPolishing {
         requested.subtract(unsupported)
         if presenting { attempted.formUnion(unsupported) }
 
-        let usableContext = work.rows.filter { row in
-            !work.plan.languageProfile.noTranslation.contains(row.id)
-                && !languages[row.id, default: []].contains { report.sources[$0] == false }
-        }
+        let usableContext = LyricAISummaryPolicy.context(work.rows, excluding: work.plan.languageProfile.noTranslation,
+                                                         languages: languages, supported: report.sources)
         let fullContext = usableContext.count <= 24 && usableContext.reduce(0, { $0 + $1.text.utf8.count }) <= 2300
         var contextSummary = presenting ? summary : nil
         if !requested.isEmpty {
@@ -533,6 +539,7 @@ final class LyricsPolishing {
                 let hinted = Dictionary(uniqueKeysWithValues: (request.references ?? []).map { ($0.id, $0.baseHint) })
                 let expected = ids.compactMap { id in byID[id].map { LyricsPolishValidation.Line(id: id, text: $0.text) } }
                 submittedIDs.formUnion(ids)
+                hintedIDs.formUnion(hinted.keys)
                 report.currentBatch += 1
                 if !initial { report.retryBatches += 1 }
                 for id in ids { report.rows[id] = .processing }
@@ -554,7 +561,6 @@ final class LyricsPolishing {
                     report.validationSeconds = (report.validationSeconds ?? 0) + validateAt.duration(to: .now).lyricSeconds
                     for (id, text) in assessed.translations {
                         if let hint = hinted[id] {
-                            report.hinted += 1
                             if text == TraditionalChineseLyrics.convert(hint.trimmingCharacters(in: .whitespacesAndNewlines)) {
                                 report.rows[id] = .unchanged
                                 report.unchangedRows += 1
@@ -602,12 +608,12 @@ final class LyricsPolishing {
             guard accepts(token) else { return }
             if !output.isEmpty {
                 let checkpoint = Dictionary(uniqueKeysWithValues: output.map { (String($0.key), $0.value) })
-                await cache.store(.init(fragments: checkpoint, isComplete: output.count == work.required.count), for: key)
+                await cache.store(.init(fragments: checkpoint, isComplete: LyricAICompletion.reached(work.required, in: output)), for: key)
             }
         }
         guard accepts(token), presenting else { return }
         selectedRows = nil
-        if output.count == work.required.count {
+        if LyricAICompletion.reached(work.required, in: output) {
             report.lastError = nil
             show(.completed)
             publish(.complete)

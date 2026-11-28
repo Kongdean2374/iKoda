@@ -76,8 +76,39 @@ public enum LyricModelDeadline {
 }
 
 public enum LyricAISummaryPolicy {
+    public static func context(_ rows: [LyricContextRow], excluding ignored: Set<Int>,
+                               languages: [Int: Set<String>], supported: [String: Bool]) -> [LyricContextRow] {
+        rows.filter { row in
+            !ignored.contains(row.id) && !languages[row.id, default: []].contains { supported[$0] == false }
+        }
+    }
+
     public static func primaryIsUsable(_ evidence: LyricLanguageProfile.Evidence?, supported: [String: Bool]) -> Bool {
         guard let evidence, evidence.confidence >= 0.65 else { return true }
         return supported[evidence.language] != false
+    }
+}
+
+/// A progress-sensitive deadline for Apple Translation's sequence of replies.
+actor LyricTranslationHeartbeat {
+    private let start = ContinuousClock.now
+    private var response: ContinuousClock.Instant?
+
+    func received() { response = .now }
+
+    func waitForInactivity(_ allowance: Duration) async throws {
+        let clock = ContinuousClock()
+        while true {
+            let lastProgress = response ?? start
+            try await clock.sleep(until: lastProgress.advanced(by: allowance))
+            if lastProgress == (response ?? start) { return }
+        }
+    }
+}
+
+
+public enum LyricAICompletion {
+    public static func reached(_ required: Set<Int>, in validated: [Int: String]) -> Bool {
+        required.isSubset(of: Set(validated.keys))
     }
 }

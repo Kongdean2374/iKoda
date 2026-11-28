@@ -65,6 +65,45 @@ import Testing
         #expect(LyricAISummaryPolicy.primaryIsUsable(Evidence("id", confidence: 0.32), supported: ["id": false]))
     }
 
+    @Test func overviewOmitsVocalizationAndUnsupportedRowsButKeepsAdjacentOriginals() {
+        let lines = [LyricContextRow(id: 0, text: "I followed the river"), .init(id: 1, text: "la la"),
+                     .init(id: 2, text: "unavailable foreign section"), .init(id: 3, text: "until daylight")]
+        let actual = LyricAISummaryPolicy.context(lines, excluding: [1],
+            languages: [0: ["en"], 2: ["id"], 3: ["en"]], supported: ["en": true, "id": false])
+        #expect(actual.map(\.id) == [0, 3])
+        let fallback = LyricAIRequest(mode: .pureAI, title: "River", artist: "Original Fixture", overview: nil,
+            context: actual, requested: [3], base: [:])
+        #expect(fallback.overview == nil)
+        #expect(fallback.context.map(\.id) == [0, 3])
+    }
+
+    @Test func anIncompleteResponseCanRecoverAllFiftyEightRows() {
+        let rows = (0..<58).map { LyricContextRow(id: $0, text: "The lantern in window \($0) stays lit until dawn.") }
+        let expected = Set(rows.map(\.id))
+        var validated: [Int: String] = [:]
+        var recovered: [Int] = []
+        for block in LyricContextPassages.groups(rows, translating: expected) {
+            let request = block.map { LyricsPolishValidation.Line(id: rows[$0].id, text: rows[$0].text) }
+            func translated(_ line: LyricsPolishValidation.Line) -> LyricsPolishValidation.Line {
+                .init(id: line.id, text: "窗邊的提燈亮到天明")
+            }
+            let answer = request.filter { $0.id != 16 && $0.id != 40 }.map(translated)
+            let result = LyricPolishBatch.assess(answer, expected: request)
+            validated.merge(result.translations) { _, new in new }
+            #expect(!LyricAICompletion.reached(expected, in: validated) || block.last == 57)
+            for retry in LyricPolishBatch.retryGroups(result.missing) {
+                recovered += retry.map(\.id)
+                let repaired = LyricPolishBatch.assess(retry.map(translated), expected: retry)
+                validated.merge(repaired.translations) { _, new in new }
+            }
+        }
+        #expect(recovered == [16, 40])
+        #expect(LyricAICompletion.reached(expected, in: validated))
+        validated.removeValue(forKey: 57)
+        validated[99] = "不屬於這首歌"
+        #expect(!LyricAICompletion.reached(expected, in: validated))
+    }
+
     @Test func pureModelPayloadOmitsAllReferencesEvenWhenProvidedByCaller() throws {
         let rows = [LyricContextRow(id: 3, text: "I didn't let the cat"), .init(id: 4, text: "out of the bag.")]
         for mode in [LyricsTranslationMode.pureAI, .immersive] {

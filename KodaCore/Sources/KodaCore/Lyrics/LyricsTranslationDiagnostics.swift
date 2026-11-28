@@ -18,13 +18,15 @@ public struct AppleLyricDiagnostics: Codable, Equatable, Sendable {
         public let support: Support
         public let strategy: Strategy?
         public let supportedTaiwanTargets: [String]?
+        public let reportedTarget: String?
         public init(source: String, target: String?, support: Support, strategy: Strategy? = nil,
-                    supportedTaiwanTargets: [String]? = nil) {
+                    supportedTaiwanTargets: [String]? = nil, reportedTarget: String? = nil) {
             self.source = source
             self.target = target
             self.support = support
             self.strategy = strategy
             self.supportedTaiwanTargets = supportedTaiwanTargets
+            self.reportedTarget = reportedTarget
         }
     }
 

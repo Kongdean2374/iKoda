@@ -164,6 +164,7 @@ private struct LyricsTranslationComparison: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var cached: [LyricsTranslationMode: [Int: String]] = [:]
+    @State private var legacy: [Int: String] = [:]
     @State private var filter = Filter.all
     @State private var selectedRows: Set<Int> = []
 
@@ -250,6 +251,8 @@ private struct LyricsTranslationComparison: View {
                 guard !Task.isCancelled else { return }
                 cached[mode] = values
             }
+            let earlier = await coordinator.legacyContextualLines(for: candidate)
+            if !Task.isCancelled { legacy = earlier }
         }
     }
 
@@ -281,6 +284,9 @@ private struct LyricsTranslationComparison: View {
             if let text = live ?? cached[mode]?[id] {
                 values.append(.init(label: mode.title, text: text, choice: mode.sourceChoice))
             }
+        }
+        if let earlier = legacy[id] {
+            values.append(.init(label: String(localized: "Earlier Immersive Translation"), text: earlier))
         }
         return values
     }
@@ -339,13 +345,15 @@ struct LyricsTranslationDiagnosticsView: View {
         func count(_ value: Int) -> String { value.formatted() }
         let strategies = base.apple.strategies.map(\.label).sorted().joined(separator: ", ")
         let routes = base.apple.languages.sorted { $0.source < $1.source }.map {
-            $0.source + " → " + ($0.target ?? "—") + " · " + $0.support.label
+            let selected = $0.target ?? "—"
+            let actual = $0.reportedTarget.map { $0 == selected ? selected : selected + " → " + $0 } ?? selected
+            return $0.source + " → " + actual + " · " + $0.support.label
         }
         let modelRoute = ai.sources.keys.sorted().map { $0 + " · " + yesNo(ai.sources[$0]) }
         let origins = Dictionary(grouping: result.origins.values, by: \.label)
             .map { $0.key + " (" + count($0.value.count) + ")" }.sorted()
         let restrictions = result.limits.union(ai.limits).map(\.label).sorted()
-        let isFallback = result.immersiveStatus != nil && result.selectedSource != .appleTranslation
+        let isFallback = !ai.pure && result.immersiveStatus != nil && result.selectedSource != .appleTranslation
             && result.origins.values.contains(.appleTranslation)
         let latestError = ai.lastError?.label ?? base.apple.lastError?.label ?? String(localized: "None")
         let validation: String
@@ -354,29 +362,33 @@ struct LyricsTranslationDiagnosticsView: View {
         } else if ai.failedBatches > 0 {
             validation = String(localized: "AI Validation Failed")
         } else { validation = String(localized: "Validation Pending") }
-        return [
+        let original: [Field] = [
             .init(title: String(localized: "Selected Translation Mode"), value: app.settings.lyricsTranslationMode.title),
             .init(title: String(localized: "Displayed Translation Sources"), value: origins.isEmpty ? String(localized: "None") : origins.joined(separator: "\n")),
-            .init(title: String(localized: "Primary Lyric Language"), value: ai.language?.primary.map {
+            .init(title: String(localized: "Primary Lyric Language"), value: result.languageProfile?.primary.map {
                 $0.language + " · " + $0.confidence.formatted(.percent.precision(.fractionLength(0)))
             } ?? unavailable),
-            .init(title: String(localized: "Paragraph Languages"), value: ai.language.map { profile in
+            .init(title: String(localized: "Paragraph Languages"), value: result.languageProfile.map { profile in
                 profile.paragraphs.prefix(30).map { $0.language ?? "—" }.joined(separator: ", ")
             } ?? unavailable),
-            .init(title: String(localized: "Corrected Language Guesses"), value: count(ai.language?.corrected ?? 0)),
-            .init(title: String(localized: "Ignored Vocalization Lines"), value: count(ai.language?.vocalizations.count ?? 0)),
-            .init(title: String(localized: "Untranslated by Design"), value: count(ai.noTranslation)),
+            .init(title: String(localized: "Corrected Language Guesses"), value: count(result.languageProfile?.corrected ?? 0)),
+            .init(title: String(localized: "Ignored Vocalization Lines"), value: count(result.languageProfile?.vocalizations.count ?? 0)),
+            .init(title: String(localized: "Untranslated by Design"), value: count(result.skippedRows)),
             .init(title: String(localized: "Taiwan Chinese Pairs Reported by Apple"), value: base.apple.languages.compactMap { route in
                 let targets = route.supportedTaiwanTargets ?? []
                 return targets.isEmpty ? nil : route.source + " → " + targets.joined(separator: ", ")
             }.joined(separator: "\n").nilWhenEmpty ?? unavailable),
             .init(title: String(localized: "Original Lyrics Status"), value: result.originalReady ? String(localized: "Ready") : (result.originalSearching ? String(localized: "Searching Lyrics…") : String(localized: "Unavailable"))),
+        ]
+        let apple: [Field] = [
             .init(title: String(localized: "Base Translation Status"), value: base.phase.label),
             .init(title: String(localized: "Requested Translation Strategies"), value: strategies.isEmpty ? unavailable : strategies),
             .init(title: String(localized: "Compatible Translation Used"), value: yesNo(base.apple.usedCompatibility)),
             .init(title: String(localized: "Apple Translation Language Pairs"), value: routes.isEmpty ? unavailable : routes.joined(separator: "\n")),
             .init(title: String(localized: "Base Source Lines"), value: count(base.sourceRows)),
             .init(title: String(localized: "Base Lines Completed"), value: count(base.completedRows)),
+        ]
+        let model: [Field] = [
             .init(title: String(localized: "Foundation Models Availability"), value: ai.availability.label),
             .init(title: String(localized: "Context Translation Status"), value: result.immersiveStatus.map { String(localized: $0.diagnosticTitle) } ?? unavailable),
             .init(title: String(localized: "Model Source Language Support"), value: modelRoute.isEmpty ? unavailable : modelRoute.joined(separator: "\n")),
@@ -406,6 +418,8 @@ struct LyricsTranslationDiagnosticsView: View {
             .init(title: String(localized: "AI Lines Verified Unchanged"), value: count(ai.unchanged)),
             .init(title: String(localized: "Incomplete or Failed AI Batches"), value: count(ai.failedBatches)),
             .init(title: String(localized: "AI Batches Rejected by the Model"), value: count(ai.rejectedBatches)),
+        ]
+        let cacheAndTiming: [Field] = [
             .init(title: String(localized: "Original Lyrics Cache"), value: result.originalCacheUse.label),
             .init(title: String(localized: "Base Translation Cache"), value: base.cacheUse.label),
             .init(title: String(localized: "AI Translation Cache"), value: ai.cache.label + " (" + count(ai.cachedRows) + ")"),
@@ -420,6 +434,8 @@ struct LyricsTranslationDiagnosticsView: View {
             .init(title: String(localized: "Most Recent Error Type"), value: latestError),
             .init(title: String(localized: "Current Processing Limits"), value: restrictions.isEmpty ? String(localized: "None") : restrictions.joined(separator: ", "))
         ]
+
+        return original + apple + model + cacheAndTiming
     }
 }
 

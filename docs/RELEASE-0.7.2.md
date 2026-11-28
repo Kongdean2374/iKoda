@@ -8,7 +8,7 @@
   non-text rows and standalone vocalizations stay in the original.
 - Apple Translation checks the complete source/target pair on the requested
   strategy. It prefers supported Taiwan Traditional Chinese and records the
-  selected target and alternative Taiwan routes. If only Hong Kong Chinese or
+  selected target, the response locale and alternative Taiwan routes. If only Hong Kong Chinese or
   another Chinese locale is supported, diagnostics identify that route. The
   Simplified-to-Traditional conversion changes script. It does not translate
   regional grammar or guarantee Taiwan vocabulary.
@@ -23,6 +23,7 @@
   smaller batches for recoverable errors. Two consecutive generation deadlines
   end that run. If a model call does not immediately honor cancellation, Koda
   reports the timeout while keeping the invocation slot occupied until it exits.
+  Apple Translation also has a progress-sensitive deadline.
 - The player shows the current stage and completed rows. Diagnostics distinguish
   validated, copied from a matching refrain, reused from cache, unnecessary,
   unsupported and failed results. Valid output remains visible during retries.
