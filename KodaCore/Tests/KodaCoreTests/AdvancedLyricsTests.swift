@@ -48,7 +48,8 @@ import Testing
                     namespace: item.id.cacheNamespace, mode: mode))
             }
         }
-        #expect(Set(ids).count == 9)
+        #expect(ids.count == 12)
+        #expect(Set(ids).count == ids.count)
     }
 
     @Test func mirrorDuplicatesCollapseButDifferentTimelinesRemain() {

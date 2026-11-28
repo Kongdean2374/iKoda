@@ -27,7 +27,10 @@ struct LyricsTranslationSourceSection: View {
     let imported: [Int: String]
     let result: AutomaticLyricsResult
     @Environment(AppModel.self) private var app
-    @State private var hasCachedContext = false
+    @State private var availableModes: Set<LyricsTranslationMode> = []
+    @State private var isKept = false
+    @State private var storageNotice: String?
+    @State private var confirmsRemoval = false
 
     private var versions: LyricsVersions { app.lyricsTranslation.versions }
 
@@ -37,16 +40,22 @@ struct LyricsTranslationSourceSection: View {
                 let available = candidate.embeddedTranslations ?? []
                 let selected = versions.translationSelection
                 Picker(selection: Binding(get: { selected }, set: { choice in
-                    Task { await versions.selectTranslation(choice) }
+                    Task { await app.lyricsTranslation.selectTranslation(choice) }
                 })) {
                     Text("Automatic").tag(LyricTranslationSelection.automatic)
-                    Text("Apple Translation").tag(LyricTranslationSelection.appleTranslation)
+                    if app.settings.lyricsTranslationMode != .pureAI || selected == .appleTranslation {
+                        Text("Apple Translation").tag(LyricTranslationSelection.appleTranslation)
+                    }
                     if !imported.isEmpty || selected == .imported {
                         Text("Imported Translation").tag(LyricTranslationSelection.imported)
                     }
-                    if app.settings.lyricsTranslationMode == .immersive || selected == .foundationModels || hasCachedContext
-                        || !app.lyricsTranslation.contextualLines(for: candidate).isEmpty {
+                    if app.settings.lyricsTranslationMode.usesContextModel || selected == .foundationModels {
                         Text("Apple Intelligence").tag(LyricTranslationSelection.foundationModels)
+                    }
+                    ForEach(LyricsTranslationMode.allCases) { mode in
+                        if availableModes.contains(mode) || selected == mode.sourceChoice {
+                            Text(mode.title).tag(mode.sourceChoice)
+                        }
                     }
                     ForEach(available) { translation in
                         Text(translation.label).tag(LyricTranslationSelection.provider(translation.id))
@@ -61,12 +70,80 @@ struct LyricsTranslationSourceSection: View {
                 NavigationLink("Compare Translations") {
                     LyricsTranslationComparison(candidate: candidate, rows: lines, imported: imported)
                 }
+                if result.polishDiagnostics.validated > 0 {
+                    Button("Keep AI Translation on This Device", systemImage: "bookmark") {
+                        let scope = versions.profileScope
+                        Task {
+                            do {
+                                try await app.lyricsTranslation.retainAI(candidate)
+                                guard versions.profileScope == scope, versions.current?.id == candidate.id else { return }
+                                storageNotice = String(localized: "AI Translation Saved")
+                                isKept = true
+                            } catch {
+                                if versions.profileScope == scope { storageNotice = String(localized: "Could Not Save AI Translation") }
+                            }
+                        }
+                    }
+                }
+                if isKept {
+                    Button("Remove Kept AI Translation", role: .destructive) { confirmsRemoval = true }
+                }
+                if let storageNotice { Text(storageNotice).foregroundStyle(.secondary) }
                 if let error = versions.error { Text(error).foregroundStyle(.secondary) }
             }
-            .task(id: candidate.id) {
-                let cache = await app.lyricsTranslation.cachedContextualLines(for: candidate)
-                if !Task.isCancelled, candidate.id == versions.current?.id { hasCachedContext = !cache.isEmpty }
+            .task(id: [candidate.id.cacheNamespace, versions.profileScope.uuidString, app.settings.lyricsTranslationMode.rawValue]) {
+                let scope = versions.profileScope
+                let coordinator = app.lyricsTranslation
+                let currentMode = coordinator.currentAIMode
+                storageNotice = nil
+                availableModes = []
+                isKept = false
+                for mode in LyricsTranslationMode.allCases {
+                    let values = await coordinator.cachedTranslation(for: candidate, mode: mode)
+                    guard !Task.isCancelled, scope == versions.profileScope, candidate.id == versions.current?.id else { return }
+                    if !values.isEmpty { availableModes.insert(mode) }
+                }
+                do {
+                    let kept = try await coordinator.retainedAI(candidate, mode: currentMode)
+                    guard !Task.isCancelled, scope == versions.profileScope, candidate.id == versions.current?.id else { return }
+                    isKept = kept != nil
+                    let bytes = try await coordinator.retainedAIUsage()
+                    if bytes > 0 {
+                        guard !Task.isCancelled, scope == versions.profileScope, candidate.id == versions.current?.id else { return }
+                        let size = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+                        storageNotice = String(localized: "Kept AI Translations: \(size)")
+                    }
+                } catch {
+                    if !Task.isCancelled, scope == versions.profileScope { storageNotice = String(localized: "Could Not Read Kept AI Translations") }
+                }
             }
+            .confirmationDialog("Remove Kept AI Translation?", isPresented: $confirmsRemoval) {
+                Button("Remove Kept AI Translation", role: .destructive) {
+                    let scope = versions.profileScope
+                    let mode = app.lyricsTranslation.currentAIMode
+                    Task {
+                        do {
+                            try await app.lyricsTranslation.forgetAI(candidate, mode: mode)
+                            guard versions.profileScope == scope, versions.current?.id == candidate.id else { return }
+                            isKept = false
+                            storageNotice = nil
+                        } catch {
+                            if versions.profileScope == scope { storageNotice = String(localized: "Could Not Remove Kept AI Translation") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension LyricsTranslationMode {
+    var sourceChoice: LyricTranslationSelection {
+        switch self {
+        case .quick: .quickApple
+        case .quality: .qualityApple
+        case .immersive: .immersiveAI
+        case .pureAI: .pureAI
         }
     }
 }
@@ -85,25 +162,80 @@ private struct LyricsTranslationComparison: View {
     let rows: [LyricsTranslationText]
     let imported: [Int: String]
     @Environment(AppModel.self) private var app
-    @State private var cachedContext: [Int: String] = [:]
     @Environment(\.dismiss) private var dismiss
+    @State private var cached: [LyricsTranslationMode: [Int: String]] = [:]
+    @State private var legacy: [Int: String] = [:]
+    @State private var filter = Filter.all
+    @State private var selectedRows: Set<Int> = []
+
+    private enum Filter: String, CaseIterable, Identifiable {
+        case all, differences, unfinished
+        var id: Self { self }
+        var title: LocalizedStringKey {
+            switch self {
+            case .all: "All Lines"
+            case .differences: "Different Translations"
+            case .unfinished: "Unfinished Lines"
+            }
+        }
+    }
+
+    private struct Value: Identifiable {
+        let label: String
+        let text: String
+        var choice: LyricTranslationSelection?
+        var id: String { label }
+    }
 
     var body: some View {
-        let result = app.lyricsTranslation.result(songID: candidate.songID, lines: rows)
-        let currentAI = app.lyricsTranslation.contextualLines(for: candidate)
-        let contextual = cachedContext.merging(currentAI) { _, live in live }
-        let edits = app.lyricsTranslation.versions.edits(for: candidate)
+        let coordinator = app.lyricsTranslation
+        let versions = coordinator.versions
+        let result = coordinator.result(songID: candidate.songID, lines: rows)
+        let currentAI = coordinator.currentAIMode
+        let liveBase = app.settings.lyricsTranslationMode == .quick ? LyricsTranslationMode.quick : .quality
+        let edits = versions.edits(for: candidate)
+        let canTranslate = versions.current?.id == candidate.id && app.settings.lyricsTranslationMode.usesContextModel
+            && !coordinator.isAIWorking
         List {
+            Section {
+                Picker("Show Translation Lines", selection: $filter) {
+                    ForEach(Filter.allCases) { filter in Text(filter.title).tag(filter) }
+                }
+                if canTranslate {
+                    Button("Translate Selected Lines Again", systemImage: "arrow.clockwise") {
+                        let requested = selectedRows
+                        let scope = versions.profileScope
+                        selectedRows.removeAll()
+                        Task { await coordinator.regenerateContext(requested, for: candidate, scope: scope) }
+                    }
+                    .disabled(selectedRows.isEmpty)
+                }
+            }
             ForEach(rows, id: \.id) { row in
-                if !row.text.isEmpty {
+                let values = values(for: row.id, result: result, edits: edits, activeAI: currentAI, activeBase: liveBase)
+                let phase = result.polishDiagnostics.rows[row.id]
+                if !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   includes(values, phase: phase) {
                     Section {
-                        if let translated = edits[row.id] { LabeledContent("Edited Translation", value: translated) }
-                        ForEach(candidate.embeddedTranslations ?? []) { source in
-                            if let translated = source.lines[row.id] { LabeledContent(source.label, value: translated) }
+                        ForEach(values) { value in
+                            LabeledContent(value.label, value: value.text)
+                                .contextMenu {
+                                    if let choice = value.choice {
+                                        Button("Prefer This Translation") {
+                                            Task { await coordinator.selectTranslation(choice) }
+                                        }
+                                    }
+                                }
                         }
-                        if let translated = imported[row.id] { LabeledContent("Imported Translation", value: translated) }
-                        if let translated = result.baseDiagnostics.lines[row.id] { LabeledContent("Apple Translation", value: translated) }
-                        if let translated = contextual[row.id] { LabeledContent("Apple Intelligence", value: translated) }
+                        if canTranslate && phase != .unnecessary {
+                            Button {
+                                if !selectedRows.insert(row.id).inserted { selectedRows.remove(row.id) }
+                            } label: {
+                                Label("Select Line for Retranslation",
+                                      systemImage: selectedRows.contains(row.id) ? "checkmark.circle.fill" : "circle")
+                            }
+                            .accessibilityAddTraits(selectedRows.contains(row.id) ? .isSelected : [])
+                        }
                     } header: {
                         Text(row.text)
                     }
@@ -111,10 +243,52 @@ private struct LyricsTranslationComparison: View {
             }
         }
         .navigationTitle("Compare Translations")
-        .onChange(of: app.lyricsTranslation.versions.profileScope) { _, _ in dismiss() }
+        .onChange(of: versions.profileScope) { _, _ in dismiss() }
+        .onChange(of: versions.current?.id) { _, id in if id != candidate.id { dismiss() } }
         .task(id: candidate.id) {
-            cachedContext = await app.lyricsTranslation.cachedContextualLines(for: candidate)
+            for mode in LyricsTranslationMode.allCases {
+                let values = await coordinator.cachedTranslation(for: candidate, mode: mode)
+                guard !Task.isCancelled else { return }
+                cached[mode] = values
+            }
+            let earlier = await coordinator.legacyContextualLines(for: candidate)
+            if !Task.isCancelled { legacy = earlier }
         }
+    }
+
+    private func includes(_ values: [Value], phase: LyricAIRowState?) -> Bool {
+        switch filter {
+        case .all: true
+        case .differences: Set(values.map { $0.text.precomposedStringWithCanonicalMapping }).count > 1
+        case .unfinished:
+            phase.map { [.pending, .processing, .unsupported, .invalid, .timedOut, .cancelled].contains($0) }
+                ?? values.isEmpty
+        }
+    }
+
+    private func values(for id: Int, result: AutomaticLyricsResult, edits: [Int: String],
+                        activeAI: LyricsTranslationMode, activeBase: LyricsTranslationMode) -> [Value] {
+        var values: [Value] = []
+        if let edit = edits[id] { values.append(.init(label: String(localized: "Edited Translation"), text: edit)) }
+        for provider in candidate.embeddedTranslations ?? [] {
+            if let text = provider.lines[id] { values.append(.init(label: provider.label, text: text, choice: .provider(provider.id))) }
+        }
+        if let text = imported[id] {
+            values.append(.init(label: String(localized: "Imported Translation"), text: text, choice: .imported))
+        }
+        for mode in LyricsTranslationMode.allCases {
+            let live: String?
+            if mode == activeAI { live = app.lyricsTranslation.contextualLines(for: candidate)[id] }
+            else if mode == activeBase { live = result.baseDiagnostics.lines[id] }
+            else { live = nil }
+            if let text = live ?? cached[mode]?[id] {
+                values.append(.init(label: mode.title, text: text, choice: mode.sourceChoice))
+            }
+        }
+        if let earlier = legacy[id] {
+            values.append(.init(label: String(localized: "Earlier Immersive Translation"), text: earlier))
+        }
+        return values
     }
 }
 
@@ -126,6 +300,7 @@ struct LyricsTranslationDiagnosticsView: View {
     @Environment(AppModel.self) private var app
     @Environment(Player.self) private var player
     @State private var copies = 0
+    @State private var retention: String?
 
     private struct Field: Identifiable {
         let title: String
@@ -156,6 +331,24 @@ struct LyricsTranslationDiagnosticsView: View {
             }
         }
         .navigationTitle("Translation Diagnostics")
+        .task(id: [player.current?.id ?? "", app.lyricsTranslation.versions.current?.id.cacheNamespace ?? "",
+                   app.lyricsTranslation.versions.profileScope.uuidString,
+                   app.lyricsTranslation.currentAIMode.rawValue]) {
+            retention = nil
+            let coordinator = app.lyricsTranslation
+            let scope = coordinator.versions.profileScope
+            guard let candidate = coordinator.versions.current else { return }
+            do {
+                let stored = try await coordinator.retainedAI(candidate, mode: coordinator.currentAIMode)
+                guard !Task.isCancelled, scope == coordinator.versions.profileScope,
+                      coordinator.versions.current?.id == candidate.id else { return }
+                retention = stored == nil ? String(localized: "None") : String(localized: "AI Translation Saved")
+            } catch {
+                if !Task.isCancelled, scope == coordinator.versions.profileScope {
+                    retention = String(localized: "Could Not Read Kept AI Translations")
+                }
+            }
+        }
     }
 
     private func diagnostics(_ result: AutomaticLyricsResult) -> [Field] {
@@ -171,13 +364,15 @@ struct LyricsTranslationDiagnosticsView: View {
         func count(_ value: Int) -> String { value.formatted() }
         let strategies = base.apple.strategies.map(\.label).sorted().joined(separator: ", ")
         let routes = base.apple.languages.sorted { $0.source < $1.source }.map {
-            $0.source + " → " + ($0.target ?? "—") + " · " + $0.support.label
+            let selected = $0.target ?? "—"
+            let actual = $0.reportedTarget.map { $0 == selected ? selected : selected + " → " + $0 } ?? selected
+            return $0.source + " → " + actual + " · " + $0.support.label
         }
         let modelRoute = ai.sources.keys.sorted().map { $0 + " · " + yesNo(ai.sources[$0]) }
         let origins = Dictionary(grouping: result.origins.values, by: \.label)
             .map { $0.key + " (" + count($0.value.count) + ")" }.sorted()
         let restrictions = result.limits.union(ai.limits).map(\.label).sorted()
-        let isFallback = result.immersiveStatus != nil && result.selectedSource != .appleTranslation
+        let isFallback = !ai.pure && result.immersiveStatus != nil && result.selectedSource != .appleTranslation
             && result.origins.values.contains(.appleTranslation)
         let latestError = ai.lastError?.label ?? base.apple.lastError?.label ?? String(localized: "None")
         let validation: String
@@ -186,24 +381,55 @@ struct LyricsTranslationDiagnosticsView: View {
         } else if ai.failedBatches > 0 {
             validation = String(localized: "AI Validation Failed")
         } else { validation = String(localized: "Validation Pending") }
-        return [
+        let original: [Field] = [
             .init(title: String(localized: "Selected Translation Mode"), value: app.settings.lyricsTranslationMode.title),
             .init(title: String(localized: "Displayed Translation Sources"), value: origins.isEmpty ? String(localized: "None") : origins.joined(separator: "\n")),
+            .init(title: String(localized: "Primary Lyric Language"), value: result.languageProfile?.primary.map {
+                $0.language + " · " + $0.confidence.formatted(.percent.precision(.fractionLength(0)))
+            } ?? unavailable),
+            .init(title: String(localized: "Paragraph Languages"), value: result.languageProfile.map { profile in
+                profile.paragraphs.prefix(30).map { $0.language ?? "—" }.joined(separator: ", ")
+            } ?? unavailable),
+            .init(title: String(localized: "Corrected Language Guesses"), value: count(result.languageProfile?.corrected ?? 0)),
+            .init(title: String(localized: "Ignored Vocalization Lines"), value: count(result.languageProfile?.vocalizations.count ?? 0)),
+            .init(title: String(localized: "Untranslated by Design"), value: count(result.skippedRows)),
+            .init(title: String(localized: "Taiwan Chinese Pairs Reported by Apple"), value: base.apple.languages.compactMap { route in
+                let targets = route.supportedTaiwanTargets ?? []
+                return targets.isEmpty ? nil : route.source + " → " + targets.joined(separator: ", ")
+            }.joined(separator: "\n").nilWhenEmpty ?? unavailable),
             .init(title: String(localized: "Original Lyrics Status"), value: result.originalReady ? String(localized: "Ready") : (result.originalSearching ? String(localized: "Searching Lyrics…") : String(localized: "Unavailable"))),
+        ]
+        let apple: [Field] = [
             .init(title: String(localized: "Base Translation Status"), value: base.phase.label),
             .init(title: String(localized: "Requested Translation Strategies"), value: strategies.isEmpty ? unavailable : strategies),
             .init(title: String(localized: "Compatible Translation Used"), value: yesNo(base.apple.usedCompatibility)),
             .init(title: String(localized: "Apple Translation Language Pairs"), value: routes.isEmpty ? unavailable : routes.joined(separator: "\n")),
             .init(title: String(localized: "Base Source Lines"), value: count(base.sourceRows)),
             .init(title: String(localized: "Base Lines Completed"), value: count(base.completedRows)),
+        ]
+        let model: [Field] = [
             .init(title: String(localized: "Foundation Models Availability"), value: ai.availability.label),
             .init(title: String(localized: "Context Translation Status"), value: result.immersiveStatus.map { String(localized: $0.diagnosticTitle) } ?? unavailable),
             .init(title: String(localized: "Model Source Language Support"), value: modelRoute.isEmpty ? unavailable : modelRoute.joined(separator: "\n")),
             .init(title: String(localized: "Model Target Language Support"), value: ai.target.map { $0 + " · " + yesNo(ai.targetSupported) } ?? unavailable),
             .init(title: String(localized: "AI Validation Status"), value: validation),
+            .init(title: String(localized: "AI Work Stage"), value: ai.phase.label),
+            .init(title: String(localized: "AI Song Overview"), value: ai.summaryState.label),
+            .init(title: String(localized: "AI Batches Submitted"), value: count(ai.currentBatch)),
+            .init(title: String(localized: "AI Completed Batches"), value: count(ai.successfulBatches)),
+            .init(title: String(localized: "AI Retry Batches"), value: count(ai.retryBatches)),
+            .init(title: String(localized: "AI Lines with Base Reference"), value: count(ai.hinted)),
+            .init(title: String(localized: "Pure AI Result Lines"), value: count(ai.pure ? ai.translatedWithoutBase : 0)),
+            .init(title: String(localized: "AI Lines Reused from Chorus"), value: count(ai.reusedRows)),
+            .init(title: String(localized: "AI Invalid Lines"), value: count(ai.rows.values.count { $0 == .invalid })),
+            .init(title: String(localized: "AI Lines That Timed Out"), value: count(ai.rows.values.count { $0 == .timedOut })),
+            .init(title: String(localized: "AI Unsupported Lines"), value: count(ai.rows.values.count { $0 == .unsupported })),
+            .init(title: String(localized: "Total AI Work Time"), value: time(ai.elapsedSeconds)),
+            .init(title: String(localized: "Last AI Progress"), value: ai.lastProgress?.formatted(date: .omitted, time: .standard) ?? unavailable),
+            .init(title: String(localized: "Earlier AI Error"), value: ai.historicalError?.label ?? String(localized: "None")),
             .init(title: String(localized: "Base Fallback Displayed"),
                   value: yesNo(isFallback)),
-            .init(title: String(localized: "AI Lines Pending"), value: count(max(0, ai.total - ai.validated))),
+            .init(title: String(localized: "AI Lines Pending"), value: count(ai.rows.values.count { $0 == .pending || $0 == .processing })),
             .init(title: String(localized: "AI Lines Processed This Run"), value: count(ai.processed)),
             .init(title: String(localized: "AI Lines Validated"), value: count(ai.validated)),
             .init(title: String(localized: "AI Lines Changed"), value: count(ai.changed)),
@@ -211,8 +437,11 @@ struct LyricsTranslationDiagnosticsView: View {
             .init(title: String(localized: "AI Lines Verified Unchanged"), value: count(ai.unchanged)),
             .init(title: String(localized: "Incomplete or Failed AI Batches"), value: count(ai.failedBatches)),
             .init(title: String(localized: "AI Batches Rejected by the Model"), value: count(ai.rejectedBatches)),
+        ]
+        let cacheAndTiming: [Field] = [
             .init(title: String(localized: "Original Lyrics Cache"), value: result.originalCacheUse.label),
             .init(title: String(localized: "Base Translation Cache"), value: base.cacheUse.label),
+            .init(title: String(localized: "Preserved AI Translation"), value: retention ?? unavailable),
             .init(title: String(localized: "AI Translation Cache"), value: ai.cache.label + " (" + count(ai.cachedRows) + ")"),
             .init(title: String(localized: "Original Lyrics Preparation Time"), value: time(result.originalLookupSeconds)),
             .init(title: String(localized: "Base Preparation Time"), value: time(base.planningSeconds)),
@@ -225,6 +454,8 @@ struct LyricsTranslationDiagnosticsView: View {
             .init(title: String(localized: "Most Recent Error Type"), value: latestError),
             .init(title: String(localized: "Current Processing Limits"), value: restrictions.isEmpty ? String(localized: "None") : restrictions.joined(separator: ", "))
         ]
+
+        return original + apple + model + cacheAndTiming
     }
 }
 
@@ -268,7 +499,10 @@ private extension LyricTranslationOrigin {
         case .provider: String(localized: "Lyrics Provider Translation")
         case .imported: String(localized: "Imported Translation")
         case .appleTranslation: String(localized: "Apple Translation")
-        case .foundationModels: String(localized: "Apple Intelligence")
+        case .foundationModels: String(localized: "Immersive Translation")
+        case .pureAI: String(localized: "Pure AI Translation (Experimental)")
+        case .quickApple: String(localized: "Quick Translation")
+        case .qualityApple: String(localized: "High Quality Translation")
         case .edited: String(localized: "Edited Translation")
         }
     }
@@ -343,6 +577,46 @@ private extension LyricWorkError {
         case .refused: String(localized: "Model Refusal")
         case .incompleteOutput: String(localized: "Incomplete Model Output")
         case .context: String(localized: "Model Context Limit")
+        }
+    }
+}
+
+
+private extension String {
+    var nilWhenEmpty: String? { isEmpty ? nil : self }
+}
+
+private extension LyricAIWorkPhase {
+    var label: String {
+        switch self {
+        case .queued: String(localized: "Waiting for AI Work")
+        case .identifying: String(localized: "Identifying Lyric Languages…")
+        case .preparing: String(localized: "Preparing Lyric Context…")
+        case .summarizing: String(localized: "Summarizing Lyrics…")
+        case .generating: String(localized: "AI Context Translation…")
+        case .validating: String(localized: "Validating AI Translation")
+        case .retrying: String(localized: "Retrying Unfinished Lines…")
+        case .awaitingCancellation: String(localized: "AI Timed Out; Waiting for the Model to Stop")
+        case .paused: String(localized: "Context Polish Paused")
+        case .complete: String(localized: "Context Polish Complete")
+        case .partial: String(localized: "Context Polish Partially Complete")
+        case .unavailable: String(localized: "Unavailable")
+        case .failed: String(localized: "Context Polish Failed")
+        case .cancelled: String(localized: "Cancelled")
+        }
+    }
+}
+
+private extension LyricAISummaryState {
+    var label: String {
+        switch self {
+        case .waiting: String(localized: "Not Measured")
+        case .running: String(localized: "Summarizing Lyrics…")
+        case .complete: String(localized: "Song Overview Complete")
+        case .shortContext: String(localized: "Full Lyrics Used as Context")
+        case .unsupportedPrimary: String(localized: "Main Language Unavailable; Using Adjacent Lyrics")
+        case .failed: String(localized: "Overview Failed; Using Adjacent Lyrics")
+        case .cancelled: String(localized: "Cancelled")
         }
     }
 }

@@ -794,6 +794,12 @@ final class KodaComponentSmokeTests: XCTestCase {
         mode.tap()
         app.buttons["快速翻譯"].tap()
         expectState(mode, matching: NSPredicate(format: "value CONTAINS %@", "快速翻譯"))
+        reveal(mode, in: app, towardTop: true)
+        mode.tap()
+        let pureAI = app.buttons["純 AI 翻譯（實驗性）"]
+        XCTAssertTrue(pureAI.waitForExistence(timeout: 10))
+        pureAI.tap()
+        expectState(mode, matching: NSPredicate(format: "value CONTAINS %@", "純 AI 翻譯（實驗性）"))
     }
 
     @MainActor

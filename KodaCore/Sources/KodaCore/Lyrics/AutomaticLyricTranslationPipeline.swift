@@ -12,12 +12,17 @@ public final class AutomaticLyricTranslationPipeline {
         public let rows: [ChineseLyricTranslationPlan.Row]
         public let namespace: String?
         public let mode: LyricsTranslationMode
+        public let plan: ChineseLyricTranslationPlan?
+        public let routes: [AppleLyricDiagnostics.LanguageRoute]?
         public init(songID: String, rows: [ChineseLyricTranslationPlan.Row],
-                    namespace: String? = nil, mode: LyricsTranslationMode = .quick) {
+                    namespace: String? = nil, mode: LyricsTranslationMode = .quick,
+                    plan: ChineseLyricTranslationPlan? = nil, routes: [AppleLyricDiagnostics.LanguageRoute]? = nil) {
             self.songID = songID
             self.rows = rows
             self.namespace = namespace
             self.mode = mode
+            self.plan = plan
+            self.routes = routes
         }
     }
 
@@ -160,11 +165,11 @@ public final class AutomaticLyricTranslationPipeline {
         self.enabled = enabled
         foreground = isForeground
         if isForeground && !playbackSessionFinished { suspended = false }
-        currentKey = current.map(ensureRecord)
+        currentKey = current.flatMap { $0.mode.usesAppleTranslation ? ensureRecord($0) : nil }
         backgroundCurrentKey = allowsBackgroundCurrent ? currentKey : nil
         var seen = Set<Key>()
         if let currentKey { seen.insert(currentKey) }
-        upcomingKeys = upcoming.prefix(maximumUpcoming).compactMap { input in
+        upcomingKeys = upcoming.filter { $0.mode.usesAppleTranslation }.prefix(maximumUpcoming).compactMap { input in
             let key = ensureRecord(input)
             return seen.insert(key).inserted ? key : nil
         }
@@ -249,7 +254,10 @@ public final class AutomaticLyricTranslationPipeline {
     }
 
     public nonisolated static func cacheKey(_ input: Input) -> AutomaticLyricTranslationCache.Key {
-        let namespace = input.namespace.map { $0 + "|" + input.mode.rawValue + "|apple-translation-v2" }
+        let namespace = input.namespace.map {
+            $0 + "|" + input.mode.rawValue + "|apple-translation-v3|" + LyricLanguageProfile.version + "|"
+                + (input.routes.map(LyricChineseTarget.namespace) ?? "")
+        }
         return .init(songID: input.songID, rows: input.rows, namespace: namespace)
     }
 
@@ -299,8 +307,17 @@ public final class AutomaticLyricTranslationPipeline {
             memo[input.songID] = (input, key)
         }
         sequence &+= 1
-        if records[key] == nil { records[key] = Record(input: input, lastUsed: sequence) }
-        else { records[key]?.lastUsed = sequence }
+        if var record = records[key] {
+            let routeChanged = record.input.routes != input.routes
+            record.input = input
+            record.lastUsed = sequence
+            records[key] = record
+            if routeChanged, published[key]?.phase == .needsLanguage {
+                publishSnapshot(key: key, phase: .paused)
+            }
+        } else {
+            records[key] = Record(input: input, lastUsed: sequence)
+        }
         return key
     }
 
@@ -336,8 +353,9 @@ public final class AutomaticLyricTranslationPipeline {
             let planningStarted = ContinuousClock.now
             let rows = record.input.rows
             let detector = detectLanguage
+            let recordInputPlan = record.input.plan
             let plan = await Task.detached(priority: .utility) {
-                ChineseLyricTranslationPlan(rows: rows, detectLanguage: detector)
+                recordInputPlan ?? ChineseLyricTranslationPlan(rows: rows, detectLanguage: detector)
             }.value
             guard accepts(key: key, token: token) else { return }
             record.plan = plan
@@ -367,11 +385,34 @@ public final class AutomaticLyricTranslationPipeline {
         }
         records[key]?.engineStarted = .now
         do {
-            let outcome = try await engine(record.input, missing, { [weak self] fragments in
-                await self?.receive(fragments, key: key, token: token)
-            }, { [weak self] report in
-                await self?.receiveDiagnostics(report, key: key, token: token)
-            })
+            let input = record.input
+            let engine = engine
+            let heartbeat = LyricTranslationHeartbeat()
+            let perform: @Sendable () async throws -> Outcome = { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await engine(input, missing, { fragments in
+                    if !fragments.isEmpty { await heartbeat.received() }
+                    await self.receive(fragments, key: key, token: token)
+                }, { report in
+                    await self.receiveDiagnostics(report, key: key, token: token)
+                })
+            }
+            let outcome: Outcome
+            if input.routes != nil {
+                outcome = try await withThrowingTaskGroup(of: Outcome.self) { group in
+                    group.addTask { try await perform() }
+                    group.addTask { [weak self] in
+                        try await heartbeat.waitForInactivity(.seconds(50))
+                        await self?.translationTimedOut(key: key, token: token)
+                        throw URLError(.timedOut)
+                    }
+                    defer { group.cancelAll() }
+                    guard let value = try await group.next() else { throw CancellationError() }
+                    return value
+                }
+            } else {
+                outcome = try await perform()
+            }
             guard accepts(key: key, token: token) else { return }
             stopEngineClock(key)
             switch outcome {
@@ -391,6 +432,15 @@ public final class AutomaticLyricTranslationPipeline {
             if records[key]?.apple.lastError == nil { records[key]?.apple.lastError = .translation }
             publishSnapshot(key: key, phase: .failed)
         }
+        dirty.insert(key)
+    }
+
+    private func translationTimedOut(key: Key, token: UUID) {
+        guard accepts(key: key, token: token) else { return }
+        stopEngineClock(key)
+        records[key]?.apple.lastError = .timeout
+        active?.cancelled = true
+        publishSnapshot(key: key, phase: .failed)
         dirty.insert(key)
     }
 

@@ -49,14 +49,17 @@ public actor AutomaticLyricTranslationCache {
         public var savedAt: Date
         public var usedCompatibility: Bool?
         public var appleDiagnostics: AppleLyricDiagnostics?
+        public var modelLanguages: [String]?
 
         public init(fragments: [String: String], isComplete: Bool = false, savedAt: Date = Date(),
-                    usedCompatibility: Bool? = nil, appleDiagnostics: AppleLyricDiagnostics? = nil) {
+                    usedCompatibility: Bool? = nil, appleDiagnostics: AppleLyricDiagnostics? = nil,
+                    modelLanguages: [String]? = nil) {
             self.fragments = fragments
             self.isComplete = isComplete
             self.savedAt = savedAt
             self.usedCompatibility = usedCompatibility
             self.appleDiagnostics = appleDiagnostics
+            self.modelLanguages = modelLanguages
         }
     }
 
@@ -133,7 +136,8 @@ public actor AutomaticLyricTranslationCache {
             merged = Entry(fragments: fragments, isComplete: previous.isComplete || clean.isComplete,
                            savedAt: max(previous.savedAt, clean.savedAt),
                            usedCompatibility: newer ? clean.usedCompatibility : previous.usedCompatibility,
-                           appleDiagnostics: (newer ? clean.appleDiagnostics : previous.appleDiagnostics) ?? previous.appleDiagnostics)
+                           appleDiagnostics: (newer ? clean.appleDiagnostics : previous.appleDiagnostics) ?? previous.appleDiagnostics,
+                           modelLanguages: (newer ? clean.modelLanguages : previous.modelLanguages) ?? previous.modelLanguages)
         } else {
             merged = clean
         }
@@ -174,7 +178,8 @@ public actor AutomaticLyricTranslationCache {
         let fragments = entry.fragments.filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return Entry(fragments: fragments,
                      isComplete: entry.isComplete && fragments.count == entry.fragments.count,
-                     savedAt: entry.savedAt, usedCompatibility: entry.usedCompatibility, appleDiagnostics: entry.appleDiagnostics)
+                     savedAt: entry.savedAt, usedCompatibility: entry.usedCompatibility, appleDiagnostics: entry.appleDiagnostics,
+                     modelLanguages: entry.modelLanguages)
     }
 
     private func nextAccess() -> UInt64 {

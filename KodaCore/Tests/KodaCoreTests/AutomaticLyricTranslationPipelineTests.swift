@@ -181,6 +181,32 @@ struct AutomaticLyricTranslationPipelineTests {
         await restored.flush()
     }
 
+    @Test(.timeLimit(.minutes(1))) func installingTheSameRouteResumesTheReadyLanguageWithoutLosingOtherRows() async throws {
+        let folder = directory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let rows = [Row(id: 0, text: "The new day begins")]
+        let plan = ChineseLyricTranslationPlan(rows: rows, detectLanguage: { _ in "en" })
+        func input(_ state: AppleLyricDiagnostics.Support) -> Input {
+            Input(songID: "download", rows: rows, namespace: "version", plan: plan,
+                  routes: [.init(source: "en", target: "zh-TW", support: state, strategy: .lowLatency)])
+        }
+        let service = Pipeline(cache: .init(directory: folder), observedEngine: { request, fragments, publish, _ in
+            if request.routes?.first?.support != .available {
+                return .needsLanguage(.init(source: "en", target: "zh-TW"))
+            }
+            await publish(Dictionary(uniqueKeysWithValues: fragments.map { ($0.id, "新的一天開始了") }))
+            return .complete
+        })
+        let waiting = input(.download), ready = input(.available)
+        #expect(Pipeline.cacheKey(waiting) == Pipeline.cacheKey(ready))
+        service.setRequests(current: waiting, upcoming: [], enabled: true, isForeground: true)
+        try await eventually { service.snapshot(for: waiting).phase == .needsLanguage }
+        service.setRequests(current: ready, upcoming: [], enabled: true, isForeground: true)
+        try await eventually { service.snapshot(for: ready).phase == .ready }
+        #expect(service.snapshot(for: ready).lines == [0: "新的一天開始了"])
+        await service.flush()
+    }
+
     @Test(.timeLimit(.minutes(1))) func backgroundExpirationRetainsProgressAndResumesOnlyMissingFragments() async throws {
         let folder = directory(), engine = ControlledLyricsEngine()
         let service = pipeline(directory: folder, engine: engine)

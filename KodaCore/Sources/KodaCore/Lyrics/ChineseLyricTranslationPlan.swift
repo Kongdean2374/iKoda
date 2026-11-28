@@ -20,8 +20,9 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
     /// Unknown foreign text needs an honest unavailable notice. Already-Traditional
     /// Chinese, URLs and numeric-only rows need no semantic translation or notice.
     public let hasUnrecognizedText: Bool
+    public let languageProfile: LyricLanguageProfile
     private let rows: [PreparedRow]
-    var semanticRows: Set<Int> {
+    public var semanticRows: Set<Int> {
         Set(fragments.map(\.lineID) + rows.filter(\.unrecognized).map(\.id))
     }
 
@@ -40,21 +41,31 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
         case literal(String), space(String), candidate(String, Script)
     }
 
-    public init(rows input: [Row],
-                detectLanguage: @Sendable (String) -> String? = { LyricsRomanizer.language(of: [$0]) }) {
+    public init(rows: [Row]) {
+        self.init(rows: rows, languageEvidence: LyricLanguageProfile.detect)
+    }
+
+    public init(rows: [Row], detectLanguage: @escaping @Sendable (String) -> String?) {
+        self.init(rows: rows, languageEvidence: { text in
+            detectLanguage(text).map { .init($0, confidence: 1) }
+        })
+    }
+
+    public init(rows input: [Row], languageEvidence: LyricLanguageProfile.Detector) {
         var prepared: [PreparedRow] = []
         var seenIDs: Set<Int> = []
         var unrecognized = false
-        let context = input.prefix(64).map { String($0.text.prefix(160)) }.joined(separator: "\n")
-        let overall = Self.languageCode(detectLanguage(context))
+        let profile = LyricLanguageProfile(rows: input, detect: languageEvidence)
+        languageProfile = profile
         for row in input where Self.hasText(row.text) && seenIDs.insert(row.id).inserted {
             let sections = Self.urlPieces(row.text)
             let sourceText = sections.filter { !$0.1 }.map { $0.0 }.joined()
-            let detected = Self.hasText(sourceText) ? detectLanguage(sourceText) : nil
-            let shortHan = sourceText.count < 16 && Self.containsHan(sourceText)
-                && !Self.containsKana(sourceText) && !Self.containsHangul(sourceText) && !Self.containsLatin(sourceText)
-            let contextual = shortHan && (overall == "ja" || overall == "ko") ? overall : detected
+            let contextual = profile.rowLanguages[row.id]
             let language = Self.languageCode(contextual)
+            if profile.noTranslation.contains(row.id) {
+                prepared.append(.init(id: row.id, originalText: row.text, chinese: false, pieces: [.literal(row.text)]))
+                continue
+            }
             let kana = Self.containsKana(sourceText), hangul = Self.containsHangul(sourceText)
             // A positively identified Japanese/Korean line keeps its Han characters with
             // the whole phrase. Hans-Hant must never rewrite Japanese kanji beforehand.
@@ -68,7 +79,7 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
                 if isURL {
                     result.pieces.append(.literal(text))
                 } else if chinese {
-                    Self.appendMixed(text, to: &result, next: &fragmentIndex, detectLanguage: detectLanguage)
+                    Self.appendMixed(text, to: &result, next: &fragmentIndex, detectLanguage: languageEvidence)
                 } else if let wholeLanguage, Self.hasLetters(text),
                           !TraditionalChineseLyrics.isChinese(language: wholeLanguage) {
                     Self.appendFragment(text, language: wholeLanguage, to: &result, next: &fragmentIndex)
@@ -116,13 +127,14 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
     }
 
     func rowProgress(translations: [String: String]) -> (completed: Int, total: Int) {
+        let requested = semanticRows
         let completed = rows.count { row in
-            !row.unrecognized && row.pieces.allSatisfy {
+            requested.contains(row.id) && !row.unrecognized && row.pieces.allSatisfy {
                 if case .fragment(let fragment) = $0 { return translations[fragment.id] != nil }
                 return true
             }
         }
-        return (completed, rows.count)
+        return (completed, requested.count)
     }
 
     private static func appendFragment(_ text: String, language: String, to row: inout PreparedRow, next: inout Int) {
@@ -137,7 +149,7 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
     }
 
     private static func appendMixed(_ text: String, to row: inout PreparedRow, next: inout Int,
-                                    detectLanguage: @Sendable (String) -> String?) {
+                                    detectLanguage: LyricLanguageProfile.Detector) {
         var units: [Unit] = []
         for token in runs(text, splittingOn: \.isWhitespace) {
             if token.first?.isWhitespace == true { units.append(.space(token)); continue }
@@ -167,8 +179,13 @@ public struct ChineseLyricTranslationPlan: Equatable, Sendable {
                     text += space + following
                     index += 2
                 }
+                if LyricLanguageProfile.isVocalization(text) {
+                    row.pieces.append(.literal(text))
+                    continue
+                }
                 let detected = detectLanguage(text)
-                let source = script == .kana ? "ja" : (script == .hangul ? "ko" : detected)
+                let source = script == .kana ? "ja" : (script == .hangul ? "ko"
+                    : detected.flatMap { $0.confidence >= 0.72 && text.count >= 3 ? $0.language : nil })
                 if let source, !TraditionalChineseLyrics.isChinese(language: source) {
                     appendFragment(text, language: source, to: &row, next: &next)
                 } else {
