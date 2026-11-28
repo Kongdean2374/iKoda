@@ -75,8 +75,8 @@ final class ImmersiveScreenController {
     }
 }
 
-struct ImmersiveDisplayProbe: UIViewRepresentable {
-    var onChange: (UIScreen?) -> Void
+struct ImmersiveWindowProbe: UIViewRepresentable {
+    var onChange: (UIWindow?) -> Void
 
     func makeUIView(context: Context) -> WindowProbe {
         let view = WindowProbe()
@@ -88,11 +88,11 @@ struct ImmersiveDisplayProbe: UIViewRepresentable {
     func updateUIView(_ view: WindowProbe, context: Context) { view.onChange = onChange }
 
     final class WindowProbe: UIView {
-        var onChange: ((UIScreen?) -> Void)?
+        var onChange: ((UIWindow?) -> Void)?
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            let display = window?.windowScene?.screen
-            Task { @MainActor [weak self] in self?.onChange?(display) }
+            let host = window
+            Task { @MainActor [weak self] in self?.onChange?(host) }
         }
     }
 }

@@ -13,7 +13,8 @@ struct ImmersiveListeningView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @State private var screen = ImmersiveScreenController()
-    @State private var display: UIScreen?
+    @State private var window: UIWindow?
+    @State private var rotationOwner = UUID()
     @State private var lock = ImmersiveInteractionLock()
     @State private var overlayTask: Task<Void, Never>?
     @State private var controlsVisible = true
@@ -23,6 +24,7 @@ struct ImmersiveListeningView: View {
     @State private var constrained = false
     @State private var visuals = ImmersiveVisualFrame()
     @State private var landscape = false
+    @State private var hasLaidOutInLandscape = false
     @State private var appeared = false
     @State private var scrubbing = false
     @State private var visualListener = UUID()
@@ -60,6 +62,7 @@ struct ImmersiveListeningView: View {
                     .overlay(alignment: .bottom) {
                         if !controlsVisible || lock.isLocked { ImmersivePassiveProgress() }
                     }
+                    .simultaneousGesture(TapGesture().onEnded { showControlsIfHidden() })
                     .padding(.horizontal, wide ? 25 : 14)
                     .padding(.vertical, wide ? 9 : 14)
                     .accessibilityHidden(lock.isLocked)
@@ -73,13 +76,15 @@ struct ImmersiveListeningView: View {
             }
             .onChange(of: wide, initial: true) { _, value in
                 landscape = value
+                if value { hasLaidOutInLandscape = true }
+                if controlsVisible { scheduleHide() }
                 exitIfPortrait()
             }
         }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
         .background {
-            ImmersiveDisplayProbe { display = $0; updateScreen() }
+            ImmersiveWindowProbe(onChange: updateWindow)
                 .accessibilityHidden(true)
         }
         .background {
@@ -87,12 +92,12 @@ struct ImmersiveListeningView: View {
                 LyricsTranslationDownloadHost(coordinator: app.lyricsTranslation)
             }
         }
-        .accessibilityIdentifier("immersive.player")
         .interactiveDismissDisabled()
         .persistentSystemOverlays(controlsVisible && !lock.isLocked ? .visible : .hidden)
         .onAppear {
             appeared = true
             updateSystemLimits()
+            updateWindow(window)
             app.settings.immersiveTranslationsVisible = profile.translation
             updateScreen()
             scheduleHide()
@@ -103,6 +108,7 @@ struct ImmersiveListeningView: View {
             overlayTask?.cancel()
             lock = .init()
             player.setAudioVisualization(false, listener: visualListener)
+            if let window { Orientation.setMusicRotation(false, owner: rotationOwner, in: window) }
             updateScreen()
         }
         .onChange(of: profile.translation) { _, value in app.settings.immersiveTranslationsVisible = value }
@@ -185,12 +191,26 @@ struct ImmersiveListeningView: View {
     }
 
     private func updateScreen() {
-        screen.update(screen: display, active: awake, keepAwake: preferences.keepScreenAwake,
+        screen.update(screen: window?.windowScene?.screen, active: awake, keepAwake: preferences.keepScreenAwake,
                       brightness: preferences.customBrightness ? preferences.brightness : nil)
     }
 
+    private func updateWindow(_ host: UIWindow?) {
+        if let old = window, old !== host { Orientation.setMusicRotation(false, owner: rotationOwner, in: old) }
+        window = host
+        if let host { Orientation.setMusicRotation(appeared, owner: rotationOwner, in: host) }
+        updateScreen()
+    }
+
+    private func showControlsIfHidden() {
+        guard !lock.isLocked, !controlsVisible else { return }
+        transition { controlsVisible = true }
+        scheduleHide()
+    }
+
     private func exitIfPortrait() {
-        if automaticallyOpened, !landscape, !lock.isLocked, !showSettings, tool == nil { close() }
+        if automaticallyOpened, hasLaidOutInLandscape, !landscape,
+           !lock.isLocked, !showSettings, tool == nil { close() }
     }
 
     private func scheduleHide() {
@@ -218,6 +238,7 @@ struct ImmersiveListeningView: View {
                 .contentShape(Rectangle())
                 .ignoresSafeArea()
                 .onTapGesture { revealLock() }
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Show Unlock Button")
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { revealLock() }
@@ -278,7 +299,8 @@ struct ImmersiveListeningView: View {
         }
         .ignoresSafeArea()
         .contentShape(Rectangle())
-        .onTapGesture { transition { controlsVisible = true }; scheduleHide() }
+        .onTapGesture { showControlsIfHidden() }
+        .allowsHitTesting(!lock.isLocked)
         .accessibilityHidden(true)
     }
 
@@ -288,7 +310,9 @@ struct ImmersiveListeningView: View {
         let lyric = ImmersiveLyricDisplay(profile: profile, wide: wide)
         let art = cover(size: coverLimit)
         VStack(spacing: 8) {
-            if profile.showsSong, preferences.last != .album { songDescription }
+            if profile.showsSong, preferences.last != .album {
+                songDescription.accessibilityIdentifier(wide ? "immersive.song.landscape" : "immersive.song.portrait")
+            }
             switch preferences.last {
             case .theater:
                 if profile.artwork {
@@ -425,6 +449,7 @@ struct ImmersiveListeningView: View {
         VStack(spacing: 2) {
             HStack {
                 icon("Close", "xmark") { close() }
+                    .accessibilityIdentifier("immersive.close")
                 Spacer()
                 Menu {
                     Picker("Immersive Style", selection: Binding(get: { preferences.last }, set: { app.settings.immersive.last = $0; scheduleHide() })) {

@@ -24,6 +24,9 @@ struct NowPlayingView: View {
     @State private var utility: PlayerUtility?
     @State private var lyricControlsExpanded = false
     @State private var immersive: ImmersiveEntry?
+    @State private var rotationWindow: UIWindow?
+    @State private var rotationOwner = UUID()
+    @State private var attached = false
 
     private enum ImmersiveEntry: String, Identifiable {
         case manual, landscape
@@ -31,6 +34,23 @@ struct NowPlayingView: View {
     }
 
     private var landscape: Bool { size.width > size.height }
+    private var canRotateForImmersive: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
+        return attached && (immersive != nil
+            || (app.settings.immersive.automaticLandscape && player.current != nil && player.wantsToPlay
+                && utility == nil && app.playlistTarget == nil && !app.isProfilePresented))
+        #endif
+    }
+
+    private func updateRotationWindow(_ window: UIWindow?) {
+        if let old = rotationWindow, old !== window {
+            Orientation.setMusicRotation(false, owner: rotationOwner, in: old)
+        }
+        rotationWindow = window
+        if let window { Orientation.setMusicRotation(canRotateForImmersive, owner: rotationOwner, in: window) }
+    }
 
     private var usesBilingualLayout: Bool {
         app.settings.showsLyricsTranslation && (player.current.map {
@@ -87,6 +107,16 @@ struct NowPlayingView: View {
                 LyricsTranslationDownloadHost(coordinator: app.lyricsTranslation)
             }
         }
+        .background { ImmersiveWindowProbe(onChange: updateRotationWindow).accessibilityHidden(true) }
+        .onAppear {
+            attached = true
+            updateRotationWindow(rotationWindow)
+        }
+        .onDisappear {
+            attached = false
+            if let rotationWindow { Orientation.setMusicRotation(false, owner: rotationOwner, in: rotationWindow) }
+        }
+        .onChange(of: canRotateForImmersive) { _, _ in updateRotationWindow(rotationWindow) }
         .onGeometryChange(for: Bool.self) { $0.size.width >= 900 && $0.size.height >= 560 } action: { isWide = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onChange(of: landscape) { _, wide in

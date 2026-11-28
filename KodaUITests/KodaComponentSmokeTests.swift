@@ -837,11 +837,14 @@ final class KodaComponentSmokeTests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
         XCUIDevice.shared.orientation = .landscapeLeft
+        let landscapeSong = app.staticTexts.matching(identifier: "immersive.song.landscape").firstMatch
+        XCTAssertTrue(landscapeSong.waitForExistence(timeout: 10), "The player must actually use its landscape layout")
         let lock = app.buttons["immersive.lock.lock"]
         let unlock = app.buttons["immersive.lock.unlock"]
         let transport = app.buttons["immersive.transport"]
-        if !lock.exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap() }
+        if !lock.isHittable { app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap() }
         XCTAssertTrue(lock.waitForExistence(timeout: 10))
+        XCTAssertTrue(lock.isHittable)
         XCTAssertTrue(transport.exists)
         XCTAssertEqual(transport.label, "Pause")
         lock.tap()
@@ -857,7 +860,7 @@ final class KodaComponentSmokeTests: XCTestCase {
         unlock.tap()
         XCTAssertTrue(transport.waitForExistence(timeout: 4))
         XCTAssertEqual(transport.label, "Pause")
-        app.buttons["Close"].firstMatch.tap()
+        app.buttons["immersive.close"].tap()
         XCTAssertTrue(more.waitForExistence(timeout: 5))
     }
 
