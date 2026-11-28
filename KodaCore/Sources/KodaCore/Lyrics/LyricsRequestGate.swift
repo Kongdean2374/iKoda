@@ -6,11 +6,14 @@ actor LyricsRequestGate {
     enum Rejection: Error {
         case cooled(Date)
         case limited(String?)
+        case serverBusy(String?)
+        case unavailableUntil(Date)
     }
 
     private struct Cooldown {
         var until: Date
         var strikes: Int
+        var rateLimited: Bool
     }
 
     private struct Key: Hashable, Sendable {
@@ -32,7 +35,9 @@ actor LyricsRequestGate {
         let listener = UUID()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            if let active = cooling[source], active.until > Date() { throw Rejection.cooled(active.until) }
+            if let active = cooling[source], active.until > Date() {
+                throw active.rateLimited ? Rejection.cooled(active.until) : Rejection.unavailableUntil(active.until)
+            }
             return try await withCheckedThrowingContinuation { continuation in
                 if flights[key] != nil {
                     flights[key]?.listeners[listener] = continuation
@@ -67,21 +72,13 @@ actor LyricsRequestGate {
         var result = result
         switch result {
         case .failure(let error as Rejection):
-            guard case .limited(let header) = error else {
-                for continuation in flight.listeners.values { continuation.resume(with: result) }
-                return
+            switch error {
+            case .limited(let header):
+                result = .failure(applyCooldown(source: key.source, retryAfter: header, rateLimited: true))
+            case .serverBusy(let header):
+                result = .failure(applyCooldown(source: key.source, retryAfter: header, rateLimited: false))
+            default: break
             }
-            let now = Date()
-            let past = cooling[key.source]
-            let strikes = min(5, (past?.strikes ?? 0) + 1)
-            let delay = Self.retryDelay(header, now: now) ?? (pow(2, Double(strikes - 1)) * 30 + Double.random(in: 0...5))
-            let until = max(now.addingTimeInterval(delay), past?.until ?? now)
-            if cooling.count >= 128 {
-                let oldest = cooling.min { $0.value.until < $1.value.until }?.key
-                if let oldest, (cooling[oldest]?.until ?? now) <= now { cooling[oldest] = nil }
-            }
-            cooling[key.source] = Cooldown(until: until, strikes: strikes)
-            result = .failure(Rejection.cooled(until))
         case .success:
             if let status = cooling[key.source], status.until <= Date() { cooling[key.source] = nil }
         default: break
@@ -89,10 +86,27 @@ actor LyricsRequestGate {
         for continuation in flight.listeners.values { continuation.resume(with: result) }
     }
 
+    private func applyCooldown(source: String, retryAfter: String?, rateLimited: Bool) -> Rejection {
+        let now = Date()
+        let past = cooling[source]
+        let stillRateLimited = past.map { $0.rateLimited && $0.until > now } ?? false
+        let strikes = min(5, (past?.strikes ?? 0) + 1)
+        let minimum = rateLimited ? 30.0 : 6.0
+        let delay = Self.retryDelay(retryAfter, now: now) ?? (pow(2, Double(strikes - 1)) * minimum + Double.random(in: 0...3))
+        let until = max(now.addingTimeInterval(delay), past?.until ?? now)
+        if cooling.count >= 128 {
+            let expired = cooling.filter { $0.value.until <= now }.keys
+            for key in expired { cooling[key] = nil }
+        }
+        let limited = rateLimited || stillRateLimited
+        cooling[source] = Cooldown(until: until, strikes: strikes, rateLimited: limited)
+        return limited ? .cooled(until) : .unavailableUntil(until)
+    }
+
     static func retryDelay(_ value: String?, now: Date) -> TimeInterval? {
         guard let value else { return nil }
         let input = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let seconds = Double(input), seconds.isFinite, seconds >= 0 { return max(1, seconds) }
+        if let seconds = Double(input), seconds.isFinite, seconds >= 0 { return min(31_536_000, max(1, seconds)) }
         let format = DateFormatter()
         format.locale = Locale(identifier: "en_US_POSIX")
         format.timeZone = TimeZone(secondsFromGMT: 0)

@@ -30346,6 +30346,91 @@
           }
         }
       }
+    },
+    "Translation Language Packs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translation Language Packs"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻譯語言包"
+          }
+        }
+      }
+    },
+    "Language pairs appear after Koda prepares the current song’s lyrics.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language pairs appear after Koda prepares the current song’s lyrics."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koda 準備好目前歌曲的歌詞後，會顯示翻譯語言配對。"
+          }
+        }
+      }
+    },
+    "Retry Language Download": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Language Download"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新下載翻譯語言包"
+          }
+        }
+      }
+    },
+    "Album Gradient": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Album Gradient"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專輯配色漸層"
+          }
+        }
+      }
+    },
+    "Visualization Color Style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualization Color Style"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音譜配色方式"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

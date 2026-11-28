@@ -35,6 +35,7 @@ struct LyricsTranslationSettingsView: View {
                 Toggle("Use Imported Translations", isOn: $settings.importedLyricsEnabled)
                 Toggle("Prefetch Translations", isOn: $settings.prefetchTranslations)
                 Toggle("Compact Player for Bilingual Lyrics", isOn: $settings.compactBilingualPlayer)
+                NavigationLink("Translation Language Packs") { LyricsTranslationLanguagesView() }
                 NavigationLink("Translation Diagnostics") {
                     LyricsTranslationDiagnosticsView(lines: versions.current.map { value in
                         LyricsPreviewRow.make(value.lyrics).map { LyricsTranslationText(id: $0.id, text: $0.text) }

@@ -101,7 +101,8 @@ struct ImmersiveLyricDisplay: View {
     }
 
     private func synced(_ lines: [LyricLine], extras: [Int: String]) -> some View {
-        TimelineView(.animation(minimumInterval: 0.10, paused: !player.wantsToPlay || scene != .active)) { context in
+        let hasDuet = lines.contains { $0.voice != .lead }
+        return TimelineView(.animation(minimumInterval: 0.10, paused: !player.wantsToPlay || scene != .active)) { context in
             let index = Lyrics.index(of: player.position(at: context.date) + SyncedLyrics.lead - offset, in: lines)
             let current = index.map { lines[$0].time }
             let vector = visibleRange(lines, index: index)
@@ -111,7 +112,7 @@ struct ImmersiveLyricDisplay: View {
                         ForEach(vector, id: \.self) { i in
                             let row = lines[i]
                             let lyric = LyricRow(line: row, isCurrent: current == row.time,
-                                distance: abs(i - (index ?? 0)), hasDuet: true, offset: offset,
+                                distance: abs(i - (index ?? 0)), hasDuet: hasDuet, offset: offset,
                                 style: style, player: player, extra: extras[row.id], isTranslation: true)
                             if profile.seekFromLyrics {
                                 Button {

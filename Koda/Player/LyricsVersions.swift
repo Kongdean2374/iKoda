@@ -388,18 +388,26 @@ final class LyricsVersions {
         let startedAt = Date()
         let pref = await store.preference(profile: profile, songID: context.song.id)
         if let selected = pref.selected { return selected }
-        if let cached = await store.catalogue(key: context.cacheKey),
-           let winner = LyricsVersionSelection.recommended(cached.results.flatMap(\.candidates), allowLowConfidence: true,
-              assessments: await evaluator.evaluate(cached.results.flatMap(\.candidates))) {
-            return winner
-        }
         let expectedSources = Set(context.sources.map(\.rawValue) + context.custom.filter(\.isEnabled).map { $0.id.uuidString })
-        if let cached = await store.catalogue(key: context.cacheKey), cached.confirmsMissing(sources: expectedSources) { return nil }
+        if let cached = await store.catalogue(key: context.cacheKey) {
+            if cached.confirmsMissing(sources: expectedSources) { return nil }
+            let available = cached.results.flatMap(\.candidates)
+            if let winner = LyricsVersionSelection.recommended(available, allowLowConfidence: true,
+                                                                 assessments: await evaluator.evaluate(available)) {
+                return winner
+            }
+        }
         var results: [LyricsSourceResult] = []
         for await result in client.candidateResults(for: context.song, sources: context.sources, customSources: context.custom) {
             guard !Task.isCancelled, !isInstrumental(context.song.id) else { return nil }
             Self.merge(result, into: &results)
-            if let winner = LyricsVersionSelection.recommended(results.flatMap(\.candidates), allowLowConfidence: false, assessments: [:]) {
+            let available = results.flatMap(\.candidates)
+            guard available.count > 1, available.contains(where: { $0.timing.grade == .completeWords }) else { continue }
+            let assessments = await evaluator.evaluate(available)
+            guard !Task.isCancelled, !isInstrumental(context.song.id) else { return nil }
+            if let winner = LyricsVersionSelection.recommended(available, allowLowConfidence: false, assessments: assessments),
+               let assessment = assessments[winner.id], assessment.content == .verified,
+               assessment.independentSources > 0, assessment.timing.grade == .completeWords {
                 await store.cache(.init(results: results, fetchedAt: startedAt), key: context.cacheKey, ticket: cacheTicket)
                 return winner
             }

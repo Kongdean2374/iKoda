@@ -1,22 +1,25 @@
+import AudioToolbox
 import Foundation
 import Testing
 @testable import KodaCore
 
 struct ImmersiveListeningTests {
     @Test func lockShieldUsesTwoDistinctTapsAfterTheDeadline() {
-        let start = Date(timeIntervalSinceReferenceDate: 900)
+        let start = ContinuousClock.now
         var lock = ImmersiveInteractionLock()
         lock.lock(at: start)
         #expect(lock.isLocked)
-        #expect(lock.revealUntil == start.addingTimeInterval(5))
-        lock.showIfHidden(at: start.addingTimeInterval(3))
-        #expect(lock.revealUntil == start.addingTimeInterval(5))
-        lock.hideIfExpired(at: start.addingTimeInterval(5))
+        #expect(lock.revealUntil == start.advanced(by: .seconds(5)))
+        lock.showIfHidden(at: start.advanced(by: .seconds(3)))
+        #expect(lock.revealUntil == start.advanced(by: .seconds(5)))
+        lock.hideIfExpired(at: start.advanced(by: .seconds(5)))
         #expect(lock.isLocked && lock.revealUntil == nil)
-        #expect(!lock.unlock(at: start.addingTimeInterval(6)))
-        lock.showIfHidden(at: start.addingTimeInterval(6))
-        #expect(lock.revealUntil == start.addingTimeInterval(11))
-        #expect(lock.unlock(at: start.addingTimeInterval(7)))
+        let unlockedWhileHidden = lock.unlock(at: start.advanced(by: .seconds(6)))
+        #expect(!unlockedWhileHidden)
+        lock.showIfHidden(at: start.advanced(by: .seconds(6)))
+        #expect(lock.revealUntil == start.advanced(by: .seconds(11)))
+        let unlockedWhileVisible = lock.unlock(at: start.advanced(by: .seconds(7)))
+        #expect(unlockedWhileVisible)
         #expect(!lock.isLocked && lock.revealUntil == nil)
     }
 
@@ -106,6 +109,73 @@ struct ImmersiveListeningTests {
         #expect(quiet.waveform.allSatisfy { $0 == 0 })
         #expect(quiet.spectrum.allSatisfy { $0 == 0 })
         #expect(quiet.peak == 0 && quiet.rms == 0)
+    }
+
+    @Test func pcmReadsDecodedStereoWithoutTouchingTheOtherChannel() throws {
+        let input = AudioVisualizationInput()
+        let now = 21.0
+        #expect(input.samples(near: now) == nil)
+        var pcm = (0..<2048).flatMap { index -> [Float] in
+            [Float(sin(Double(index) * Double.pi / 16) * 0.5), 0.9]
+        }
+        pcm.withUnsafeMutableBytes { samples in
+            var buffer = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(samples.count), mData: samples.baseAddress)
+            withUnsafeMutablePointer(to: &buffer) {
+                input.capture(UnsafeMutableBufferPointer(start: $0, count: 1), frames: 2048, rate: 48_000, end: now)
+            }
+        }
+        let sample = try #require(input.samples(near: now))
+        #expect(sample.values.count == 2048)
+        #expect(sample.sampleRate == 48_000)
+        #expect(sample.values.allSatisfy { abs($0) <= 0.501 })
+        #expect(input.samples(after: sample.serial, near: now) == nil)
+        #expect(input.samples(near: now + 3) == nil)
+        input.reset()
+        #expect(input.samples(near: now) == nil)
+    }
+
+    @Test func providerTemporaryFailureDoesNotLookLikeAnEmptyResult() async throws {
+        let gate = LyricsRequestGate()
+        let url = try #require(URL(string: "https://example.test/lyrics"))
+        do {
+            _ = try await gate.fetch(source: "provider", url: url) { throw LyricsRequestGate.Rejection.serverBusy(nil) }
+            Issue.record("Expected temporary provider error")
+        } catch LyricsRequestGate.Rejection.unavailableUntil(let until) {
+            #expect(until.timeIntervalSinceNow > 0)
+        }
+        do {
+            _ = try await gate.fetch(source: "provider", url: url) { Issue.record("Retried during backoff"); return Data() }
+            Issue.record("Expected brief cooldown")
+        } catch LyricsRequestGate.Rejection.unavailableUntil {} catch { Issue.record(error) }
+    }
+
+    @Test func retireGeneratedTranslationsPreservesCapturedUserEdits() async throws {
+        struct OldRecord: Encodable {
+            let songID: String
+            let original: LyricsCandidate.Identity
+            let lines: [Int: String]
+            let edits: [Int: String]
+        }
+        let profile = FileManager.default.temporaryDirectory.appending(path: "KodaLyricsMigration-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: profile) }
+        let old = profile.appending(path: "PreservedLyricTranslations")
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        let store = LyricsVersionStore(cache: profile.appending(path: "cached"))
+        let song = Song(id: "track", title: "Fixture", artistLine: "Artist")
+        let original = try #require(LyricsCandidate.imported(song: song, sourceName: "Fixture",
+                                                           text: "[00:02.00]Sing beside me"))
+        let originalFile = old.appending(path: "legacy.json")
+        let legacy = OldRecord(songID: song.id, original: original.id, lines: [0: "generated"], edits: [0: "user-owned"])
+        try JSONEncoder().encode(legacy).write(to: originalFile)
+        try await store.removeRetiredGeneratedTranslations(profile: profile)
+        try await store.removeRetiredGeneratedTranslations(profile: profile)
+        #expect(!FileManager.default.fileExists(atPath: originalFile.path))
+        let archive = profile.appending(path: "ArchivedLyricEdits").appending(path: "legacy.json")
+        let saved = try Data(contentsOf: archive)
+        let payload = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        #expect(payload["lines"] == nil)
+        #expect((payload["edits"] as? [String: String])?["0"] == "user-owned")
+        #expect(payload["songID"] as? String == song.id)
     }
 
     @Test func retiredTranslationSelectionsResolveToAppleWithoutChangingManualData() throws {

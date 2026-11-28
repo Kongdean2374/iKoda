@@ -23,6 +23,44 @@ public actor LyricsVersionStore {
         }
     }
 
+    /// Old generated records may contain a user-edit snapshot. Remove the
+    /// generated lines only after preserving that snapshot for the exact
+    /// original identity. Active edits and intentionally removed rows are untouched.
+    public func removeRetiredGeneratedTranslations(profile: URL) throws {
+        struct EditArchive: Codable, Equatable {
+            let songID: String
+            let original: LyricsCandidate.Identity
+            let edits: [Int: String]
+        }
+
+        let manager = FileManager.default
+        let retired = profile.appending(path: "PreservedLyricTranslations")
+        let archive = profile.appending(path: "ArchivedLyricEdits")
+        guard manager.fileExists(atPath: retired.path) else { return }
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
+        let files = try manager.contentsOfDirectory(at: retired, includingPropertiesForKeys: Array(keys),
+                                                     options: .skipsHiddenFiles)
+        for file in files where file.pathExtension == "json" {
+            try Task.checkCancellation()
+            let values = try file.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true, values.isSymbolicLink != true,
+                  let record: EditArchive = load(file, limit: maximumRecordBytes) else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            if !record.edits.isEmpty {
+                let destination = archive.appending(component: file.lastPathComponent)
+                if manager.fileExists(atPath: destination.path) {
+                    guard let existing: EditArchive = load(destination, limit: maximumRecordBytes), existing == record else {
+                        throw CocoaError(.fileWriteFileExists)
+                    }
+                } else {
+                    try persist(record, to: destination, limit: maximumRecordBytes)
+                }
+            }
+            try manager.removeItem(at: file)
+        }
+    }
+
     public func selectTranslation(_ selection: LyricTranslationSelection, for candidate: LyricsCandidate,
                                   profile: URL) throws -> Preference {
         try modify(profile, songID: candidate.songID) {
@@ -90,7 +128,13 @@ public actor LyricsVersionStore {
     public func cache(_ value: Catalogue, key: String, ticket: UUID? = nil, expectedSources: Set<String> = []) {
         guard ticket == nil || ticket == cacheGeneration else { return }
         guard !Task.isCancelled else { return }
-        let incoming = value.results.filter { $0.state == .found && !$0.candidates.isEmpty }
+        // Keep usable candidates from a provider that subsequently timed out
+        // or entered cooldown. The next lookup rechecks its live status.
+        let incoming = value.results.compactMap { result -> LyricsSourceResult? in
+            guard !result.candidates.isEmpty else { return nil }
+            return LyricsSourceResult(source: result.source, name: result.name, state: .found,
+                                      candidates: result.candidates)
+        }
         let file = location(cache, key)
         let existing: Catalogue? = load(file, limit: maximumRecordBytes)
         guard existing.map({ $0.fetchedAt <= value.fetchedAt }) ?? true else { return }

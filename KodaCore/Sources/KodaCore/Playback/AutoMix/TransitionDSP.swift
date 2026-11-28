@@ -128,6 +128,7 @@ final class TransitionDSP: @unchecked Sendable {
         }
         // Track loading yields the main actor; another attachment may have completed.
         if let existing = of(item) { return existing }
+        guard !Task.isCancelled, item.audioMix == nil else { return nil }
         let dsp = TransitionDSP(label: label)
         guard let tap = makeTap(dsp) else {
             AutoMixLog.note("tap for \(label): MTAudioProcessingTapCreate failed")

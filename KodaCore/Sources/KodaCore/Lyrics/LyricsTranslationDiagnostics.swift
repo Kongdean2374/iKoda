@@ -5,7 +5,7 @@ public enum LyricCacheUse: String, Codable, Sendable {
 }
 
 public enum LyricWorkError: String, Codable, Sendable {
-    case translation, language, timeout, model, invalidOutput, refused, incompleteOutput, context
+    case translation, language, timeout
 }
 
 public struct AppleLyricDiagnostics: Codable, Equatable, Sendable {

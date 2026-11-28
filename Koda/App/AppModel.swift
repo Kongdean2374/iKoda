@@ -131,14 +131,14 @@ final class AppModel {
         player = Player(music: music, storageDirectory: directory)
         lyricsTranslation = LyricsTranslationCoordinator(client: lyrics,
             directory: URL.cachesDirectory.appending(path: "KodaAutomaticLyrics", directoryHint: .isDirectory))
-        lyricsPreparation = LyricsPreparationLifecycle(player: player, library: library, settings: settings,
-                                                       coordinator: lyricsTranslation)
         videos = VideoPlayback(music: music)
         // Before profiles the name lived in the defaults and the library at the top of the folder;
         // the roster moves both into the first profile.
         roster = ProfileRoster(root: directory, legacyName: UserDefaults.standard.string(forKey: "koda.profile.name"))
         profilePhotos = ProfilePhotos(roster: roster)
         library = Library(directory: roster.folder(for: roster.activeID))
+        lyricsPreparation = LyricsPreparationLifecycle(player: player, library: library, settings: settings,
+                                                       coordinator: lyricsTranslation)
         home = HomeModel(profile: roster.activeID)
         sleepTimer = SleepTimer(player: player)
         let settings = settings
@@ -263,6 +263,9 @@ final class AppModel {
         setArtworkSessionFinished(player.isPlaybackSessionFinished)
         lyricsTranslation.setProfile(roster.folder(for: roster.activeID))
         lyricsPreparation.start()
+        Task(priority: .utility) { [lyricsTranslation] in
+            try? await lyricsTranslation.removeRetiredAutomaticCache()
+        }
         player.onPlaybackQueueEnded = { [weak self] in
             self?.lyricsTranslation.queueDidEnd()
         }

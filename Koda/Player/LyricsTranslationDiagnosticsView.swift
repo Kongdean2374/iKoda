@@ -85,6 +85,38 @@ struct LyricsTranslationDiagnosticsView: View {
     }
 }
 
+struct LyricsTranslationLanguagesView: View {
+    @Environment(AppModel.self) private var app
+    @Environment(Player.self) private var player
+
+    var body: some View {
+        let coordinator = app.lyricsTranslation
+        let snapshot = coordinator.translationSnapshot
+        List {
+            Section("Apple Translation Language Pairs") {
+                if snapshot.apple.languages.isEmpty {
+                    Text("Language pairs appear after Koda prepares the current song’s lyrics.").foregroundStyle(.secondary)
+                }
+                ForEach(snapshot.apple.languages) { pair in
+                    LabeledContent {
+                        Text(pair.support.label).foregroundStyle(.secondary)
+                    } label: {
+                        let source = Locale.current.localizedString(forIdentifier: pair.source) ?? pair.source
+                        let code = pair.reportedTarget ?? pair.target ?? "—"
+                        let target = Locale.current.localizedString(forIdentifier: code) ?? code
+                        Text([source, target].joined(separator: " → "))
+                    }
+                }
+                if snapshot.phase == .needsLanguage {
+                    Button("Retry Language Download") { coordinator.retry(songID: player.current?.id) }
+                }
+            }
+        }
+        .navigationTitle("Translation Language Packs")
+        .background { LyricsTranslationDownloadHost(coordinator: coordinator) }
+    }
+}
+
 private extension AutomaticLyricTranslationPipeline.Phase {
     var label: String {
         switch self {

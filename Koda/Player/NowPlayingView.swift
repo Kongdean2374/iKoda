@@ -32,14 +32,15 @@ struct NowPlayingView: View {
 
     private var landscape: Bool { size.width > size.height }
 
-    private var lyricVersion: LyricsCandidate? {
-        guard let result = app.lyricsTranslation.versions.current, result.songID == player.current?.id else { return nil }
-        return result
+    private var usesBilingualLayout: Bool {
+        app.settings.showsLyricsTranslation && (player.current.map {
+            app.lyricsTranslation.benefitsFromBilingualLayout(songID: $0.id)
+        } ?? false)
     }
 
     private var lyricsChrome: LyricsPlayerChrome {
         LyricsPlayerChrome.resolve(isPortraitPhone: !isWide && UIDevice.current.userInterfaceIdiom == .phone && size.width < size.height,
-            lyricsVisible: panel == .lyrics, translationVisible: app.settings.showsLyricsTranslation && lyricVersion != nil,
+            lyricsVisible: panel == .lyrics, translationVisible: usesBilingualLayout,
             enabled: app.settings.compactBilingualPlayer, controlsExpanded: lyricControlsExpanded)
     }
 
@@ -82,7 +83,7 @@ struct NowPlayingView: View {
                 .hidden()
         }
         .background {
-            if app.isNowPlayingPresented {
+            if app.isNowPlayingPresented && immersive == nil {
                 LyricsTranslationDownloadHost(coordinator: app.lyricsTranslation)
             }
         }

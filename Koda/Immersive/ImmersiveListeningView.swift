@@ -24,6 +24,8 @@ struct ImmersiveListeningView: View {
     @State private var visuals = ImmersiveVisualFrame()
     @State private var landscape = false
     @State private var appeared = false
+    @State private var scrubbing = false
+    @State private var visualListener = UUID()
 
     private enum Tool: String, Identifiable {
         case queue, sleep, sources
@@ -55,6 +57,9 @@ struct ImmersiveListeningView: View {
             ZStack {
                 background
                 presentation(wide: wide, size: geometry.size)
+                    .overlay(alignment: .bottom) {
+                        if !controlsVisible || lock.isLocked { ImmersivePassiveProgress() }
+                    }
                     .padding(.horizontal, wide ? 25 : 14)
                     .padding(.vertical, wide ? 9 : 14)
                     .accessibilityHidden(lock.isLocked)
@@ -77,6 +82,11 @@ struct ImmersiveListeningView: View {
             ImmersiveDisplayProbe { display = $0; updateScreen() }
                 .accessibilityHidden(true)
         }
+        .background {
+            if !lock.isLocked && tool == nil && !showSettings {
+                LyricsTranslationDownloadHost(coordinator: app.lyricsTranslation)
+            }
+        }
         .accessibilityIdentifier("immersive.player")
         .interactiveDismissDisabled()
         .persistentSystemOverlays(controlsVisible && !lock.isLocked ? .visible : .hidden)
@@ -92,14 +102,14 @@ struct ImmersiveListeningView: View {
             app.settings.immersiveTranslationsVisible = false
             overlayTask?.cancel()
             lock = .init()
-            player.setAudioVisualization(false)
+            player.setAudioVisualization(false, listener: visualListener)
             updateScreen()
         }
         .onChange(of: profile.translation) { _, value in app.settings.immersiveTranslationsVisible = value }
         .onChange(of: awake) { _, value in
             updateScreen()
             if value {
-                lock.hideIfExpired(at: Date())
+                lock.hideIfExpired(at: .now)
                 scheduleHide()
             }
         }
@@ -124,19 +134,31 @@ struct ImmersiveListeningView: View {
             let seek = player.audioVisualizationSeek
             let route = player.audioOutputRoute
             visuals.frame = nil
-            player.setAudioVisualization(drawing)
+            player.setAudioVisualization(drawing, listener: visualListener)
             guard drawing else { return }
             let sampler = ImmersiveAudioSampler()
             let interval = Duration.microseconds(1_000_000 / fps)
+            let smoothing = profile.smoothness
+            let listener = visualListener
+            var lastUsable = ContinuousClock.now
             while !Task.isCancelled {
                 let result: AudioVisualizationFrame?
                 if let input = player.audioVisualizationInput {
-                    result = await sampler.read(input, near: player.position(), smooth: profile.smoothness)
+                    result = await sampler.read(input, near: player.position(), smooth: smoothing)
                 } else { result = nil }
                 guard !Task.isCancelled, player.current?.id == current, player.audioVisualizationSeek == seek,
                       player.audioOutputRoute == route, drawing else { return }
-                visuals.frame = result
-                do { try await Task.sleep(for: interval) } catch { return }
+                if result != nil {
+                    lastUsable = .now
+                    visuals.frame = result
+                } else {
+                    if visuals.frame != nil { visuals.frame = nil }
+                    if lastUsable.duration(to: .now) > .seconds(4) {
+                        player.setAudioVisualization(false, listener: listener)
+                        return
+                    }
+                }
+                do { try await Task.sleep(for: result == nil ? .milliseconds(100) : interval) } catch { return }
             }
         }
         .sheet(item: $tool, onDismiss: scheduleHide) { tool in
@@ -175,10 +197,10 @@ struct ImmersiveListeningView: View {
         overlayTask?.cancel()
         if lock.isLocked, let expiry = lock.revealUntil {
             overlayTask = Task {
-                do { try await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow))) } catch { return }
-                transition { lock.hideIfExpired(at: Date()) }
+                do { try await Task.sleep(for: max(.zero, ContinuousClock.now.duration(to: expiry))) } catch { return }
+                transition { lock.hideIfExpired(at: .now) }
             }
-        } else if !lock.isLocked, profile.autoHide > 0, !showSettings, tool == nil, !voiceOver {
+        } else if !lock.isLocked, profile.autoHide > 0, !showSettings, tool == nil, !voiceOver, !scrubbing {
             overlayTask = Task {
                 do { try await Task.sleep(for: .seconds(profile.autoHide)) } catch { return }
                 transition { controlsVisible = false }
@@ -203,7 +225,7 @@ struct ImmersiveListeningView: View {
                 .accessibilityIdentifier("immersive.lock.shield")
             if lock.revealUntil != nil {
                 Button {
-                    if lock.unlock(at: Date()) {
+                    if lock.unlock(at: .now) {
                         controlsVisible = true
                         scheduleHide()
                         exitIfPortrait()
@@ -225,9 +247,9 @@ struct ImmersiveListeningView: View {
     }
 
     private func revealLock() {
-        lock.hideIfExpired(at: Date())
+        lock.hideIfExpired(at: .now)
         guard lock.revealUntil == nil else { return }
-        transition { lock.showIfHidden(at: Date()) }
+        transition { lock.showIfHidden(at: .now) }
         scheduleHide()
     }
 
@@ -293,7 +315,7 @@ struct ImmersiveListeningView: View {
                         let beside = wide && [.left, .right].contains(profile.spectrumPlacement)
                         let layout = beside ? AnyLayout(HStackLayout(spacing: 10)) : AnyLayout(VStackLayout(spacing: 8))
                         layout {
-                            let lyricsFirst = profile.lyricsPlacement == .top || profile.lyricsPlacement == .left
+                            let lyricsFirst = [.bottom, .right].contains(profile.spectrumPlacement)
                             if lyricsFirst { lyric }
                             spectrum.frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .layoutPriority(2)
@@ -423,23 +445,14 @@ struct ImmersiveListeningView: View {
             }
             if !profile.controlsOnTop { Spacer(minLength: 0) }
             VStack(spacing: 0) {
-                Scrubber(compact: true)
-                HStack(spacing: 3) {
-                    if profile.skips { icon("Jump Back", app.settings.skipInterval.backSymbol) { player.seek(to: player.position() - app.settings.skipInterval.seconds) } }
-                    icon("Previous", "backward.fill") { player.previous() }
-                    icon(player.wantsToPlay ? "Pause" : "Play", player.wantsToPlay ? "pause.fill" : "play.fill") {
-                        player.togglePlayPause(from: "Immersive Listening")
-                    }.accessibilityIdentifier("immersive.transport")
-                    icon("Next", "forward.fill") { player.next() }
-                    if profile.skips { icon("Jump Forward", app.settings.skipInterval.forwardSymbol) { player.seek(to: player.position() + app.settings.skipInterval.seconds) } }
-                    if profile.airPlay { AirPlayButton().frame(width: 44, height: 44) }
-                    if profile.favorite, let song = player.current {
-                        icon("Like", library.isLiked(song) ? "heart.fill" : "heart") { library.toggleLike(song) }
-                    }
-                    if profile.queue { icon("Queue", "list.bullet") { tool = .queue } }
-                    if profile.sleep { icon("Sleep Timer", "moon") { tool = .sleep } }
+                Scrubber(compact: true, onScrubbing: { active in
+                    scrubbing = active
+                    scheduleHide()
+                })
+                ViewThatFits(in: .horizontal) {
+                    transportButtons
+                    ScrollView(.horizontal) { transportButtons }.scrollIndicators(.hidden)
                 }
-                .glassEffect(in: Capsule())
                 if profile.volume { VolumeSlider().frame(height: 34) }
             }
             .padding(.horizontal, wide ? 56 : 8)
@@ -448,8 +461,8 @@ struct ImmersiveListeningView: View {
         .padding(.horizontal, 9)
         .overlay(alignment: .trailing) {
             icon("Lock Touch Controls", "lock.open") {
-                guard tool == nil, !showSettings else { return }
-                lock.lock(at: Date())
+                guard tool == nil, !showSettings, !scrubbing else { return }
+                lock.lock(at: .now)
                 controlsVisible = false
                 scheduleHide()
             }
@@ -457,6 +470,25 @@ struct ImmersiveListeningView: View {
             .accessibilityIdentifier("immersive.lock.lock")
         }
         .transition(.opacity)
+    }
+
+    private var transportButtons: some View {
+        HStack(spacing: 3) {
+            if profile.skips { icon("Jump Back", app.settings.skipInterval.backSymbol) { player.seek(to: player.position() - app.settings.skipInterval.seconds) } }
+            icon("Previous", "backward.fill") { player.previous() }
+            icon(player.wantsToPlay ? "Pause" : "Play", player.wantsToPlay ? "pause.fill" : "play.fill") {
+                player.togglePlayPause(from: "Immersive Listening")
+            }.accessibilityIdentifier("immersive.transport")
+            icon("Next", "forward.fill") { player.next() }
+            if profile.skips { icon("Jump Forward", app.settings.skipInterval.forwardSymbol) { player.seek(to: player.position() + app.settings.skipInterval.seconds) } }
+            if profile.airPlay { AirPlayButton().frame(width: 44, height: 44) }
+            if profile.favorite, let song = player.current {
+                icon("Like", library.isLiked(song) ? "heart.fill" : "heart") { library.toggleLike(song) }
+            }
+            if profile.queue { icon("Queue", "list.bullet") { tool = .queue } }
+            if profile.sleep { icon("Sleep Timer", "moon") { tool = .sleep } }
+        }
+        .glassEffect(in: Capsule())
     }
 
     private func icon(_ title: LocalizedStringKey, _ symbol: String, action: @escaping () -> Void) -> some View {
@@ -486,5 +518,26 @@ private struct ImmersiveVizLayer: View {
 
     var body: some View {
         ImmersiveSpectrumView(frame: model.frame, profile: profile, bandLimit: limit, active: active, albumColor: albumColor)
+    }
+}
+
+private struct ImmersivePassiveProgress: View {
+    @Environment(Player.self) private var player
+    @Environment(\.scenePhase) private var scene
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.25, paused: scene != .active || !player.wantsToPlay)) { clock in
+            GeometryReader { geometry in
+                let fraction = min(1, max(0, player.position(at: clock.date) / max(1, player.duration)))
+                Capsule().fill(.white.opacity(0.22))
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.62)).frame(width: fraction * geometry.size.width)
+                    }
+            }
+        }
+        .frame(height: 2)
+        .padding(.horizontal, 15)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

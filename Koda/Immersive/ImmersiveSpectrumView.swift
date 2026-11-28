@@ -19,17 +19,25 @@ struct ImmersiveSpectrumView: View {
             let rect = CGRect(x: x, y: 0, width: width, height: size.height)
             guard rect.width > 0, rect.height > 0, let frame else { return }
             let color = profile.spectrumColor.color.opacity(profile.spectrumOpacity)
-            let shading: GraphicsContext.Shading = profile.spectrumGradient
-                ? .linearGradient(Gradient(colors: [color, albumColor.opacity(profile.spectrumOpacity)]),
-                                  startPoint: CGPoint(x: rect.minX, y: rect.maxY),
-                                  endPoint: CGPoint(x: rect.maxX, y: rect.minY))
-                : .color(color)
+            let album = albumColor.opacity(profile.spectrumOpacity)
+            let shading: GraphicsContext.Shading = switch profile.spectrumTint {
+            case .fixed: .color(color)
+            case .album: .color(album)
+            case .gradient:
+                .linearGradient(Gradient(colors: [color, album]),
+                                startPoint: CGPoint(x: rect.minX, y: rect.maxY),
+                                endPoint: CGPoint(x: rect.maxX, y: rect.minY))
+            }
             let gain = profile.sensitivity * 3 * profile.amplitude
             if profile.spectrum == .waveform {
                 guard frame.waveform.count > 1 else { return }
                 var path = Path()
                 for (index, sample) in frame.waveform.enumerated() {
-                    let y = min(1, max(-1, Double(sample) * gain))
+                    let neighborWeight = Float(profile.smoothness * 0.22)
+                    let before = frame.waveform[max(0, index - 1)]
+                    let after = frame.waveform[min(frame.waveform.count - 1, index + 1)]
+                    let smoothed = sample * (1 - 2 * neighborWeight) + (before + after) * neighborWeight
+                    let y = min(1, max(-1, Double(smoothed) * gain))
                     let point = CGPoint(x: rect.minX + rect.width * Double(index) / Double(frame.waveform.count - 1),
                                         y: rect.midY - rect.height * y * 0.48)
                     if index == 0 { path.move(to: point) } else { path.addLine(to: point) }

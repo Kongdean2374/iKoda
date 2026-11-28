@@ -255,6 +255,14 @@ final class LyricsTranslationCoordinator {
         return pipeline.snapshot(for: prepared.input)
     }
 
+    func benefitsFromBilingualLayout(songID: String) -> Bool {
+        guard let candidate = versions.current, candidate.songID == songID, !versions.isInstrumental else { return false }
+        if versions.importedDocument(for: candidate) != nil || !versions.edits(for: candidate).isEmpty
+            || candidate.embeddedTranslations?.contains(where: \.isChinese) == true { return true }
+        guard automaticEnabled else { return false }
+        return inputs[songID]?.input.plan?.semanticRows.isEmpty != true
+    }
+
     func regenerate(clear: Bool) async {
         guard !playbackSessionFinished, !queueEnded, let id = currentSong?.id,
               let input = preparedBase(id) else { return }
@@ -273,11 +281,15 @@ final class LyricsTranslationCoordinator {
     }
 
     func clearRetiredTranslationData(profile: URL) async throws {
-        let paths = [retiredCache, profile.appending(path: "PreservedLyricTranslations")]
+        try await versions.store.removeRetiredGeneratedTranslations(profile: profile)
+        try await removeRetiredAutomaticCache()
+    }
+
+    func removeRetiredAutomaticCache() async throws {
+        let cache = retiredCache
         try await Task.detached(priority: .utility) {
-            for path in paths where FileManager.default.fileExists(atPath: path.path) {
-                try FileManager.default.removeItem(at: path)
-            }
+            do { try FileManager.default.removeItem(at: cache) }
+            catch let error as CocoaError where [.fileNoSuchFile, .fileReadNoSuchFile].contains(error.code) { }
         }.value
     }
 
@@ -308,11 +320,12 @@ final class LyricsTranslationCoordinator {
         let currentVersion = current?.songID == songID ? current : nil
         let selection = currentVersion == nil ? .automatic : versions.translationSelection
         let originalReady = currentVersion != nil && !lines.isEmpty && !versions.isInstrumental
-        guard originalReady, let songID, let prepared = inputs[songID], prepared.lines == lines else {
+        guard originalReady, let songID, let currentVersion else {
             return .init(playbackSessionFinished: playbackSessionFinished, originalReady: originalReady,
-                         originalSearching: versions.searching, instrumental: versions.isInstrumental)
+                         instrumental: versions.isInstrumental, originalSearching: versions.searching)
         }
-        let snapshot = pipeline.snapshot(for: prepared.input)
+        let prepared = inputs[songID].flatMap { $0.lines == lines ? $0 : nil }
+        let snapshot = prepared.map { pipeline.snapshot(for: $0.input) } ?? .init()
         let phase: AutomaticLyricsResult.Phase
         switch snapshot.phase {
         case .idle: phase = .idle
@@ -324,21 +337,19 @@ final class LyricsTranslationCoordinator {
         case .failed: phase = .failed
         case .paused: phase = .paused
         }
-        let preferred = currentVersion.map {
-            $0.id.source == "local" || [.high, .medium].contains($0.match.confidence)
-                || versions.assessments[$0.id]?.content == .verified
-        } ?? false
-        let resolved = ResolvedLyricTranslations(selection: selection, embedded: currentVersion?.embeddedTranslations ?? [],
+        let preferred = currentVersion.id.source == "local" || [.high, .medium].contains(currentVersion.match.confidence)
+            || versions.assessments[currentVersion.id]?.content == .verified
+        let resolved = ResolvedLyricTranslations(selection: selection, embedded: currentVersion.embeddedTranslations ?? [],
             prefersProvider: preferred, imported: importsEnabled ? imported : [:],
-            base: automaticEnabled ? snapshot.lines : [:], edits: currentVersion.map { versions.edits(for: $0) } ?? [:])
+            base: automaticEnabled ? snapshot.lines : [:], edits: versions.edits(for: currentVersion))
         return .init(phase: playbackSessionFinished && phase != .ready ? .paused : phase, lines: resolved.lines,
                      completed: snapshot.completedRows, total: snapshot.sourceRows,
                      playbackSessionFinished: playbackSessionFinished,
                      strategyStatus: snapshot.usedCompatibility ? String(localized: "Using Compatible Translation") : nil,
                      baseDiagnostics: snapshot, originalReady: originalReady,
+                     unnecessary: prepared?.input.plan?.semanticRows.isEmpty == true && resolved.lines.isEmpty,
                      originalSearching: versions.searching, origins: resolved.origins,
-                     languageProfile: prepared.input.plan?.languageProfile,
-                     unnecessary: prepared.input.plan?.semanticRows.isEmpty == true && resolved.lines.isEmpty)
+                     languageProfile: prepared?.input.plan?.languageProfile)
     }
 
     private func invalidateLanguageWork() {

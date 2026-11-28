@@ -247,7 +247,7 @@ private enum LyricsTranslationStatus {
 }
 
 /// Read the shared coordinator here, rather than saving a snapshot when the sheet opens:
-/// progress and model readiness continue updating for as long as the details are visible.
+/// progress and language availability continue updating for as long as the details are visible.
 private struct LyricsTranslationDetails: View {
     let lines: [LyricsTranslationText]
     let importedCount: Int

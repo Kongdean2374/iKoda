@@ -340,7 +340,7 @@ struct LyricRow: View {
     private var voice: LyricVoice { style.duetSides && line.voice == .duet ? .duet : .lead }
 
     private var alignment: HorizontalAlignment {
-        if !style.duetSides, let alignment = style.immersiveAlignment { return alignment.horizontal }
+        if (!style.duetSides || !hasDuet), let alignment = style.immersiveAlignment { return alignment.horizontal }
         return switch voice {
         case .lead: .leading
         case .duet: .trailing
@@ -349,7 +349,7 @@ struct LyricRow: View {
     }
 
     private var frameAlignment: Alignment {
-        if !style.duetSides, let alignment = style.immersiveAlignment {
+        if (!style.duetSides || !hasDuet), let alignment = style.immersiveAlignment {
             return Alignment(horizontal: alignment.horizontal, vertical: .center)
         }
         return switch voice {
@@ -389,7 +389,7 @@ struct LyricRow: View {
             } else {
                 Text(line.text.isEmpty ? "♪" : line.text)
                     .font(style.font)
-                    .multilineTextAlignment(style.duetSides ? (voice == .duet ? .trailing : voice == .together ? .center : .leading) : style.immersiveAlignment?.text ?? .leading)
+                    .multilineTextAlignment((style.duetSides && hasDuet) ? (voice == .duet ? .trailing : voice == .together ? .center : .leading) : style.immersiveAlignment?.text ?? .leading)
                     // Line-timed lyrics light as a whole line; no word fill is invented for them.
                     .shadow(color: .white.opacity(isCurrent && colorScheme == .dark ? 0.35 : 0), radius: isCurrent ? 14 : 0)
                 if style.showsBackingVocals && !line.background.isEmpty {
@@ -421,7 +421,7 @@ struct LyricRow: View {
         Text(text)
             .font(isTranslation ? style.translationFont : style.extraFont)
             .foregroundStyle((immersiveLyricColor ?? Color.primary).opacity(isTranslation ? style.translationOpacity : 0.7))
-            .multilineTextAlignment(style.duetSides ? (voice == .duet ? .trailing : voice == .together ? .center : .leading) : style.immersiveAlignment?.text ?? .leading)
+            .multilineTextAlignment((style.duetSides && hasDuet) ? (voice == .duet ? .trailing : voice == .together ? .center : .leading) : style.immersiveAlignment?.text ?? .leading)
             .transition(.opacity)
     }
 }
@@ -598,26 +598,6 @@ struct WordFlow: Layout {
             }
         }
         return rows.filter { !$0.items.isEmpty }
-    }
-}
-
-/// Placeholder lines that shimmer while lyrics load.
-struct LyricsLoading: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            ForEach([0.82, 0.64, 0.9, 0.5, 0.72], id: \.self) { fraction in
-                GeometryReader { geometry in
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(Color.primary.opacity(0.14))
-                        .frame(width: geometry.size.width * fraction)
-                }
-                .frame(height: 26)
-            }
-        }
-        .padding(.top, 16)
-        .shimmer()
-        .frame(maxHeight: .infinity, alignment: .top)
-        .accessibilityLabel("Loading lyrics")
     }
 }
 

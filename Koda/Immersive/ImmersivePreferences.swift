@@ -16,6 +16,15 @@ enum ImmersiveLayout: String, CaseIterable, Identifiable, Codable {
 enum ImmersivePlacement: String, CaseIterable, Identifiable, Codable {
     case top, bottom, left, right, background, aroundCover
     var id: Self { self }
+    var opposite: Self {
+        switch self {
+        case .top: .bottom
+        case .bottom: .top
+        case .left: .right
+        case .right: .left
+        case .background, .aroundCover: self
+        }
+    }
     var title: LocalizedStringKey {
         switch self {
         case .top: "Top"
@@ -93,6 +102,18 @@ enum ImmersiveSpectrum: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum ImmersiveSpectrumTint: String, CaseIterable, Identifiable, Codable {
+    case fixed, album, gradient
+    var id: Self { self }
+    var title: LocalizedStringKey {
+        switch self {
+        case .fixed: "Custom Color"
+        case .album: "Album Colors"
+        case .gradient: "Album Gradient"
+        }
+    }
+}
+
 enum ImmersivePerformance: String, CaseIterable, Identifiable, Codable {
     case efficient, balanced, detailed
     var id: Self { self }
@@ -158,7 +179,7 @@ struct ImmersiveProfile: Codable, Equatable {
     var bilateralBands = false
     var ringRadius = 0.58
     var spectrumOpacity = 0.85
-    var spectrumGradient = true
+    var spectrumTint = ImmersiveSpectrumTint.gradient
     var spectrumColor = ImmersiveColor(red: 0.55, green: 0.78, blue: 1)
     var fps = 60
     var background = ImmersiveBackground.palette
@@ -186,6 +207,7 @@ struct ImmersiveProfile: Codable, Equatable {
             profile.originalSize = 37
         case .spectrum:
             profile.spectrumEnabled = true
+            profile.spectrumPlacement = .top
             profile.artwork = false
             profile.visibleLines = 1
             profile.originalSize = 30
@@ -222,6 +244,7 @@ struct ImmersiveProfile: Codable, Equatable {
         if ![32, 64, 128].contains(bands) { bands = 64 }
         if ![30, 60].contains(fps) { fps = 60 }
         if ![0, 3, 5, 10].contains(autoHide) { autoHide = 5 }
+        if spectrumPlacement == .aroundCover && (!artwork || spectrum != .ring) { spectrumPlacement = .bottom }
     }
 }
 
@@ -233,6 +256,32 @@ struct ImmersivePreferences: Codable, Equatable {
     var brightness = 0.5
     var performance = ImmersivePerformance.balanced
     private var profiles: [String: ImmersiveProfile] = [:]
+
+    private enum CodingKeys: String, CodingKey {
+        case last, automaticLandscape, keepScreenAwake, customBrightness, brightness, performance, profiles
+    }
+
+    private enum ProfileKey: String, CodingKey { case theater, album, spectrum, minimal }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        last = (try? container.decode(ImmersiveLayout.self, forKey: .last)) ?? .theater
+        automaticLandscape = (try? container.decode(Bool.self, forKey: .automaticLandscape)) ?? false
+        keepScreenAwake = (try? container.decode(Bool.self, forKey: .keepScreenAwake)) ?? true
+        customBrightness = (try? container.decode(Bool.self, forKey: .customBrightness)) ?? false
+        brightness = (try? container.decode(Double.self, forKey: .brightness)) ?? 0.5
+        performance = (try? container.decode(ImmersivePerformance.self, forKey: .performance)) ?? .balanced
+        if let saved = try? container.nestedContainer(keyedBy: ProfileKey.self, forKey: .profiles) {
+            for layout in ImmersiveLayout.allCases {
+                if let key = ProfileKey(rawValue: layout.rawValue),
+                   let profile = try? saved.decode(ImmersiveProfile.self, forKey: key) {
+                    self[layout] = profile
+                }
+            }
+        }
+    }
 
     subscript(_ layout: ImmersiveLayout) -> ImmersiveProfile {
         get { profiles[layout.rawValue] ?? .initial(for: layout) }
@@ -249,10 +298,6 @@ struct ImmersivePreferences: Codable, Equatable {
         guard let data, var preferences = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
         if !preferences.brightness.isFinite { preferences.brightness = 0.5 }
         preferences.brightness = min(1, max(0.1, preferences.brightness))
-        for layout in ImmersiveLayout.allCases where preferences.profiles[layout.rawValue] != nil {
-            let profile = preferences[layout]
-            preferences[layout] = profile
-        }
         return preferences
     }
 }

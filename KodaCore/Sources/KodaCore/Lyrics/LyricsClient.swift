@@ -499,7 +499,7 @@ extension LyricsClient {
         var retryAt: Date?
         func read(_ base: String, _ parameters: [String: String] = [:], upstream: String? = nil,
                   decode: (Data) throws -> [CandidatePayload]) async {
-            guard !Task.isCancelled, status != .rateLimited else { return }
+            guard !Task.isCancelled, retryAt == nil else { return }
             do {
                 let raw = try await fetchCandidate(base, parameters, source: provider.id)
                 let payloads = try decode(raw)
@@ -523,6 +523,9 @@ extension LyricsClient {
                 status = .invalid
             } catch LyricsRequestGate.Rejection.cooled(let until) {
                 status = .rateLimited
+                retryAt = until
+            } catch LyricsRequestGate.Rejection.unavailableUntil(let until) {
+                status = .failed
                 retryAt = until
             } catch let error as URLError where error.code == .timedOut {
                 status = .timedOut
@@ -595,7 +598,7 @@ extension LyricsClient {
         }
         if Task.isCancelled { return provider.result(.cancelled) }
         return .init(source: provider.id, name: provider.name,
-                     state: answers.isEmpty || status == .rateLimited ? status : .found, candidates: answers, retryAt: retryAt)
+                     state: answers.isEmpty || retryAt != nil ? status : .found, candidates: answers, retryAt: retryAt)
     }
 
     private struct CandidatePayload {
@@ -700,6 +703,7 @@ extension LyricsClient {
             switch response.statusCode {
             case 204, 404: throw CandidateFetchError.empty
             case 429: throw LyricsRequestGate.Rejection.limited(response.value(forHTTPHeaderField: "Retry-After"))
+            case 502...504: throw LyricsRequestGate.Rejection.serverBusy(response.value(forHTTPHeaderField: "Retry-After"))
             case 200..<300: break
             default: throw CandidateFetchError.failed
             }

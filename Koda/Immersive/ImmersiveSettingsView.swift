@@ -17,6 +17,28 @@ struct ImmersiveSettingsView: View {
         })
     }
 
+    private var lyricsPosition: Binding<ImmersivePlacement> {
+        Binding(get: { profile.lyricsPlacement }, set: { value in
+            let layout = app.settings.immersive.last
+            var current = profile
+            current.lyricsPlacement = value
+            current.spectrumPlacement = value.opposite
+            app.settings.immersive[layout] = current
+        })
+    }
+
+    private var visualizationPosition: Binding<ImmersivePlacement> {
+        Binding(get: { profile.spectrumPlacement }, set: { value in
+            let layout = app.settings.immersive.last
+            var current = profile
+            current.spectrumPlacement = value
+            if layout == .spectrum, value != .background, value != .aroundCover {
+                current.lyricsPlacement = value.opposite
+            }
+            app.settings.immersive[layout] = current
+        })
+    }
+
     var body: some View {
         @Bindable var settings = app.settings
         VStack(spacing: 0) {
@@ -47,7 +69,7 @@ struct ImmersiveSettingsView: View {
                         }
                     }
                     if settings.immersive.last == .spectrum {
-                        Picker("Lyrics Position", selection: setting(\.lyricsPlacement)) {
+                        Picker("Lyrics Position", selection: lyricsPosition) {
                             ForEach([ImmersivePlacement.top, .bottom, .left, .right]) { Text($0.title).tag($0) }
                         }
                     }
@@ -82,7 +104,7 @@ struct ImmersiveSettingsView: View {
                         Picker("Visualization Type", selection: setting(\.spectrum)) {
                             ForEach(ImmersiveSpectrum.allCases) { Text($0.title).tag($0) }
                         }
-                        Picker("Visualization Position", selection: setting(\.spectrumPlacement)) {
+                        Picker("Visualization Position", selection: visualizationPosition) {
                             ForEach([ImmersivePlacement.top, .bottom, .left, .right, .background]) { Text($0.title).tag($0) }
                             if profile.artwork && profile.spectrum == .ring {
                                 Text(ImmersivePlacement.aroundCover.title).tag(ImmersivePlacement.aroundCover)
@@ -96,8 +118,8 @@ struct ImmersiveSettingsView: View {
                         slider("Visualization Width", \.visualWidth, 0.3...1)
                         slider("Visualization Opacity", \.spectrumOpacity, 0.1...1)
                         if profile.spectrum == .ring { slider("Ring Radius", \.ringRadius, 0.25...0.8) }
+                        slider("Smoothing", \.smoothness, 0...0.9)
                         if profile.spectrum != .waveform {
-                            slider("Smoothing", \.smoothness, 0...0.9)
                             Picker("Frequency Bands", selection: setting(\.bands)) {
                                 ForEach([32, 64, 128], id: \.self) { Text($0.formatted()).tag($0) }
                             }
@@ -105,8 +127,12 @@ struct ImmersiveSettingsView: View {
                         }
                         if profile.spectrum == .bars || profile.spectrum == .mirrored { slider("Bar Spacing", \.gap, 0...10, step: 1) }
                         if profile.spectrum == .bars { Toggle("Mirror Bars Left and Right", isOn: setting(\.bilateralBands)) }
-                        Toggle("Use Album Gradient", isOn: setting(\.spectrumGradient))
-                        ColorPicker("Visualization Color", selection: setting(\.spectrumColor.bindingColor), supportsOpacity: false)
+                        Picker("Visualization Color Style", selection: setting(\.spectrumTint)) {
+                            ForEach(ImmersiveSpectrumTint.allCases) { Text($0.title).tag($0) }
+                        }
+                        if profile.spectrumTint != .album {
+                            ColorPicker("Visualization Color", selection: setting(\.spectrumColor.bindingColor), supportsOpacity: false)
+                        }
                         Picker("Frame Rate Limit", selection: setting(\.fps)) {
                             ForEach([30, 60], id: \.self) { fps in Text("\(fps) FPS").tag(fps) }
                         }
